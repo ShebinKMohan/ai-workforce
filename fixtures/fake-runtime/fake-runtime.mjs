@@ -95,8 +95,10 @@ async function runStep(turnId, step) {
       emit('tool_call', { turnId, tool: 'write_file', path: target });
       mkdirSync(path.dirname(target), { recursive: true });
       writeFileSync(target, step.content ?? `edited by fake runtime turn ${turnId}\n`);
-      emit('file_change', { turnId, path: target, withinCwd: target.startsWith(cwd + path.sep) });
-      emit('tool_result', { turnId, tool: 'write_file', ok: true });
+      // `applied` and `status` are the shared payload vocabulary every consumer
+      // reads: a write that landed is not the same event as one that was asked for.
+      emit('file_change', { turnId, itemId: `edit-${turnId}-${step.path ?? 'fake-edit.txt'}`, path: target, withinCwd: target.startsWith(cwd + path.sep), applied: true, denied: false, phase: 'completed' });
+      emit('tool_result', { turnId, tool: 'write_file', status: 'ok', ok: true });
       return;
     }
     case 'delete_file': {
@@ -109,8 +111,8 @@ async function runStep(turnId, step) {
         removed = false;
         emit('error', { turnId, code: 'delete_failed', path: target, detail: String(err && err.code ? err.code : err), fatal: false });
       }
-      if (removed) emit('file_change', { turnId, path: target, withinCwd: target.startsWith(cwd + path.sep), deleted: true });
-      emit('tool_result', { turnId, tool: 'delete_file', ok: removed });
+      if (removed) emit('file_change', { turnId, itemId: `delete-${turnId}-${step.path ?? 'fake-edit.txt'}`, path: target, withinCwd: target.startsWith(cwd + path.sep), deleted: true, applied: true, denied: false, phase: 'completed' });
+      emit('tool_result', { turnId, tool: 'delete_file', status: removed ? 'ok' : 'failed', ok: removed });
       return;
     }
     case 'claim_done':
@@ -135,8 +137,8 @@ async function runStep(turnId, step) {
         succeeded = false;
         error = String(err && err.code ? err.code : err);
       }
-      emit('file_change', { turnId, path: target, withinCwd: false, succeeded, error });
-      emit('tool_result', { turnId, tool: 'write_file', ok: succeeded });
+      emit('file_change', { turnId, itemId: `escape-${turnId}`, path: target, withinCwd: false, succeeded, error, applied: succeeded, denied: !succeeded, phase: 'completed' });
+      emit('tool_result', { turnId, tool: 'write_file', status: succeeded ? 'ok' : 'failed', ok: succeeded });
       return;
     }
     case 'exit': {

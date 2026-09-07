@@ -236,6 +236,13 @@ export class FakeAdapter implements RuntimeAdapter {
   }
 
   async #spawnSession(input: SessionInput, resumeSessionId: string | null): Promise<SessionHandle> {
+    if (input.policy === 'verification') {
+      // The test runtime answers openSession for the same policies as the real
+      // ones: the verification profile belongs to the check runner, never to a
+      // model session, and the shared conformance suite asserts that every
+      // adapter refuses it.
+      throw new AdapterError('fake', 'unsupported_policy', 'the verification profile runs configured check commands against a frozen candidate copy; it is the check runner\'s job, not a runtime session');
+    }
     const settings = this.validateSettings(requestedSettings(input));
     if (!settings.ok) {
       const problems = [settings.model, settings.effort].filter((r) => r.status === 'unsupported').map((r) => r.message);
@@ -482,7 +489,18 @@ export class FakeAdapter implements RuntimeAdapter {
     const session = this.#session(handle);
     const activeTurn = session.activeTurnId;
     this.#send(session, { cmd: 'deliver', messageId: input.messageId, body: input.body, correlationId: input.correlationId ?? null });
-    return { messageId: input.messageId, state: activeTurn === null ? 'queued' : 'submitted_to_active_turn', turnId: activeTurn, at: nowIso() };
+    // The message goes straight to the fake runtime, which holds it in its own
+    // inbox and reports it on the next turn it starts — so the holder is the
+    // runtime in both cases, and the receipt says so rather than leaving a
+    // reader to guess who will deliver it.
+    return {
+      messageId: input.messageId,
+      state: activeTurn === null ? 'queued' : 'submitted_to_active_turn',
+      turnId: activeTurn,
+      holder: 'runtime',
+      at: nowIso(),
+      detail: activeTurn === null ? 'written to the runtime, which holds it in its inbox until the next turn starts' : `written to the runtime during ${activeTurn}`,
+    };
   }
 
   async interrupt(turn: TurnHandle): Promise<InterruptionReceipt> {

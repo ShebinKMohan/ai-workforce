@@ -32,10 +32,12 @@ import { newId, nowIso } from './ids.js';
 import { computeAgentSnapshot } from './snapshot.js';
 import type { ProcessIdentity } from './process.js';
 import {
+  ClaudeCodeAdapter,
   CodexAdapter,
   FakeAdapter,
   FAKE_SCENARIO_ENV,
   validateBindingSettings,
+  type CapabilityStatus,
   type RuntimeAdapter,
   type RuntimeEvent,
   type SessionHandle,
@@ -142,9 +144,10 @@ export type AdapterFactory = (runtime: RuntimeBindingRef, context: AdapterContex
 /**
  * ===================== ADAPTER REGISTRATION POINT =====================
  * 'fake' is the deterministic test runtime, 'codex' is the WP03 app-server
- * adapter. WP05 registers the Claude Code adapter under 'claude-code'.
- * Every adapter implements the same `RuntimeAdapter` contract, so nothing
- * else in the direct path changes when one is added.
+ * adapter and 'claude-code' is the WP05 CLI adapter. Every adapter implements
+ * the same `RuntimeAdapter` contract, so nothing else in the direct path
+ * changed when the second real runtime was added — which is the point of the
+ * shared conformance suite in tests/adapters/conformance.
  * ======================================================================
  */
 export function createAdapter(runtime: RuntimeBindingRef, context?: AdapterContext): RuntimeAdapter {
@@ -159,10 +162,117 @@ export function createAdapter(runtime: RuntimeBindingRef, context?: AdapterConte
         ...(context !== undefined ? { logsDir: context.logsDir } : {}),
       });
     case 'claude-code':
-      throw new AdapterNotRegisteredError('claude-code', 'WP05');
+      // Same contract, different transport: the Claude Code CLI held open in
+      // programmatic mode. The raw JSONL capture goes into the run's own logs
+      // directory, exactly as the Codex adapter's does.
+      return new ClaudeCodeAdapter({
+        executablePath: runtime.executable,
+        ...(context !== undefined ? { logsDir: context.logsDir } : {}),
+      });
     default:
       throw new AdapterNotRegisteredError(runtime.adapter, 'a future work package');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Write containment (plan sections 6, 8 and 9; FR005, FR042)
+// ---------------------------------------------------------------------------
+
+/**
+ * Profiles that let a worker change files. Plan section 6: R0 requires "a
+ * minimum tested containment boundary before writes"; section 9: "fail setup
+ * for an unsupported required boundary".
+ */
+const WRITING_POLICIES: ReadonlySet<Policy> = new Set<Policy>(['local-development']);
+
+export interface ContainmentAssessment {
+  readonly policy: Policy;
+  /** True when the profile lets the worker write. */
+  readonly writes: boolean;
+  readonly status: CapabilityStatus;
+  readonly note: string;
+  /** The version and OS the status was established against; null when the adapter states none. */
+  readonly testedVersion: string | null;
+  readonly os: string | null;
+  /** True when a writing profile is being run on a runtime that enforces no write boundary. */
+  readonly unconfinedWrites: boolean;
+  /** Set when the operator explicitly accepted an unconfined writing run. */
+  readonly acknowledged: boolean;
+}
+
+/**
+ * What the adapter says it can enforce for this profile, as a value the run
+ * records rather than a sentence the manifest asserts.
+ *
+ * The plan is imperative here (section 8): "If an adapter cannot enforce a
+ * required profile, fail that mode or use a supported isolated environment. Do
+ * not silently broaden a profile because a check fails." Claude Code 2.1.260
+ * reports `write_containment: unsupported` — it has no OS sandbox at all — so a
+ * `local-development` run on it is refused unless the operator explicitly
+ * accepts an unconfined run, and even then the fact is recorded in the
+ * manifest and printed, instead of the run producing evidence indistinguishable
+ * from a kernel-confined one.
+ */
+export function assessContainment(adapter: RuntimeAdapter, policy: Policy, acknowledged: boolean): ContainmentAssessment {
+  const report = adapter.capabilities().capabilities.write_containment;
+  const writes = WRITING_POLICIES.has(policy);
+  return {
+    policy,
+    writes,
+    status: report.status,
+    note: report.note ?? '',
+    testedVersion: report.testedVersion,
+    os: report.os,
+    unconfinedWrites: writes && report.status === 'unsupported',
+    acknowledged,
+  };
+}
+
+/** The line a human sees when a writing run has no enforced boundary, and the line a manifest records. */
+export function describeUnconfinedWrites(adapter: string, containment: ContainmentAssessment): string {
+  return `the ${adapter} adapter reports write_containment "unsupported"${containment.testedVersion !== null ? ` for ${containment.testedVersion} on ${containment.os ?? 'this platform'}` : ''}: nothing outside the runtime's own tool permissions bounds where a process it starts may write. ${containment.note}`;
+}
+
+/**
+ * What the adapter told the run it cannot enforce for this profile.
+ *
+ * Read off the `session_started` event rather than from an adapter-specific
+ * accessor, so every adapter that publishes the list gets it into the manifest.
+ * Without this the list existed only in events.jsonl and no reader of the
+ * manifest could tell which parts of the profile were prompts rather than
+ * boundaries.
+ */
+const UnenforceableSchema = z.array(z.looseObject({ aspect: z.string(), reason: z.string() }));
+
+export function readUnenforceable(events: ReadonlyArray<RuntimeEvent>): ReadonlyArray<{ readonly aspect: string; readonly reason: string }> {
+  for (const event of events) {
+    if (event.kind !== 'session_started') continue;
+    const parsed = UnenforceableSchema.safeParse(event.payload['unenforceable']);
+    if (parsed.success) return parsed.data.map((entry) => ({ aspect: entry.aspect, reason: entry.reason }));
+  }
+  return [];
+}
+
+/** The containment paragraph for this run, written from what the adapter reported rather than from a fixed template. */
+export function renderContainmentNote(adapter: string, containment: ContainmentAssessment): string {
+  const shared =
+    'The candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Neither installed runtime confines reads at all — a worker can read files outside the repository, and this run did not prevent that. ' +
+    'Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, but with this user\'s own filesystem privileges: repository test code could still read or write anything this user can, including the coordinator state root. ' +
+    'An enforced execution boundary for tool and test subprocesses (FR042) is an R1 gate; acceptance compensates only by refusing evidence whose fixtures the candidate changed.';
+  if (!containment.writes) {
+    return `This run used the read-only "${containment.policy}" profile, so no write boundary was required of the ${adapter} adapter (it reports write_containment "${containment.status}"). ${shared}`;
+  }
+  if (containment.status === 'unsupported') {
+    return (
+      `THIS RUN HAD NO ENFORCED WRITE BOUNDARY. ${describeUnconfinedWrites(adapter, containment)} ` +
+      'It ran under an explicit --allow-unconfined-writes, so writes outside the granted candidate were possible and were not prevented; the file changes listed above are what the runtime reported, not what a boundary permitted. ' +
+      `${shared}`
+    );
+  }
+  return (
+    `Write confinement for this run is what the ${adapter} adapter reports as write_containment "${containment.status}"${containment.testedVersion !== null ? ` (established against ${containment.testedVersion} on ${containment.os ?? 'this platform'})` : ''}: ${containment.note} ` +
+    `Any write seen outside the granted paths is listed above and blocks acceptance. ${shared}`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -603,6 +713,18 @@ export interface RunDirectInput {
    * is too long to wait for in a test of the deadline itself.
    */
   readonly runDeadlineMs?: number;
+  /**
+   * Run a writing profile on a runtime that enforces no write boundary
+   * (`--allow-unconfined-writes`).
+   *
+   * Off by default, and deliberately not a configuration field: plan section 8
+   * says an adapter that cannot enforce a required profile must fail that mode,
+   * so proceeding is a per-run decision a human makes, not a default a
+   * configuration file can carry. When it is set the run proceeds, prints the
+   * missing boundary, records it in the manifest and lists it as an unresolved
+   * issue — it never becomes silent.
+   */
+  readonly allowUnconfinedWrites?: boolean;
 }
 
 export type RunOutcome = 'accepted' | 'failed' | 'interrupted';
@@ -722,6 +844,32 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     throw new RunSetupError('unsupported_runtime_setting', `agent "${agentId}" requests settings the ${adapter.id} adapter does not support: ${problems.join('; ')}`);
   }
 
+  // Unresolved issues are collected from here on: the first of them can be
+  // raised before a workspace exists.
+  const unresolved: string[] = [];
+
+  // The write boundary, before anything is created (plan section 9: "fail setup
+  // for an unsupported required boundary"). A profile that writes needs a
+  // runtime that can bound writes; if the adapter reports it cannot, this run
+  // is refused unless the operator explicitly accepted an unconfined run.
+  const containment = assessContainment(adapter, policy, input.allowUnconfinedWrites === true);
+  if (containment.unconfinedWrites && !containment.acknowledged) {
+    dispatchSpan.end();
+    throw new RunSetupError(
+      'write_boundary_unsupported',
+      `agent "${agentId}" runs the "${policy}" profile, which lets the worker change files, but ${describeUnconfinedWrites(adapter.id, containment)} ` +
+        'Plan section 8 requires an adapter that cannot enforce a required profile to fail that mode rather than silently broaden it. Bind this agent to a runtime with a verified write boundary, give it the read-only "analysis" profile, ' +
+        'or pass --allow-unconfined-writes to accept an unconfined run — which is recorded in the run manifest and cannot be mistaken for a contained one.',
+    );
+  }
+  if (containment.unconfinedWrites) {
+    stream.line(`WARNING: no enforced write boundary — ${describeUnconfinedWrites(adapter.id, containment)}`);
+    stream.line('  continuing because --allow-unconfined-writes was given; this run\'s evidence records that its writes were not contained');
+    unresolved.push(
+      `this run had no enforced write boundary: ${describeUnconfinedWrites(adapter.id, containment)} It was allowed by an explicit --allow-unconfined-writes, so acceptance here means the configured criteria passed, not that the worker's effects were confined`,
+    );
+  }
+
   // ---- 3. Acceptance checks, pinned to the base revision (FR049) ---------
   const resolvedChecks = await resolveAcceptanceChecks(projectRoot, baseRevision, input.checkFlags ?? []);
   if (resolvedChecks.checks.length === 0) {
@@ -799,6 +947,11 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     stream.line(`note: uncommitted changes are excluded from the candidate (${describeDirty(inspection.dirty)}); the base is the committed HEAD`);
   }
   stream.line(`agent ${agentId} via ${binding.runtime.id} (${adapter.id})`);
+  stream.line(
+    containment.writes
+      ? `write boundary: ${adapter.id} reports write_containment "${containment.status}"${containment.status === 'unsupported' ? ' — writes in this run are NOT contained by the runtime' : ''}`
+      : `write boundary: not required by the read-only "${policy}" profile`,
+  );
   stream.event({ type: 'run.created', runId, taskId, attemptId, repo: projectRoot, baseRevision, agentId, adapter: adapter.id });
 
   // ---- 5. Dispatch intent BEFORE any effect (FR065) ----------------------
@@ -826,7 +979,6 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   let evidence: TurnEvidence | null = null;
   let interrupted = false;
   let turnConclusion: 'completed' | 'interrupted' | 'runtime_exited' | 'no_turn' = 'no_turn';
-  const unresolved: string[] = [];
   const runtimeEvents: RuntimeEvent[] = [];
   let receipts: CheckReceipt[] = [];
 
@@ -1005,7 +1157,11 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       unresolved.push(`the runtime process ended before the turn completed (${describeExit(runtimeEvents)}); the candidate contains only what it had written by then`);
     }
     for (const escaped of evidence.fileChangesOutsideAllowedPaths) {
-      unresolved.push(`the worker wrote outside its granted paths: ${escaped}; that change is not part of the candidate`);
+      unresolved.push(
+        evidence.unconfirmedFileChangesOutsideAllowedPaths.includes(escaped)
+          ? `the worker asked to write outside its granted paths: ${escaped}; the runtime never reported the outcome, so whether it happened is unknown and it is not part of the candidate`
+          : `the worker wrote outside its granted paths: ${escaped}; that change is not part of the candidate`,
+      );
     }
 
     // ---- 8. Stop owned processes, then freeze the candidate --------------
@@ -1123,8 +1279,17 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // Facts that block acceptance whatever the receipts say. Each one means the
   // run cannot honestly claim "verified candidate" (plan section 9, AT02, AT12).
   const blockers: string[] = [];
+  const unconfirmedEscapes = new Set(evidence?.unconfirmedFileChangesOutsideAllowedPaths ?? []);
   for (const escaped of evidence?.fileChangesOutsideAllowedPaths ?? []) {
-    blockers.push(`the worker wrote outside its granted paths (${escaped}); an observed escape is not an accepted run`);
+    blockers.push(
+      unconfirmedEscapes.has(escaped)
+        ? `the worker asked to write outside its granted paths (${escaped}) and the runtime never reported whether the write happened; an escape that cannot be ruled out is not an accepted run`
+        : `the worker wrote outside its granted paths (${escaped}); an observed escape is not an accepted run`,
+    );
+  }
+  for (const denied of evidence?.deniedFileChangesOutsideAllowedPaths ?? []) {
+    // The boundary working, not an escape: recorded, and not a blocker.
+    unresolved.push(`the worker asked to write outside its granted paths (${denied}) and the runtime reported the write refused; nothing was written there`);
   }
   if (turnConclusion === 'runtime_exited') {
     blockers.push(`the runtime process ended before the turn completed (${describeExit(runtimeEvents)}); a candidate produced by a crashed turn is not accepted`);
@@ -1224,6 +1389,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   });
 
   // ---- 12. Manifest and human summary (FR059, FR060) ---------------------
+  const sessionUnenforceable = readUnenforceable(runtimeEvents);
   const manifest: RunManifest = {
     manifestVersion: RUN_MANIFEST_VERSION,
     runId,
@@ -1302,7 +1468,15 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       checkSourceDetail: resolvedChecks.detail,
       runtimeClaimedDone: evidence?.claimedDone ?? false,
       runtimeReportedFileChanges: evidence?.fileChanges ?? [],
+      // Writes the runtime refused: recorded because a worker asked, and kept
+      // out of the list above because nothing was written there.
+      runtimeDeniedFileChanges: evidence?.deniedFileChanges ?? [],
       writesOutsideGrantedPaths: evidence?.fileChangesOutsideAllowedPaths ?? [],
+      // A write the runtime refused is the tool boundary working; a write whose
+      // outcome it never reported is neither proof nor refutation. Both are
+      // recorded separately so the manifest cannot say "wrote" about either.
+      deniedWritesOutsideGrantedPaths: evidence?.deniedFileChangesOutsideAllowedPaths ?? [],
+      unconfirmedWritesOutsideGrantedPaths: evidence?.unconfirmedFileChangesOutsideAllowedPaths ?? [],
       runtimeToolCalls: evidence?.toolCalls ?? 0,
       runtimeCommands: evidence?.commandsExecuted ?? 0,
       runtimeErrors: evidence?.errors.length ?? 0,
@@ -1315,8 +1489,23 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       unnormalizedRuntimeEvents: evidence?.rawEvents ?? 0,
       verificationCopyStrategy: receipts[0]?.copyStrategy ?? null,
       note: 'acceptance is decided from verifier-executed check receipts, the integrity of the fixtures those receipts executed, and the run-level blockers listed under acceptance.reasons; the runtime-reported fields above are context, not evidence of correctness',
-      containmentNote:
-        'the candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Write confinement is only what the runtime adapter reports as an enforced capability, and any write seen outside the granted paths is listed above and blocks acceptance. Reads are not confined by either installed runtime sandbox: a worker can read files outside the repository, and this run did not prevent that. Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, but with this user\'s own filesystem privileges: repository test code could still read or write anything this user can, including the coordinator state root. An enforced execution boundary for tool and test subprocesses (FR042) is an R1 gate and is not claimed by this run; acceptance compensates only by refusing evidence whose fixtures the candidate changed.',
+      // What this run's write boundary actually was, as recorded values rather
+      // than one fixed paragraph: a manifest from a runtime with no sandbox
+      // must not read like one from a kernel-confined run.
+      containment: {
+        policy: containment.policy,
+        profileWrites: containment.writes,
+        adapter: adapter.id,
+        writeContainment: containment.status,
+        writeContainmentNote: containment.note,
+        statusTestedVersion: containment.testedVersion,
+        statusOs: containment.os,
+        enforcedWriteBoundary: containment.writes ? containment.status !== 'unsupported' : null,
+        unconfinedWritesAcknowledged: containment.unconfinedWrites ? containment.acknowledged : false,
+        // Everything the adapter said it cannot enforce for this profile.
+        unenforceable: sessionUnenforceable,
+      },
+      containmentNote: renderContainmentNote(adapter.id, containment),
     },
     timing,
     usage: usageFor(adapter, session),
@@ -1455,14 +1644,23 @@ function renderRuntimeEvent(event: RuntimeEvent, shorten: (value: string) => str
       return `  message: ${truncateLine(String(payload['text'] ?? ''))}`;
     case 'tool_call':
       return `  tool ${String(payload['tool'] ?? 'unknown')}${payload['path'] !== undefined ? ` ${shorten(String(payload['path']))}` : ''}`;
-    case 'tool_result':
-      return `  tool ${String(payload['tool'] ?? 'unknown')} -> ${payload['status'] ?? (payload['ok'] === true ? 'ok' : 'failed')}`;
+    case 'tool_result': {
+      const outcome = payload['status'] ?? (payload['ok'] === true ? 'ok' : payload['ok'] === false ? 'failed' : payload['isError'] === false ? 'ok' : payload['isError'] === true ? 'failed' : 'outcome not reported');
+      return `  tool ${String(payload['tool'] ?? 'unknown')} -> ${String(outcome)}`;
+    }
     case 'file_change': {
       const where = payload['path'] === null || payload['path'] === undefined ? '(path not reported)' : shorten(String(payload['path']));
-      if (payload['withinAllowedPaths'] === false) return `  changed ${where} (OUTSIDE the granted paths; not part of the candidate)`;
       if (payload['denied'] === true) return `  change denied: ${where}`;
-      // The write is only real once it is applied; the started phase is noise.
-      return phase === 'started' ? null : `  changed ${where}`;
+      const outside = payload['withinAllowedPaths'] === false;
+      // A request is not a change. The line says which it is, because a write
+      // the model merely asked for and a write that landed are different facts
+      // — and for a runtime with no sandbox that is the whole distinction.
+      if (phase === 'requested') return outside ? `  requested a write to ${where} (OUTSIDE the granted paths)` : null;
+      if (phase === 'started') return null;
+      if (payload['applied'] === false || payload['applied'] === null) {
+        return outside ? `  write to ${where} not confirmed by the runtime (OUTSIDE the granted paths)` : `  write to ${where} not confirmed by the runtime`;
+      }
+      return outside ? `  changed ${where} (OUTSIDE the granted paths; not part of the candidate)` : `  changed ${where}`;
     }
     case 'command_exec': {
       const command = truncateLine(String(payload['command'] ?? ''));
@@ -1526,50 +1724,54 @@ function summarizeTiming(timer: PhaseTimer): RunTiming {
 }
 
 /**
- * Token counts an adapter may expose beyond the shared contract. The shape is
- * validated here rather than trusted: an adapter that reports something else
- * yields "unavailable", never a guessed number.
+ * What an adapter reported for the turn, validated rather than trusted: an
+ * adapter that answers with something else yields "unavailable", never a
+ * guessed number.
  */
-const ReportedTokenUsageSchema = z.looseObject({
-  total: z
-    .looseObject({
-      inputTokens: z.number().int().min(0).optional(),
-      outputTokens: z.number().int().min(0).optional(),
-    })
-    .optional(),
+const TurnUsageReportSchema = z.strictObject({
+  inputTokens: z.number().int().min(0).nullable(),
+  outputTokens: z.number().int().min(0).nullable(),
+  costUsd: z.number().nullable(),
+  costStatus: z.enum(['measured', 'unavailable']),
+  detail: z.string(),
 });
 
-interface TokenUsageReporting {
-  lastTokenUsage(session: SessionHandle): unknown;
-}
-
-function reportsTokenUsage(adapter: RuntimeAdapter): adapter is RuntimeAdapter & TokenUsageReporting {
-  return typeof (adapter as Partial<TokenUsageReporting>).lastTokenUsage === 'function';
-}
-
 /**
- * FR060: separate measured from unavailable usage. Currency cost is never
- * inferred — no installed runtime reports a price, so `costUsd` stays null and
- * the source says so rather than presenting zero.
+ * FR060: separate measured from unavailable usage, for tokens and for cost
+ * separately.
+ *
+ * The numbers come from `RuntimeAdapter.lastTurnUsage`, the shared contract
+ * method — never from an adapter-shaped accessor discovered by name. Reading
+ * one adapter's private method is how a manifest ends up saying "no usage was
+ * reported for this turn" about a turn whose usage the adapter measured and
+ * whose event stream carries it.
+ *
+ * Cost is not assumed absent either. Codex's app server reports no price, but
+ * Claude Code's result record does report `total_cost_usd`, and the adapter
+ * says whether that number was measured (a turn that reached the provider) or
+ * is unavailable — which is the difference AT14 turns on, so it is recorded as
+ * the adapter states it rather than hard-coded to null.
  */
 function usageFor(adapter: RuntimeAdapter, session: SessionHandle | null): UsageReport {
   const report = adapter.capabilities().capabilities.usage_reporting;
   if (report.status === 'unsupported') {
     return { ...USAGE_UNAVAILABLE, source: `${adapter.id}: ${report.note ?? 'usage reporting is unsupported'}` };
   }
-  if (session !== null && reportsTokenUsage(adapter)) {
-    const parsed = ReportedTokenUsageSchema.safeParse(adapter.lastTokenUsage(session));
-    const total = parsed.success ? parsed.data.total : undefined;
-    const inputTokens = total?.inputTokens ?? null;
-    const outputTokens = total?.outputTokens ?? null;
-    if (inputTokens !== null || outputTokens !== null) {
-      return {
-        status: 'measured',
-        inputTokens,
-        outputTokens,
-        costUsd: null,
-        source: `${adapter.id}: token counts reported by the runtime for this session; it reports no currency cost, so cost is unavailable rather than zero`,
-      };
+  if (session !== null && typeof adapter.lastTurnUsage === 'function') {
+    const parsed = TurnUsageReportSchema.safeParse(adapter.lastTurnUsage(session));
+    if (parsed.success) {
+      const usage = parsed.data;
+      const measuredCost = usage.costStatus === 'measured' && usage.costUsd !== null;
+      if (usage.inputTokens !== null || usage.outputTokens !== null || measuredCost) {
+        return {
+          status: 'measured',
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          // Never a zero standing in for "unknown": an unavailable cost stays null.
+          costUsd: measuredCost ? usage.costUsd : null,
+          source: `${adapter.id}: ${usage.detail}${measuredCost ? '' : ' (cost unavailable, reported as null rather than zero)'}`,
+        };
+      }
     }
   }
   return { ...USAGE_UNAVAILABLE, source: `${adapter.id}: no usage was reported for this turn` };
@@ -1633,6 +1835,16 @@ export function renderSummary(manifest: RunManifest): string {
     lines.push('- Candidate: none was frozen');
   }
   lines.push(`- Agent: \`${String((manifest.agent as Record<string, unknown>)['id'])}\` (snapshot \`${String((manifest.agent as Record<string, unknown>)['snapshotHash']).slice(0, 12)}\`) on adapter \`${String((manifest.runtime as Record<string, unknown>)['adapter'])}\``);
+  const containment = (manifest.evidence['containment'] ?? null) as Record<string, unknown> | null;
+  if (containment !== null) {
+    lines.push(
+      containment['profileWrites'] === true
+        ? `- Write boundary: policy \`${String(containment['policy'])}\` writes files; the adapter reports write_containment \`${String(containment['writeContainment'])}\`${containment['writeContainment'] === 'unsupported' ? ' — **this run had no enforced write boundary**' : ''}`
+        : `- Write boundary: not required; policy \`${String(containment['policy'])}\` does not write`,
+    );
+    const unenforceable = (containment['unenforceable'] as Array<{ aspect: string; reason: string }> | undefined) ?? [];
+    for (const entry of unenforceable) lines.push(`  - not enforced by the runtime — \`${entry.aspect}\`: ${entry.reason}`);
+  }
   lines.push('');
   lines.push('## Requirement status');
   lines.push('');

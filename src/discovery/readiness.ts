@@ -12,6 +12,7 @@ import {
   isControllable,
   loadVerifiedCapabilityOverrides,
   missingControlCapabilities,
+  missingWriteBoundaryCapabilities,
   type CapabilityTable,
   type DiscoveryCapabilityName,
   type LoadedOverrides,
@@ -55,6 +56,15 @@ export interface RuntimeReadinessReport {
   readonly probeKind: 'passive' | 'live';
   readonly authDetail: string;
   readonly missingControls: ReadonlyArray<DiscoveryCapabilityName>;
+  /**
+   * Boundaries a writing profile needs that this runtime does not offer. Empty
+   * for a runtime with a tested write boundary. Non-empty means read-only work
+   * is fine and `local-development` is blocked unless a human explicitly
+   * accepts an unconfined run (plan sections 6, 8 and 9).
+   */
+  readonly missingWriteBoundary: ReadonlyArray<DiscoveryCapabilityName>;
+  /** True when a writing profile can be dispatched to this runtime without an explicit acknowledgement. */
+  readonly writingModeAvailable: boolean;
   readonly diagnostics: ReadonlyArray<string>;
 }
 
@@ -67,7 +77,8 @@ export interface DiscoveryOptions extends ResolveOptions {
   readonly now?: string;
 }
 
-function readinessFrom(installed: boolean, adapterSupported: boolean, controllable: boolean, auth: AuthStatus): Readiness {
+/** The readiness level implied by the four separate facts. Exported so a live check can recompute it after the runtime answers. */
+export function readinessFrom(installed: boolean, adapterSupported: boolean, controllable: boolean, auth: AuthStatus): Readiness {
   if (!installed) return 'missing';
   if (!adapterSupported) return 'installed';
   if (!controllable) return 'adapter_supported';
@@ -110,6 +121,8 @@ export async function discoverRuntime(adapter: DiscoverableAdapter, options: Dis
       probeKind: 'passive',
       authDetail: 'no executable was found, so login status was not probed',
       missingControls: missingControlCapabilities(capabilities),
+      missingWriteBoundary: missingWriteBoundaryCapabilities(capabilities),
+      writingModeAvailable: false,
       diagnostics,
     };
   }
@@ -125,8 +138,18 @@ export async function discoverRuntime(adapter: DiscoverableAdapter, options: Dis
   const adapterSupported = probe.version !== null && isAtLeast(probe.version, descriptor.minimumSupportedVersion);
   const controllable = adapterSupported && isControllable(capabilities);
   const missingControls = missingControlCapabilities(capabilities);
+  const missingWriteBoundary = missingWriteBoundaryCapabilities(capabilities);
   if (adapterSupported && !controllable) {
     diagnostics.push(`${descriptor.displayName} ${probe.version} does not offer ${missingControls.join(', ')}; execution modes needing those controls are blocked`);
+  }
+  if (adapterSupported && missingWriteBoundary.length > 0) {
+    // The one thing a readiness report must not leave unsaid about a runtime
+    // that will be handed a candidate workspace: nothing bounds where the
+    // processes it starts may write.
+    diagnostics.push(
+      `${descriptor.displayName} ${probe.version} offers no tested write boundary (${missingWriteBoundary.join(', ')}: ${capabilities[missingWriteBoundary[0]!].note}); ` +
+        'writing profiles such as "local-development" are refused for this runtime unless a run explicitly accepts an unconfined run with --allow-unconfined-writes. Read-only profiles are unaffected',
+    );
   }
   if (probe.version !== null && !adapterSupported) {
     diagnostics.push(`${descriptor.displayName} ${probe.version} is below the supported minimum ${descriptor.minimumSupportedVersion}`);
@@ -152,6 +175,8 @@ export async function discoverRuntime(adapter: DiscoverableAdapter, options: Dis
     probeKind: 'passive',
     authDetail: probe.authDetail,
     missingControls,
+    missingWriteBoundary,
+    writingModeAvailable: controllable && missingWriteBoundary.length === 0,
     diagnostics,
   };
 }

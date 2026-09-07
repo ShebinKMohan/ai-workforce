@@ -1,13 +1,15 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadAgentConfigFile } from '../../src/core/config.js';
-import { FAKE_SCENARIO_ENV } from '../../src/adapters/index.js';
+import { ClaudeCodeAdapter, FAKE_SCENARIO_ENV } from '../../src/adapters/index.js';
 import {
   checksFromFlags,
   resolveAcceptanceChecks,
+  RunSetupError,
   runDirect,
   tokenizeCheckCommand,
   type RunDirectResult,
@@ -38,6 +40,7 @@ import {
   runtimeExitsScenario,
   tempDir,
   useFixture,
+  writeClaudeAgentsConfig,
   writeFakeAgentsConfig,
   writeScenario,
   type FakeScenario,
@@ -514,6 +517,123 @@ describe('the direct path produces a verified candidate (FR019, FR020, FR041, FR
     await execFileAsync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--no-verify', '-m', 'drop tests'], { cwd: h.repo });
 
     await expect(h.run(fixTheBugScenario())).rejects.toMatchObject({ code: 'no_acceptance_checks' });
+  });
+});
+
+describe('a writing profile needs a write boundary (plan sections 6, 8 and 9; FR005, FR042)', () => {
+  const CLAUDE_REPLAY = fileURLToPath(new URL('../../fixtures/claude-code/fake-claude.mjs', import.meta.url));
+
+  function claudeScenarioEnv(scenario: string, vars: Record<string, string>): Record<string, string> {
+    return {
+      WORKFORCE_FAKE_CLAUDE_SCENARIO: fileURLToPath(new URL(`../../fixtures/claude-code/${scenario}`, import.meta.url)),
+      WORKFORCE_FAKE_CLAUDE_VARS: JSON.stringify(vars),
+    };
+  }
+
+  async function runClaude(options: { allowUnconfinedWrites?: boolean; policy?: 'analysis' | 'local-development' } = {}): Promise<{
+    result: RunDirectResult | null;
+    error: unknown;
+    lines: string[];
+    stateRoot: string;
+  }> {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-claude-run-');
+    const configPath = writeClaudeAgentsConfig(tempDir('workforce-claude-config-'), options.policy === undefined ? {} : { policy: options.policy });
+    const lines: string[] = [];
+    const paths = createStatePaths(stateRoot);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    try {
+      const loaded = loadAgentConfigFile(configPath);
+      const result = await runDirect({
+        repoPath: fixture.path,
+        config: loaded.config,
+        configRaw: loaded.raw,
+        configPath: loaded.path,
+        requestText: REQUEST_TEXT,
+        requestSource: 'argument',
+        paths,
+        db: store.db,
+        stream: { line: (text) => lines.push(text), event: () => {} },
+        // The real Claude Code adapter, driven by its deterministic replay
+        // binary: the whole adapter runs, no model turn is started.
+        adapterFactory: (_runtime, context) =>
+          new ClaudeCodeAdapter({
+            executablePath: process.execPath,
+            extraArgs: [CLAUDE_REPLAY],
+            logsDir: context.logsDir,
+            startupTimeoutMs: 10_000,
+            controlTimeoutMs: 10_000,
+            stopTimeoutMs: 3_000,
+          }),
+        sessionEnv: claudeScenarioEnv('session-fix-pagination.synthetic.json', { fix: fixedPaginationSource() }),
+        ...(options.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
+      });
+      return { result, error: null, lines, stateRoot };
+    } catch (error) {
+      return { result: null, error, lines, stateRoot };
+    } finally {
+      store.close();
+    }
+  }
+
+  it('refuses to dispatch a writing profile to a runtime that enforces no write boundary', async () => {
+    const { result, error, lines } = await runClaude();
+
+    expect(result).toBeNull();
+    expect(error).toBeInstanceOf(RunSetupError);
+    expect((error as RunSetupError).code).toBe('write_boundary_unsupported');
+    expect((error as Error).message).toContain('write_containment "unsupported"');
+    expect((error as Error).message).toContain('--allow-unconfined-writes');
+    // Refused at setup: before a workspace, a session or a process exists.
+    expect(lines.join('\n')).not.toContain('candidate workspace');
+  });
+
+  it('opens a read-only profile on the same runtime without a boundary it does not need', async () => {
+    const { result, error } = await runClaude({ policy: 'analysis' });
+
+    // The analysis profile writes nothing, so the missing boundary does not
+    // block it: the run proceeds and fails for its own reason (the worker's
+    // scenario writes, but nothing accepts an unchanged candidate).
+    expect(error).toBeNull();
+    expect(result!.manifest.evidence['containment']).toMatchObject({ policy: 'analysis', profileWrites: false, enforcedWriteBoundary: null });
+  });
+
+  it('records the missing boundary in the manifest when a human explicitly accepts one', async () => {
+    const { result, error, lines } = await runClaude({ allowUnconfinedWrites: true });
+
+    expect(error).toBeNull();
+    const manifest = result!.manifest;
+    // The run works: the fix lands, the verifier executes the criteria itself.
+    expect(result!.outcome).toBe('accepted');
+    expect(result!.receipts[0]!.outcome).toBe('passed');
+
+    // And its evidence cannot be mistaken for a contained run's.
+    expect(manifest.evidence['containment']).toMatchObject({
+      adapter: 'claude-code',
+      policy: 'local-development',
+      profileWrites: true,
+      writeContainment: 'unsupported',
+      enforcedWriteBoundary: false,
+      unconfinedWritesAcknowledged: true,
+    });
+    const unenforceable = (manifest.evidence['containment'] as { unenforceable: Array<{ aspect: string }> }).unenforceable;
+    expect(unenforceable.map((entry) => entry.aspect)).toContain('process_containment');
+    expect(String(manifest.evidence['containmentNote'])).toContain('THIS RUN HAD NO ENFORCED WRITE BOUNDARY');
+    expect(manifest.unresolved.join(' ')).toContain('no enforced write boundary');
+    expect(lines.join('\n')).toContain('WARNING: no enforced write boundary');
+    expect(lines.join('\n')).toContain('write boundary: claude-code reports write_containment "unsupported"');
+
+    // The usage the adapter measured reaches the manifest, cost included.
+    expect(manifest.usage).toMatchObject({ status: 'measured', inputTokens: 1200, outputTokens: 40, costUsd: 0.0123 });
+
+    // And the human trace says what the worker's tools actually did.
+    expect(lines.join('\n')).toContain('tool Write -> ok');
+    expect(lines.join('\n')).toContain('changed src/pagination.js');
+
+    // The summary a person reads carries the same fact.
+    const summary = readFileSync(result!.summaryPath, 'utf8');
+    expect(summary).toContain('this run had no enforced write boundary');
+    expect(summary).toContain('not enforced by the runtime');
   });
 });
 

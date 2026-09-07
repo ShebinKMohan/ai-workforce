@@ -22,8 +22,8 @@ import { CliError, EXIT_CODES, Reporter, type CommandResult, type ExitCode, type
 export const USAGE = `workforce — coordinate installed coding runtimes on one engineering task
 
 Usage:
-  workforce doctor [--codex-path <file>] [--claude-path <file>] [--agents <file>] [--state-dir <dir>] [--json]
-  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--check "<cmd> [args]"]... [--state-dir <dir>] [--workspace-root <dir>] [--json]
+  workforce doctor [--connect] [--codex-path <file>] [--claude-path <file>] [--agents <file>] [--state-dir <dir>] [--json]
+  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--check "<cmd> [args]"]... [--allow-unconfined-writes] [--state-dir <dir>] [--workspace-root <dir>] [--json]
   workforce status <run-id> [--state-dir <dir>] [--json]
   workforce resume <run-id> --agents <file> [--state-dir <dir>] [--json]
 
@@ -37,6 +37,16 @@ Options:
                        array, never through a shell. Without it the checks come
                        from .workforce/checks.json at the base revision, or are
                        detected from the project's own test setup.
+  --allow-unconfined-writes
+                       run a writing profile on a runtime that enforces no
+                       write boundary. Without it such a run is refused; with
+                       it the missing boundary is printed and recorded in the
+                       run manifest.
+  --connect            ask each installed runtime its own control handshake
+                       (doctor). Starts a process, starts no model turn, and is
+                       the only way to reach verified_ready: a login-status
+                       command describes a stored profile, not a usable
+                       credential.
   --codex-path <file>  explicit path to the codex executable (doctor)
   --claude-path <file> explicit path to the claude executable (doctor)
   --state-dir <dir>    coordinator state root (default: $WORKFORCE_STATE_DIR or ~/.workforce)
@@ -58,10 +68,12 @@ interface ParsedArgs {
   readonly taskFile?: string;
   readonly codexPath?: string;
   readonly claudePath?: string;
+  readonly connect: boolean;
   readonly stateDir?: string;
   readonly workspaceRoot?: string;
   readonly agent?: string;
   readonly checks?: ReadonlyArray<string>;
+  readonly allowUnconfinedWrites: boolean;
   readonly json: boolean;
   readonly help: boolean;
 }
@@ -84,10 +96,12 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     ...(values['task-file'] !== undefined ? { taskFile: values['task-file'] } : {}),
     ...(values['codex-path'] !== undefined ? { codexPath: values['codex-path'] } : {}),
     ...(values['claude-path'] !== undefined ? { claudePath: values['claude-path'] } : {}),
+    connect: values.connect === true,
     ...(values['state-dir'] !== undefined ? { stateDir: values['state-dir'] } : {}),
     ...(values['workspace-root'] !== undefined ? { workspaceRoot: values['workspace-root'] } : {}),
     ...(values.agent !== undefined ? { agent: values.agent } : {}),
     ...(values.check !== undefined ? { checks: values.check } : {}),
+    allowUnconfinedWrites: values['allow-unconfined-writes'] === true,
     json: values.json === true,
     help: values.help === true,
   };
@@ -100,10 +114,12 @@ const OPTIONS = {
   'task-file': { type: 'string' },
   'codex-path': { type: 'string' },
   'claude-path': { type: 'string' },
+  connect: { type: 'boolean', default: false },
   'state-dir': { type: 'string' },
   'workspace-root': { type: 'string' },
   agent: { type: 'string' },
   check: { type: 'string', multiple: true },
+  'allow-unconfined-writes': { type: 'boolean', default: false },
   json: { type: 'boolean', default: false },
   help: { type: 'boolean', short: 'h', default: false },
 } as const;
@@ -153,6 +169,7 @@ function commandDoctor(args: ParsedArgs): Promise<CommandResult> {
     stateDir: args.stateDir,
     codexPath: args.codexPath,
     claudePath: args.claudePath,
+    connect: args.connect,
     config: args.agents === undefined ? undefined : loadConfigOrFail(args.agents),
   });
 }

@@ -141,9 +141,30 @@ export interface TurnEvidence {
   readonly claimedDone: boolean;
   readonly completed: boolean;
   readonly interrupted: boolean;
-  /** Distinct paths the runtime reported writing, in the order first reported. */
+  /**
+   * Distinct paths the runtime reported writing — applied, or with an outcome
+   * it never reported — in the order first reported. A write the runtime
+   * refused is not one of them; it is in `deniedFileChanges`.
+   */
   readonly fileChanges: ReadonlyArray<string>;
+  /** Paths whose every reported write the runtime refused. Evidence that a worker tried, never that it succeeded. */
+  readonly deniedFileChanges: ReadonlyArray<string>;
+  /**
+   * Writes outside the granted paths that the runtime reported as *applied*,
+   * or never reported an outcome for. An escape it applied and an escape whose
+   * outcome is unknown are both untrusted; a write the runtime *denied* is the
+   * boundary working and is listed separately.
+   */
   readonly fileChangesOutsideAllowedPaths: ReadonlyArray<string>;
+  /**
+   * Writes outside the granted paths the runtime reported denying. Recorded as
+   * evidence that a worker tried, never as evidence that it succeeded — for a
+   * runtime with no OS sandbox this is the only place the prevented /
+   * not-prevented distinction exists.
+   */
+  readonly deniedFileChangesOutsideAllowedPaths: ReadonlyArray<string>;
+  /** Of `fileChangesOutsideAllowedPaths`, the ones whose outcome the runtime never reported. */
+  readonly unconfirmedFileChangesOutsideAllowedPaths: ReadonlyArray<string>;
   /** Distinct command executions, not event count. */
   readonly commandsExecuted: number;
   readonly toolCalls: number;
@@ -174,16 +195,53 @@ class ItemCounter {
   }
 }
 
+type FileChangeOutcome = 'applied' | 'denied' | 'unconfirmed';
+
+/** The adapter's identity for the tool call or item a `file_change` belongs to, when it supplies one. */
+function requestIdentity(event: RuntimeEvent): string | null {
+  for (const field of ['toolUseId', 'itemId'] as const) {
+    const value = event.payload[field];
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return null;
+}
+
+/**
+ * What one `file_change` event says about whether the write happened.
+ *
+ * `applied === true` is the only claim that a file changed. An explicit
+ * `denied === true`, or a completed phase whose `applied` is false, is the
+ * runtime reporting a refusal. Anything else — a request still awaiting its
+ * result, or an adapter that reports neither field — is `unconfirmed`: not
+ * proof of a write, and not proof there was none.
+ */
+function fileChangeOutcome(payload: Record<string, unknown>): FileChangeOutcome {
+  if (payload['applied'] === true) return 'applied';
+  if (payload['denied'] === true) return 'denied';
+  if (payload['phase'] === 'completed' && payload['applied'] === false) return 'denied';
+  // An adapter that reports no outcome fields at all reports the change itself:
+  // treat a bare report as an unconfirmed write rather than as a denial.
+  return 'unconfirmed';
+}
+
 export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvidence {
   let claimedDone = false;
   let completed = false;
   let interrupted = false;
-  const fileChanges: string[] = [];
-  const outside: string[] = [];
-  // A file written twice is one changed file. Identity is the resolved path
-  // where the adapter supplies one, because the reported path may be relative.
-  const seenChange = new Set<string>();
-  const seenOutside = new Set<string>();
+  /**
+   * File changes grouped by path, and within a path by the *request* that asked
+   * for them. An adapter reports one write twice — the request, then its
+   * outcome — and both events carry the same tool-call / item id, so the
+   * outcome supersedes the request instead of being counted beside it.
+   *
+   * A path counts as changed if any request for it was applied or its outcome
+   * was never reported; a path whose every request was refused counts as
+   * denied and is listed separately. That distinction is what lets the evidence
+   * say "the runtime refused this write" rather than "the worker wrote here",
+   * which for a runtime with no OS sandbox is the whole containment argument.
+   */
+  const byPath = new Map<string, { reported: string; within: boolean | null; requests: Map<string, FileChangeOutcome> }>();
+  let unkeyedChanges = 0;
   const commands = new ItemCounter();
   const tools = new ItemCounter();
   const errors: Record<string, unknown>[] = [];
@@ -202,22 +260,19 @@ export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvide
       case 'file_change': {
         const reported = typeof event.payload['path'] === 'string' ? (event.payload['path'] as string) : null;
         const resolved = typeof event.payload['resolvedPath'] === 'string' ? (event.payload['resolvedPath'] as string) : null;
-        const identity = resolved ?? reported;
-        const changed = reported ?? '(unknown path)';
-        if (identity === null) {
-          // No path at all: keep every such report, they are not the same file.
-          fileChanges.push(changed);
-          if (event.payload['withinAllowedPaths'] === false) outside.push(changed);
-          break;
-        }
-        if (!seenChange.has(identity)) {
-          seenChange.add(identity);
-          fileChanges.push(changed);
-        }
-        if (event.payload['withinAllowedPaths'] === false && !seenOutside.has(identity)) {
-          seenOutside.add(identity);
-          outside.push(changed);
-        }
+        // Identity is the resolved path where the adapter supplies one, because
+        // the reported path may be relative. A report with no path at all is
+        // kept on its own: two of them are not the same file.
+        unkeyedChanges += 1;
+        const identity = resolved ?? reported ?? `#unnamed-${unkeyedChanges}`;
+        const entry = byPath.get(identity) ?? {
+          reported: reported ?? '(unknown path)',
+          within: typeof event.payload['withinAllowedPaths'] === 'boolean' ? (event.payload['withinAllowedPaths'] as boolean) : null,
+          requests: new Map<string, FileChangeOutcome>(),
+        };
+        if (event.payload['withinAllowedPaths'] === false) entry.within = false;
+        entry.requests.set(requestIdentity(event) ?? `unkeyed-${unkeyedChanges}`, fileChangeOutcome(event.payload));
+        byPath.set(identity, entry);
         break;
       }
       case 'command_exec':
@@ -236,12 +291,37 @@ export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvide
         break;
     }
   }
+
+  const fileChanges: string[] = [];
+  const deniedChanges: string[] = [];
+  const escaped: string[] = [];
+  const deniedOutside: string[] = [];
+  const unconfirmedOutside: string[] = [];
+  for (const { reported, within, requests } of byPath.values()) {
+    const outcomes = [...requests.values()];
+    const applied = outcomes.includes('applied');
+    const unconfirmed = !applied && outcomes.includes('unconfirmed');
+    if (!applied && !unconfirmed) {
+      deniedChanges.push(reported);
+      if (within === false) deniedOutside.push(reported);
+      continue;
+    }
+    fileChanges.push(reported);
+    if (within === false) {
+      escaped.push(reported);
+      if (unconfirmed) unconfirmedOutside.push(reported);
+    }
+  }
+
   return {
     claimedDone,
     completed,
     interrupted,
     fileChanges,
-    fileChangesOutsideAllowedPaths: outside,
+    deniedFileChanges: deniedChanges,
+    fileChangesOutsideAllowedPaths: escaped,
+    deniedFileChangesOutsideAllowedPaths: deniedOutside,
+    unconfirmedFileChangesOutsideAllowedPaths: unconfirmedOutside,
     commandsExecuted: commands.total,
     toolCalls: tools.total,
     errors,

@@ -7,7 +7,7 @@ import { findArtifactByPath, listArtifacts, readArtifact, writeArtifact } from '
 import { openDatabase, openStateStore } from '../src/storage/db.js';
 import { EventPayloadTooLargeError, MAX_EVENT_PAYLOAD_BYTES, appendEvent, lastEventSequence, listEvents, replayEvents } from '../src/storage/events.js';
 import { SchemaTooNewError, getSchemaVersion } from '../src/storage/migrations.js';
-import { projectEventsJsonl, recordRuntimeEvent, runtimeEventIdempotencyKey } from '../src/telemetry/events.js';
+import { projectEventsJsonl, recordRuntimeEvent, runtimeEventIdempotencyKey, summarizeTurnEvidence } from '../src/telemetry/events.js';
 import { openTempState, seedRunAndTask, type TempState } from './helpers/state.js';
 
 let state: TempState;
@@ -171,5 +171,64 @@ describe('schema migrations', () => {
     store.close();
     // re-open the fixture store so cleanup can close it
     Object.assign(state, { store: openStateStore(state.paths, { mode: 'mutating' }) });
+  });
+});
+
+describe('turn evidence separates a write that happened from one that did not', () => {
+  function fileChange(sequence: number, payload: Record<string, unknown>): RuntimeEvent {
+    return {
+      kind: 'file_change',
+      adapter: 'fake',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      spawnToken: 'spawn-1',
+      sequence,
+      timestamp: nowIso(),
+      payload,
+      rawRef: `raw:${sequence}`,
+    };
+  }
+
+  it('lets the outcome supersede the request instead of counting both', () => {
+    // One write, reported twice by its adapter: the request, then the answer.
+    const evidence = summarizeTurnEvidence([
+      fileChange(1, { toolUseId: 't1', path: '/repo/src/a.ts', resolvedPath: '/repo/src/a.ts', withinAllowedPaths: true, applied: null, phase: 'requested' }),
+      fileChange(2, { toolUseId: 't1', path: '/repo/src/a.ts', resolvedPath: '/repo/src/a.ts', withinAllowedPaths: true, applied: true, phase: 'completed' }),
+    ]);
+
+    expect(evidence.fileChanges).toEqual(['/repo/src/a.ts']);
+    expect(evidence.deniedFileChanges).toEqual([]);
+  });
+
+  it('records a refused write as refused, not as a change the worker made', () => {
+    const evidence = summarizeTurnEvidence([
+      fileChange(1, { toolUseId: 't2', path: '/etc/hosts', resolvedPath: '/etc/hosts', withinAllowedPaths: false, applied: null, phase: 'requested' }),
+      fileChange(2, { toolUseId: 't2', path: '/etc/hosts', resolvedPath: '/etc/hosts', withinAllowedPaths: false, applied: false, denied: true, phase: 'completed' }),
+    ]);
+
+    // The boundary working is not an escape, and the run must not report that
+    // "the worker wrote outside its granted paths".
+    expect(evidence.fileChangesOutsideAllowedPaths).toEqual([]);
+    expect(evidence.deniedFileChangesOutsideAllowedPaths).toEqual(['/etc/hosts']);
+    expect(evidence.fileChanges).toEqual([]);
+    expect(evidence.deniedFileChanges).toEqual(['/etc/hosts']);
+  });
+
+  it('treats a request whose outcome never arrives as an escape it cannot rule out', () => {
+    const evidence = summarizeTurnEvidence([
+      fileChange(1, { toolUseId: 't3', path: '/etc/hosts', resolvedPath: '/etc/hosts', withinAllowedPaths: false, applied: null, phase: 'requested' }),
+    ]);
+
+    expect(evidence.fileChangesOutsideAllowedPaths).toEqual(['/etc/hosts']);
+    expect(evidence.unconfirmedFileChangesOutsideAllowedPaths).toEqual(['/etc/hosts']);
+    expect(evidence.deniedFileChangesOutsideAllowedPaths).toEqual([]);
+  });
+
+  it('counts an adapter that reports no outcome fields at all as an unconfirmed write', () => {
+    // The shape an adapter emits when it reports the change and nothing else.
+    const evidence = summarizeTurnEvidence([fileChange(1, { path: 'out.txt', withinAllowedPaths: false })]);
+
+    expect(evidence.fileChangesOutsideAllowedPaths).toEqual(['out.txt']);
+    expect(evidence.unconfirmedFileChangesOutsideAllowedPaths).toEqual(['out.txt']);
   });
 });
