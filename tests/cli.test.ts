@@ -108,18 +108,21 @@ describe('cli configuration validation happens before execution', () => {
     }
   });
 
-  it('accepts a valid configuration, resolves the state root and reports the WP01 stub honestly with exit 4', async () => {
+  it('accepts a valid configuration and refuses to run against a directory that is not a Git repository', async () => {
     const repo = scratch();
     const stateDir = path.join(scratch(), 'state');
     const brief = path.join(repo, 'brief.md');
     writeFileSync(brief, 'Fix the login endpoint.\n');
 
+    // The configuration is valid, so the run gets as far as inspecting the
+    // repository and then refuses honestly: a scratch directory is not a Git
+    // project, and the direct path needs a committed base revision.
     const result = await invoke(['run', '--repo', repo, '--agents', EXAMPLE, '--task-file', brief, '--state-dir', stateDir, '--json']);
-    expect(result.code).toBe(EXIT_CODES.executionFailure);
+    expect(result.code).toBe(EXIT_CODES.invalidInput);
     const doc = jsonDocument(result);
-    expect(doc).toMatchObject({ ok: false, command: 'run', exitCode: 4, status: 'not_implemented', stateRoot: path.resolve(stateDir), repo, workerAgent: 'engineer' });
-    expect((doc['config'] as { agents: Array<{ id: string; snapshotHash: string }> }).agents.map((a) => a.id)).toEqual(['engineer', 'architect', 'reviewer']);
-    expect(existsSync(path.join(stateDir, 'manifest.json'))).toBe(true);
+    expect(doc).toMatchObject({ ok: false, command: 'run', exitCode: 2, error: { code: 'not_a_git_repository' } });
+    expect((doc['error'] as { message: string }).message).toContain('is not a Git repository');
+    // The lock is released again whatever happens.
     expect(existsSync(path.join(stateDir, 'coordinator.lock'))).toBe(false);
 
     // doctor is informational (WP02): it reports what it found and still exits 0.

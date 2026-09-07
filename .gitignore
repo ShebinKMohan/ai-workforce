@@ -5,6 +5,8 @@ coverage/
 .DS_Store
 # coordinator state and workspaces are never committed
 .workforce/
+# fixture repositories deliberately ship their own .workforce/checks.json
+!fixtures/*/.workforce/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

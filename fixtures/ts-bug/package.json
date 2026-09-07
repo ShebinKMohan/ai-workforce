@@ -1,0 +1,10 @@
+{
+  "name": "ts-bug-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fixture repository with a reproducible off-by-one bug in pagination.",
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
