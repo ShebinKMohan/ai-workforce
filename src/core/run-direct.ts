@@ -43,7 +43,7 @@ import {
   type TurnHandle,
 } from '../adapters/index.js';
 import { writeArtifact, type ArtifactRecord } from '../storage/artifacts.js';
-import { ensureRunDir, type StatePaths } from '../storage/paths.js';
+import { ensureRunDir, isWithin, type StatePaths } from '../storage/paths.js';
 import { markDispatched, recordIntent, recordReceipt } from '../storage/operations.js';
 import {
   insertAttempt,
@@ -733,17 +733,27 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     appendEvent(db, { runId, taskId, attemptId, type: 'turn.started', payload: { sessionId: session.sessionId, turnId: turn.turnId, promptCharacters: prompt.length } });
     if (interrupted) void adapter.interrupt(turn).catch(() => undefined);
 
+    // Human lines are a readable trace of what the worker did; the complete
+    // stream still reaches --json, events.jsonl and the adapter's raw capture.
+    const workspaceRootForDisplay = workspace.path;
+    const shorten = (value: string): string => (isWithin(workspaceRootForDisplay, value) ? path.relative(workspaceRootForDisplay, value) || '.' : value);
     for await (const event of adapter.events(turn)) {
       runtimeEvents.push(event);
       recordRuntimeEvent(db, event, { runId, taskId, attemptId, paths });
       stream.event({ type: `runtime.${event.kind}`, sequence: event.sequence, turnId: event.turnId, rawRef: event.rawRef, payload: event.payload });
-      stream.line(renderRuntimeEvent(event));
+      const line = renderRuntimeEvent(event, shorten);
+      if (line !== null) stream.line(line);
       if (event.kind === 'turn_completed') turnConclusion = 'completed';
       else if (event.kind === 'turn_interrupted') turnConclusion = 'interrupted';
       else if (event.kind === 'error' && event.payload['fatal'] === true) turnConclusion = 'runtime_exited';
     }
     runtimeSpan.end();
     evidence = summarizeTurnEvidence(runtimeEvents);
+    if (evidence.rawEvents > 0) {
+      // Say how much was not shown rather than printing every unnormalized
+      // notification: they are well-formed runtime output, not errors.
+      stream.line(`  (${evidence.rawEvents} further runtime event(s) kept verbatim as evidence, not shown here)`);
+    }
 
     if (turnConclusion === 'runtime_exited') {
       unresolved.push(`the runtime process ended before the turn completed (${describeExit(runtimeEvents)}); the candidate contains only what it had written by then`);
@@ -784,6 +794,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
         ? `candidate ${candidateSnapshot.candidateRevision.slice(0, 12)} on ${candidateSnapshot.branch}: ${candidateSnapshot.changedFiles.length} changed file(s), patch ${candidateSnapshot.patchHash.slice(0, 12)}`
         : `candidate is identical to the base ${candidateSnapshot.baseRevision.slice(0, 12)}: the worker changed nothing`,
     );
+    for (const change of candidateSnapshot.changes) stream.line(`  ${change.status} ${change.path}`);
     if (!candidateSnapshot.checkpointCreated) unresolved.push('the worker produced no change to the repository');
 
     if (interrupted) {
@@ -988,7 +999,9 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       runtimeToolCalls: evidence?.toolCalls ?? 0,
       runtimeCommands: evidence?.commandsExecuted ?? 0,
       runtimeErrors: evidence?.errors.length ?? 0,
-      malformedRuntimeLines: evidence?.rawEvents ?? 0,
+      // Well-formed runtime output the adapter did not normalize — not
+      // malformed lines, and not an error count.
+      unnormalizedRuntimeEvents: evidence?.rawEvents ?? 0,
       verificationCopyStrategy: receipts[0]?.copyStrategy ?? null,
       note: 'acceptance is decided only from verifier-executed check receipts; the runtime-reported fields above are context, not evidence of correctness',
       containmentNote:
@@ -1025,6 +1038,12 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   projectEventsJsonl(db, paths, runId);
 
   const artifactsDir = paths.runArtifactsDir(runId);
+  if (candidateSnapshot !== null && candidateSnapshot.checkpointCreated) {
+    // The change itself, not only a path to it: R0's terminal has to show the
+    // resulting diff. Long diffs are cut off and the full patch path is given.
+    stream.line(`candidate diff (${candidateSnapshot.baseRevision.slice(0, 12)} → ${candidateSnapshot.candidateRevision.slice(0, 12)}):`);
+    for (const line of previewPatch(readFileSync(candidateSnapshot.patchPath, 'utf8'))) stream.line(line);
+  }
   stream.line(`artifacts: ${artifactsDir}`);
   stream.line(`  result.json · summary.md${patchArtifact !== null ? ' · candidate.patch' : ''}${persistedChecks.length > 0 ? ' · checks/' : ''}${runtimeEvents.length > 0 ? ' · logs/' : ''}`);
   stream.line(
@@ -1091,23 +1110,53 @@ function buildContract(requestText: string, checks: ReadonlyArray<CheckSpec>): T
   });
 }
 
-function renderRuntimeEvent(event: RuntimeEvent): string {
+/**
+ * One human line per meaningful runtime action, or `null` for an event that
+ * should not produce one.
+ *
+ * Two rules keep the terminal readable without hiding anything:
+ *
+ * - an adapter reports the same action twice (`phase: "started"`, then
+ *   `phase: "completed"`). The line is printed when the action starts, so
+ *   progress is visible as it happens, and repeated on completion only when
+ *   the completion carries something new — an exit code, a refusal;
+ * - `raw` events are well-formed runtime output the adapter did not normalize
+ *   (MCP server startup, reasoning items, token usage, unknown methods). They
+ *   are counted and summarized after the turn instead of printed one by one.
+ *
+ * Nothing is dropped: every event still reaches `--json`, `events.jsonl` and
+ * the adapter's raw capture.
+ */
+function renderRuntimeEvent(event: RuntimeEvent, shorten: (value: string) => string = (value) => value): string | null {
   const payload = event.payload;
+  const phase = typeof payload['phase'] === 'string' ? (payload['phase'] as string) : null;
   switch (event.kind) {
-    case 'session_started':
-      return `  runtime session ${String(payload['sessionId'] ?? '')} started`;
+    case 'session_started': {
+      const id = payload['threadId'] ?? payload['sessionId'] ?? event.sessionId;
+      return `  runtime session ${String(id)} started`;
+    }
     case 'turn_started':
       return '  turn started';
     case 'assistant_message':
       return `  message: ${truncateLine(String(payload['text'] ?? ''))}`;
     case 'tool_call':
-      return `  tool ${String(payload['tool'] ?? 'unknown')}${payload['path'] !== undefined ? ` ${String(payload['path'])}` : ''}`;
+      return `  tool ${String(payload['tool'] ?? 'unknown')}${payload['path'] !== undefined ? ` ${shorten(String(payload['path']))}` : ''}`;
     case 'tool_result':
-      return `  tool ${String(payload['tool'] ?? 'unknown')} -> ${payload['ok'] === true ? 'ok' : 'failed'}`;
-    case 'file_change':
-      return `  changed ${String(payload['path'] ?? '')}${payload['withinAllowedPaths'] === false ? ' (OUTSIDE the granted paths; not part of the candidate)' : ''}`;
-    case 'command_exec':
-      return `  exec ${String(payload['command'] ?? '')}`;
+      return `  tool ${String(payload['tool'] ?? 'unknown')} -> ${payload['status'] ?? (payload['ok'] === true ? 'ok' : 'failed')}`;
+    case 'file_change': {
+      const where = payload['path'] === null || payload['path'] === undefined ? '(path not reported)' : shorten(String(payload['path']));
+      if (payload['withinAllowedPaths'] === false) return `  changed ${where} (OUTSIDE the granted paths; not part of the candidate)`;
+      if (payload['denied'] === true) return `  change denied: ${where}`;
+      // The write is only real once it is applied; the started phase is noise.
+      return phase === 'started' ? null : `  changed ${where}`;
+    }
+    case 'command_exec': {
+      const command = truncateLine(String(payload['command'] ?? ''));
+      if (phase === 'started' || phase === null) return `  exec ${command}`;
+      if (payload['denied'] === true) return `  exec denied: ${command}`;
+      const exitCode = payload['exitCode'];
+      return typeof exitCode === 'number' ? `  exec -> exit ${exitCode}` : null;
+    }
     case 'turn_completed':
       return '  turn completed';
     case 'turn_interrupted':
@@ -1115,10 +1164,27 @@ function renderRuntimeEvent(event: RuntimeEvent): string {
     case 'error':
       return `  runtime error: ${truncateLine(JSON.stringify(payload))}`;
     case 'raw':
-      return `  unrecognized runtime output kept as evidence (${truncateLine(JSON.stringify(payload))})`;
+      // Counted and summarized once the turn ends; see the caller.
+      return null;
     default:
       return `  ${event.kind}`;
   }
+}
+
+export const MAX_PATCH_PREVIEW_LINES = 120;
+
+/**
+ * The candidate diff as terminal lines, cut off at a bounded length. A big
+ * change must not flood the terminal, and the cut is stated rather than left
+ * for the reader to notice; the complete patch is always on disk.
+ */
+export function previewPatch(patch: string, maxLines = MAX_PATCH_PREVIEW_LINES): string[] {
+  const lines = patch.split('\n');
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  if (lines.length <= maxLines) return lines.map((line) => `  ${line}`);
+  const shown = lines.slice(0, maxLines).map((line) => `  ${line}`);
+  shown.push(`  … ${lines.length - maxLines} more diff line(s); the complete patch is candidate.patch`);
+  return shown;
 }
 
 function truncateLine(text: string, max = 160): string {

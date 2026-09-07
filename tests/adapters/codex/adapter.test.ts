@@ -81,6 +81,26 @@ describe('codex adapter: session and turn lifecycle', () => {
     expect(events.some((event) => event.payload['method'] === 'item/agentMessage/delta')).toBe(false);
   });
 
+  it('counts one action per item even though the runtime reports it started and completed', async () => {
+    const cwd = workspace();
+    const adapter = replayAdapter(fixturePath('session-hello.synthetic.jsonl'));
+    const handle = track(adapter, await openReplaySession(adapter, cwd));
+    const turn = await adapter.startTurn(handle, { prompt: 'Create a file named hello.txt containing exactly: hello' });
+    const events = await collect(adapter, turn);
+
+    // The stream really does carry the same command and the same file twice.
+    expect(events.filter((event) => event.kind === 'command_exec')).toHaveLength(2);
+    expect(events.filter((event) => event.kind === 'file_change')).toHaveLength(2);
+
+    // The evidence summary counts what the worker did, not how often it was announced.
+    const evidence = summarizeTurnEvidence(events);
+    expect(evidence.commandsExecuted).toBe(1);
+    expect(evidence.fileChanges).toEqual(['hello.txt']);
+    // Well-formed output the adapter chose not to normalize is counted, never called malformed.
+    expect(evidence.rawEvents).toBeGreaterThan(0);
+    expect(evidence.errors).toEqual([]);
+  });
+
   it('keeps unknown notifications and unknown fields instead of failing the stream', async () => {
     const cwd = workspace();
     const adapter = replayAdapter(fixturePath('session-hello.synthetic.jsonl'));

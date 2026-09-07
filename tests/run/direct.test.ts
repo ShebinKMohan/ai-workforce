@@ -24,6 +24,7 @@ import {
   claimDoneWithoutEditingScenario,
   cleanupAll,
   fingerprintCheckout,
+  fixedPaginationSource,
   fixTheBugScenario,
   fixThePythonBugScenario,
   longRunningScenario,
@@ -278,6 +279,43 @@ describe('the direct path produces a verified candidate (FR019, FR020, FR041, FR
     expect(result.receipts[0]!.outcome).toBe('passed');
     expect(result.snapshot!.changedFiles).toEqual(['src/ranges.py']);
     expect((await fingerprintCheckout(h.repo)).tree).toBe(before.tree);
+  });
+
+  it('shows the resulting diff and summarizes unnormalized runtime output instead of printing every frame', async () => {
+    const h = await harness();
+
+    const result = await h.run({
+      scenarioVersion: 1,
+      steps: [
+        { action: 'message', text: 'Reading src/pagination.js.' },
+        { action: 'unknown_event' },
+        { action: 'unknown_event' },
+        { action: 'unknown_event' },
+        { action: 'edit_file', path: 'src/pagination.js', content: fixedPaginationSource() },
+        { action: 'claim_done', message: 'Fixed both off-by-one errors.' },
+      ],
+    });
+    expect(result.outcome).toBe('accepted');
+
+    // R0's terminal shows the change itself, not only a path to a patch file.
+    const output = h.lines.join('\n');
+    expect(output).toContain(`candidate diff (${result.snapshot!.baseRevision.slice(0, 12)} → ${result.snapshot!.candidateRevision.slice(0, 12)})`);
+    expect(output).toContain('-  return Math.floor(total / pageSize);');
+    expect(output).toContain('+  return Math.ceil(total / pageSize);');
+    // Paths are shown relative to the candidate workspace, not as absolute temp paths.
+    expect(h.lines).toContain('  changed src/pagination.js');
+    expect(h.lines).toContain('  M src/pagination.js');
+
+    // Unnormalized runtime frames are counted once, never printed one per line...
+    expect(result.evidence!.rawEvents).toBeGreaterThanOrEqual(3);
+    expect(h.lines.filter((line) => line.includes('fake_custom_event'))).toEqual([]);
+    expect(h.lines.filter((line) => /further runtime event\(s\) kept verbatim as evidence/.test(line))).toHaveLength(1);
+    // ... and the machine-readable stream still carries every one of them.
+    expect(h.jsonEvents.filter((event) => event['type'] === 'runtime.raw').length).toBe(result.evidence!.rawEvents);
+
+    // The manifest names them for what they are.
+    expect(result.manifest.evidence['unnormalizedRuntimeEvents']).toBe(result.evidence!.rawEvents);
+    expect(Object.keys(result.manifest.evidence)).not.toContain('malformedRuntimeLines');
   });
 
   it('refuses to start when no acceptance checks can be resolved', async () => {

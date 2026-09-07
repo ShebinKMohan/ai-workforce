@@ -124,17 +124,54 @@ export function recordRuntimeEvent(db: DatabaseSync, event: RuntimeEvent, ctx: E
   });
 }
 
-/** Evidence summary of one turn's events: what the runtime claimed versus what was observed. */
+/**
+ * Evidence summary of one turn's events: what the runtime claimed versus what
+ * was observed.
+ *
+ * Counting rule: an adapter reports one *action* through several events — a
+ * command execution arrives as `phase: "started"` and again as
+ * `phase: "completed"`, and the same file can be written more than once. The
+ * counts below are per logical action, keyed on the adapter's own item id
+ * where it supplies one, so "10 commands" never means "5 commands, seen
+ * twice". `rawEvents` counts events the adapter chose not to normalize; they
+ * are well-formed runtime output kept verbatim as evidence, not malformed
+ * lines.
+ */
 export interface TurnEvidence {
   readonly claimedDone: boolean;
   readonly completed: boolean;
   readonly interrupted: boolean;
+  /** Distinct paths the runtime reported writing, in the order first reported. */
   readonly fileChanges: ReadonlyArray<string>;
   readonly fileChangesOutsideAllowedPaths: ReadonlyArray<string>;
+  /** Distinct command executions, not event count. */
   readonly commandsExecuted: number;
   readonly toolCalls: number;
   readonly errors: ReadonlyArray<Record<string, unknown>>;
+  /** Well-formed runtime events the adapter kept verbatim rather than normalizing. */
   readonly rawEvents: number;
+}
+
+/** The adapter's own identity for the item an event belongs to, when it supplies one. */
+function itemKey(event: RuntimeEvent): string | null {
+  const id = event.payload['itemId'];
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+/** Counts distinct items by id, and falls back to counting events for adapters that report none. */
+class ItemCounter {
+  readonly #ids = new Set<string>();
+  #withoutId = 0;
+
+  add(event: RuntimeEvent): void {
+    const id = itemKey(event);
+    if (id === null) this.#withoutId += 1;
+    else this.#ids.add(id);
+  }
+
+  get total(): number {
+    return this.#ids.size + this.#withoutId;
+  }
 }
 
 export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvidence {
@@ -143,8 +180,12 @@ export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvide
   let interrupted = false;
   const fileChanges: string[] = [];
   const outside: string[] = [];
-  let commandsExecuted = 0;
-  let toolCalls = 0;
+  // A file written twice is one changed file. Identity is the resolved path
+  // where the adapter supplies one, because the reported path may be relative.
+  const seenChange = new Set<string>();
+  const seenOutside = new Set<string>();
+  const commands = new ItemCounter();
+  const tools = new ItemCounter();
   const errors: Record<string, unknown>[] = [];
   let rawEvents = 0;
   for (const event of events) {
@@ -159,16 +200,31 @@ export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvide
         interrupted = true;
         break;
       case 'file_change': {
-        const changed = typeof event.payload['path'] === 'string' ? (event.payload['path'] as string) : '(unknown path)';
-        fileChanges.push(changed);
-        if (event.payload['withinAllowedPaths'] === false) outside.push(changed);
+        const reported = typeof event.payload['path'] === 'string' ? (event.payload['path'] as string) : null;
+        const resolved = typeof event.payload['resolvedPath'] === 'string' ? (event.payload['resolvedPath'] as string) : null;
+        const identity = resolved ?? reported;
+        const changed = reported ?? '(unknown path)';
+        if (identity === null) {
+          // No path at all: keep every such report, they are not the same file.
+          fileChanges.push(changed);
+          if (event.payload['withinAllowedPaths'] === false) outside.push(changed);
+          break;
+        }
+        if (!seenChange.has(identity)) {
+          seenChange.add(identity);
+          fileChanges.push(changed);
+        }
+        if (event.payload['withinAllowedPaths'] === false && !seenOutside.has(identity)) {
+          seenOutside.add(identity);
+          outside.push(changed);
+        }
         break;
       }
       case 'command_exec':
-        commandsExecuted += 1;
+        commands.add(event);
         break;
       case 'tool_call':
-        toolCalls += 1;
+        tools.add(event);
         break;
       case 'error':
         errors.push(event.payload);
@@ -180,7 +236,17 @@ export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvide
         break;
     }
   }
-  return { claimedDone, completed, interrupted, fileChanges, fileChangesOutsideAllowedPaths: outside, commandsExecuted, toolCalls, errors, rawEvents };
+  return {
+    claimedDone,
+    completed,
+    interrupted,
+    fileChanges,
+    fileChangesOutsideAllowedPaths: outside,
+    commandsExecuted: commands.total,
+    toolCalls: tools.total,
+    errors,
+    rawEvents,
+  };
 }
 
 export interface ProjectionResult {
