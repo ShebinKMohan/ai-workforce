@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+# coordinator state and workspaces are never committed
+.workforce/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+# local reference dumps
+.reference/
