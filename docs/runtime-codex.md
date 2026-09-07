@@ -225,6 +225,15 @@ is refused before anything is spawned.
    unsandboxed with full access.** This adapter never calls it.
 9. `codex-cli 0.147.0` logs `failed to load models cache: missing field supports_parallel_tool_calls`
    to stderr on some invocations. It is captured in the raw log and does not affect the protocol.
+10. **`workspaceWrite` bounds writes and network, not reads.** `SandboxPolicy` has no read scope in
+    this protocol version, so a worker under `local-development` can read any file the user can read.
+    The R0 demonstration recorded exactly that: a turn ran
+    `rg -n "paginate|pagination|…" ~/.codex/memories/MEMORY.md` from inside the candidate worktree and
+    the read was permitted (`docs/evidence/r0/`). Nothing was written outside the granted roots and
+    nothing left the machine, but the plan's `local-development` wording ("read/write the assigned
+    candidate and scratch/build paths") is **not** enforced for the read half by this runtime. Read
+    confinement needs an isolated environment around the process; it is not a policy this adapter can
+    claim, and the run manifest's `evidence.containmentNote` says so.
 
 ## 7. Measured timings
 

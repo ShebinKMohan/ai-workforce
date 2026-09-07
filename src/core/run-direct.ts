@@ -1005,7 +1005,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       verificationCopyStrategy: receipts[0]?.copyStrategy ?? null,
       note: 'acceptance is decided only from verifier-executed check receipts; the runtime-reported fields above are context, not evidence of correctness',
       containmentNote:
-        'the candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment; an enforced execution boundary for tool and test subprocesses (FR042) is not claimed by this run.',
+        'the candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Write confinement is only what the runtime adapter reports as an enforced capability, and any write seen outside the granted paths is listed above. Reads are not confined by either installed runtime sandbox: a worker can read files outside the repository, and this run did not prevent that. Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment; an enforced execution boundary for tool and test subprocesses (FR042) is not claimed by this run.',
     },
     timing,
     usage: usageFor(adapter, session),
