@@ -215,6 +215,10 @@ export function handleCoordinationRequest(
     const parsed = RequestTaskParams.safeParse(rawParams);
     if (!parsed.success) throw new CoordinationError('invalid_params', formatIssues(parsed.error));
     const params = parsed.data;
+    // The cap is asserted before anything is written, refusal included: a
+    // worker that loops on a request the coordinator refuses must not be able
+    // to write an unbounded number of rejection rows into the state store.
+    assertUnderCap();
     const decision = evaluateDelegation(db, { runId: identity.runId, parentTaskId: identity.taskId });
     const body = {
       objective: params.objective,
@@ -235,7 +239,6 @@ export function handleCoordinationRequest(
       });
       throw new CoordinationError(decision.code, `${decision.reason} (request recorded as ${rejected.message.id})`);
     }
-    assertUnderCap();
     const recorded = recordMessage(db, {
       sender,
       type: 'task_request',

@@ -1,0 +1,28 @@
+[
+  {
+    "step": "dispatch#1",
+    "tasks": [
+      "fast-prereq",
+      "slow-unrelated"
+    ],
+    "activeTurns": 2,
+    "activeWriters": 2
+  },
+  {
+    "step": "dispatch#2 (nothing new: caps are full)",
+    "tasks": [],
+    "activeTurns": 2
+  },
+  {
+    "step": "after fast-prereq completes, slow-unrelated still active",
+    "activeTurns": 1
+  },
+  {
+    "step": "dispatch#3",
+    "tasks": [
+      "dependent"
+    ],
+    "activeTurns": 2,
+    "activeWriters": 2
+  }
+]

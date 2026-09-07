@@ -1,0 +1,2 @@
+1. Create the file docs/alpha.md whose first line is "# Alpha".
+2. Create the file docs/beta.md whose first line is "# Beta".

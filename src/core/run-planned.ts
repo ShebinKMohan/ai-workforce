@@ -48,7 +48,7 @@ import {
 import { createCoordinationBridge, type CoordinationBridge } from '../coordination/index.js';
 import { appendEvent } from '../storage/events.js';
 import { ensureRunDir, type StatePaths } from '../storage/paths.js';
-import { insertRun, transitionRun } from '../storage/records.js';
+import { beginNewGeneration, insertRun, transitionRun } from '../storage/records.js';
 import { registerProject } from '../workspaces/project.js';
 import { inspectProject } from '../workspaces/project.js';
 import { createScheduler, type ScheduleTask } from '../routing/schedule.js';
@@ -67,6 +67,8 @@ import {
   type Reviewer,
 } from '../integration/review.js';
 import { RepairSession } from '../integration/repair.js';
+import { runWithFallback } from '../recovery/continue.js';
+import { describeFallback } from '../recovery/fallback.js';
 import type { CheckReceipt, CheckSpec } from '../verification/checks.js';
 
 export const PLANNED_MANIFEST_VERSION = 1 as const;
@@ -168,7 +170,17 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
       if (!keys.has(dependency)) {
         throw new RunSetupError('unknown_dependency', `task "${task.key}" depends on "${dependency}", which is not in the plan`);
       }
+      if (dependency === task.key) {
+        throw new RunSetupError('self_dependency', `task "${task.key}" depends on itself; it could never be dispatched`);
+      }
     }
+  }
+  const cycle = findDependencyCycle(input.tasks);
+  if (cycle !== null) {
+    // A cycle is refused here rather than discovered by the scheduler. The
+    // scheduler would block the cycled tasks and the run would finish with
+    // them silently missing; a plan that cannot be executed is not a run.
+    throw new RunSetupError('dependency_cycle', `the plan has a dependency cycle (${cycle.join(' -> ')}); no task in it could ever be dispatched`);
   }
 
   // ---- Run-level setup ---------------------------------------------------
@@ -272,30 +284,65 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
       const batch = scheduler.dispatch();
       if (batch.length === 0) break;
       stream.event({ type: 'schedule.dispatch', runId, tasks: batch, activeTurns: scheduler.activeTurns, activeWriters: scheduler.activeWriters });
-      // The scheduler's caps bound the batch. The batch is then executed one
-      // task at a time: `git worktree add` against one repository is not safe
-      // to run concurrently, so the concurrency limits bound what may be in
-      // flight rather than what runs at the same instant.
-      for (const key of batch) {
-        const task = byKey.get(key)!;
-        const result = await runTaskWithRepair({
-          input,
-          runId,
-          runDir,
-          key,
-          task,
-          taskId: taskIds.get(key)!,
-          limits,
-          bridge,
-          briefing: briefingFor(task, results),
-          stream,
-        });
-        results.set(key, result);
-        if (result.accepted) {
-          scheduler.complete(key);
+      // The batch runs concurrently: that is what the scheduler's caps are
+      // for. Only the repository-mutating setup is serialized (see
+      // `withRepositoryLock`), so while one worker is taking its turn the
+      // others are taking theirs, and a peer's message can reach a task that
+      // is still working.
+      const settled = await Promise.all(
+        batch.map(async (key) => {
+          const task = byKey.get(key)!;
+          try {
+            return {
+              key,
+              result: await runTaskWithRepair({
+                input,
+                runId,
+                runDir,
+                key,
+                task,
+                taskId: taskIds.get(key)!,
+                limits,
+                bridge,
+                briefing: briefingFor(task, results),
+                peers: input.tasks
+                  .filter((peer) => peer.key !== key)
+                  .map((peer) => ({ key: peer.key, taskId: taskIds.get(peer.key)!, objective: peer.objective })),
+                stream,
+              }),
+              error: null as Error | null,
+            };
+          } catch (error) {
+            // One task throwing is that task failing, not the run dying with
+            // no manifest: the run still has to finish and record what it did.
+            return { key, result: null, error: error instanceof Error ? error : new Error(String(error)) };
+          }
+        }),
+      );
+      for (const entry of settled) {
+        if (entry.error !== null || entry.result === null) {
+          const detail = entry.error?.message ?? 'the task produced no result';
+          unresolved.push(`task "${entry.key}" ended with an error before it could be assessed: ${detail}`);
+          stream.line(`task "${entry.key}" failed: ${detail}`);
+          results.set(entry.key, {
+            key: entry.key,
+            taskId: taskIds.get(entry.key)!,
+            objective: byKey.get(entry.key)!.objective,
+            accepted: false,
+            attempts: [],
+            approved: null,
+            repairsUsed: 0,
+          });
+          scheduler.fail(entry.key, detail);
+          failedKey ??= entry.key;
+          continue;
+        }
+        results.set(entry.key, entry.result);
+        if (entry.result.accepted) {
+          scheduler.complete(entry.key);
         } else {
-          scheduler.fail(key, `task "${key}" did not reach acceptance`);
-          failedKey ??= key;
+          scheduler.fail(entry.key, `task "${entry.key}" did not reach acceptance`);
+          failedKey ??= entry.key;
         }
       }
     }
@@ -303,11 +350,22 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
     for (const blocker of scheduler.blockers) {
       unresolved.push(`task(s) ${blocker.taskIds.join(', ')} never ran (${blocker.kind}): ${blocker.detail}`);
     }
+    // A task the scheduler blocked never ran, so it never "failed" either.
+    // It still means the plan was not executed, and a plan that was not
+    // executed cannot produce an accepted run.
+    const neverRan = input.tasks.map((task) => task.key).filter((key) => !results.has(key));
+    if (neverRan.length > 0) {
+      const detail = scheduler.blockers.map((blocker) => `${blocker.kind}: ${blocker.detail}`).join('; ');
+      unresolved.push(`the plan was not executed: ${neverRan.join(', ')} never ran${detail.length > 0 ? ` (${detail})` : ''}`);
+      failedKey ??= neverRan[0]!;
+    }
 
     // ---- Integration -----------------------------------------------------
     if (failedKey !== null) {
       transitionRun(db, runId, 'failed');
-      const reason = `task "${failedKey}" did not reach acceptance, so there was nothing to integrate`;
+      const reason = results.has(failedKey)
+        ? `task "${failedKey}" did not reach acceptance, so there was nothing to integrate`
+        : `task "${failedKey}" never ran, so the plan was not executed and there was nothing to integrate`;
       stream.line(`not accepted: ${reason}`);
       return finish({ accepted: false, outcome: 'failed', runState: 'failed', reason, combination: null, reviewDecision: null, review: null });
     }
@@ -566,6 +624,8 @@ interface TaskRunInput {
   readonly limits: Limits;
   readonly bridge: CoordinationBridge | null;
   readonly briefing: string | undefined;
+  /** Every other task of this run, so this worker can address one by id. */
+  readonly peers: ReadonlyArray<{ key: string; taskId: string; objective: string }>;
   readonly stream: RunStream;
 }
 
@@ -587,7 +647,11 @@ async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResu
 
   for (;;) {
     stream.line(`task "${key}"${repairsUsed > 0 ? ` (repair ${repairsUsed})` : ''}: ${task.objective}`);
-    const result = await runDirect({
+    // `runWithFallback` runs the attempt and, when it stopped for a reason a
+    // second runtime could get past (an expired credential, an exhausted
+    // quota, a provider that fell over), hands the work to that runtime with
+    // a handoff packet. It returns the attempt whose result stands.
+    const continued = await runWithFallback({
       repoPath: input.repoPath,
       config: input.config,
       configRaw: input.configRaw,
@@ -601,7 +665,9 @@ async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResu
         runId,
         taskId,
         attemptId,
+        key,
         objective: task.objective,
+        peers: context.peers,
         ...(briefing !== undefined ? { briefing } : {}),
       },
       coordination: bridge,
@@ -616,7 +682,12 @@ async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResu
       ...(input.runDeadlineMs !== undefined ? { runDeadlineMs: input.runDeadlineMs } : {}),
       ...(input.keepCheckCopies !== undefined ? { keepCheckCopies: input.keepCheckCopies } : {}),
     });
-    attempts.push(result);
+    const result = continued.result;
+    for (const attempt of continued.attempts) attempts.push(attempt);
+    if (continued.fallback !== null) {
+      stream.line(`task "${key}": ${describeFallback(continued.fallback)}`);
+      if (continued.note !== null) stream.line(`  ${continued.note}`);
+    }
 
     if (result.acceptance.accepted) {
       return { key, taskId, objective: task.objective, accepted: true, attempts, approved: result, repairsUsed };
@@ -670,6 +741,43 @@ async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResu
     });
     repairsUsed = decision.attempt.attemptNumber;
     attemptId = decision.attempt.identity.attemptId;
+    // A repair is a NEW generation of this task. Without this the new attempt
+    // would be written at the task's current generation and violate
+    // UNIQUE(task_id, generation), which killed the whole run.
+    beginNewGeneration(input.db, taskId);
     briefing = [context.briefing, decision.attempt.instructions].filter((part) => part !== undefined && part.length > 0).join('\n\n');
   }
+}
+
+/**
+ * The first dependency cycle in a plan, or null when the graph is acyclic.
+ *
+ * Depth-first with an explicit stack colour, so the returned path names the
+ * tasks the user has to break rather than just asserting a cycle exists.
+ */
+function findDependencyCycle(tasks: ReadonlyArray<PlannedTaskInput>): ReadonlyArray<string> | null {
+  const edges = new Map<string, ReadonlyArray<string>>(tasks.map((task) => [task.key, task.dependencies ?? []]));
+  const colour = new Map<string, 'visiting' | 'done'>();
+  const path: string[] = [];
+
+  const visit = (key: string): ReadonlyArray<string> | null => {
+    const state = colour.get(key);
+    if (state === 'done') return null;
+    if (state === 'visiting') return [...path.slice(path.indexOf(key)), key];
+    colour.set(key, 'visiting');
+    path.push(key);
+    for (const dependency of edges.get(key) ?? []) {
+      const found = visit(dependency);
+      if (found !== null) return found;
+    }
+    path.pop();
+    colour.set(key, 'done');
+    return null;
+  };
+
+  for (const task of tasks) {
+    const found = visit(task.key);
+    if (found !== null) return found;
+  }
+  return null;
 }

@@ -1,0 +1,10 @@
+import { DatabaseSync } from 'node:sqlite';
+const db = new DatabaseSync(process.argv[2], { readOnly: true });
+const cols = db.prepare("SELECT name FROM pragma_table_info('messages')").all().map(r => r.name);
+console.log('# messages columns:', cols.join(', '));
+const rows = db.prepare('SELECT * FROM messages').all();
+console.log(`# ${rows.length} message row(s)`);
+for (const r of rows) console.log(JSON.stringify(r));
+const tasks = db.prepare('SELECT id, objective, state, current_generation FROM tasks').all();
+console.log(`# ${tasks.length} task row(s)`);
+for (const t of tasks) console.log(JSON.stringify({ id: t.id, state: t.state, gen: t.current_generation, objective: String(t.objective).slice(0, 70) }));

@@ -11,12 +11,22 @@
  * means the same key submitted twice is one logical message. The second
  * submission returns the first record and reports `duplicate: true`.
  *
+ * The stored key is namespaced by SENDER. Two workers that happen to pick the
+ * same key ("retry-1", a hash of the objective) are two different messages;
+ * without the namespace the second worker's message would be swallowed and it
+ * would be handed the first worker's record as if it were its own.
+ *
+ * When no key is supplied one is DERIVED from the message's own content, so a
+ * worker that submits the same message twice produces one message whether or
+ * not it thought to volunteer a key.
+ *
  * Sender identity is a parameter of these functions, never a field of the
  * body. Callers must pass the identity they authenticated, so a body written
  * by a model can never name a different sender.
  */
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { newId, nowIso } from '../core/ids.js';
 import { withTransaction } from '../storage/tx.js';
 import { DEFAULT_INBOX_LIMIT, MAX_BODY_BYTES, MAX_INBOX_LIMIT } from './bridge.js';
@@ -111,7 +121,7 @@ function toRecord(row: MessageRow): MessageRecord {
     senderAttemptId: row.sender_attempt_id,
     recipientTaskId: row.recipient_task_id,
     correlationId: row.correlation_id,
-    idempotencyKey: row.idempotency_key,
+    idempotencyKey: unscopeKey(row.idempotency_key),
     type: MessageTypeSchema.parse(row.type),
     body,
     contractVersion: row.contract_version,
@@ -157,12 +167,14 @@ export function recordMessage(db: DatabaseSync, input: RecordMessageInput): Reco
   const bodyJson = JSON.stringify(input.body ?? {});
   const bytes = Buffer.byteLength(bodyJson, 'utf8');
   if (bytes > MAX_BODY_BYTES) throw new MessageBodyTooLargeError(bytes);
-  const key = input.idempotencyKey !== undefined && input.idempotencyKey !== null && input.idempotencyKey.length > 0 ? input.idempotencyKey : `auto:${newId()}`;
+  const supplied = input.idempotencyKey !== undefined && input.idempotencyKey !== null && input.idempotencyKey.length > 0 ? input.idempotencyKey : null;
+  const key = supplied ?? autoKey(input, bodyJson);
+  const storedKey = scopeKey(input.sender.taskId, key);
   const now = input.now ?? nowIso();
   const state = input.deliveryState ?? 'recorded';
 
   return withTransaction(db, () => {
-    const existing = db.prepare('SELECT * FROM messages WHERE run_id = ? AND idempotency_key = ?').get(input.sender.runId, key) as MessageRow | undefined;
+    const existing = db.prepare('SELECT * FROM messages WHERE run_id = ? AND idempotency_key = ?').get(input.sender.runId, storedKey) as MessageRow | undefined;
     if (existing !== undefined) return { message: toRecord(existing), duplicate: true };
     const id = newId();
     db.prepare(
@@ -175,7 +187,7 @@ export function recordMessage(db: DatabaseSync, input: RecordMessageInput): Reco
       input.sender.attemptId,
       input.recipientTaskId ?? null,
       input.correlationId ?? null,
-      key,
+      storedKey,
       input.type,
       bodyJson,
       MESSAGE_CONTRACT_VERSION,
@@ -184,6 +196,45 @@ export function recordMessage(db: DatabaseSync, input: RecordMessageInput): Reco
     );
     return { message: getMessage(db, id), duplicate: false };
   });
+}
+
+
+/** The sender's namespace, so one worker cannot squat another's key. */
+const KEY_SEPARATOR = '\u0000';
+
+function scopeKey(senderTaskId: string | null, key: string): string {
+  return `${senderTaskId ?? 'coordinator'}${KEY_SEPARATOR}${key}`;
+}
+
+function unscopeKey(stored: string): string {
+  const index = stored.indexOf(KEY_SEPARATOR);
+  return index < 0 ? stored : stored.slice(index + KEY_SEPARATOR.length);
+}
+
+/**
+ * A key derived from the message itself.
+ *
+ * Two submissions that agree on sender, recipient, type, correlation and body
+ * are the same message: recording them twice would deliver one question twice
+ * and get it answered twice. A worker that means to say the same thing again
+ * can say it again with an explicit key.
+ */
+function autoKey(input: RecordMessageInput, bodyJson: string): string {
+  const digest = createHash('sha256')
+    .update(
+      JSON.stringify([
+        input.sender.taskId ?? null,
+        input.sender.attemptId ?? null,
+        input.recipientTaskId ?? null,
+        input.type,
+        input.correlationId ?? null,
+        input.deliveryState ?? 'recorded',
+        bodyJson,
+      ]),
+    )
+    .digest('hex')
+    .slice(0, 32);
+  return `auto:${digest}`;
 }
 
 export function getMessage(db: DatabaseSync, id: string): MessageRecord {

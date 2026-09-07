@@ -1,0 +1,10 @@
+Two workers are running in this run and each of you has coordination tools for
+talking to the coordinator and to peer tasks (send_message, read_inbox,
+ack_message). Use them; do not guess, and do not ask a human.
+
+1. Create the file docs/glossary.md whose first line is "# Glossary". Choose exactly one
+   term for this project's release gate and define it in one sentence. Send the term you
+   chose to your peer task through your coordination tools before you finish.
+2. Create the file docs/usage.md whose first line is "# Usage". It must use, verbatim, the
+   single term the glossary task chose. You do not know that term: ask the peer task for it
+   through your coordination tools and read your inbox for the answer. Do not invent a term.

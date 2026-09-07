@@ -83,11 +83,37 @@ describe('coordination message store', () => {
     expect(listMessages(db, run.id)).toHaveLength(1);
   });
 
-  it('gives distinct messages distinct auto keys when none is supplied', () => {
+  it('collapses an identical resubmission even when no key is supplied', () => {
+    // AT08 clause 2: a worker that retries without volunteering a key must not
+    // produce two messages. The key is derived from the message's own content,
+    // so the same message twice is one message.
+    const { run, sender, attempt, db } = fixture();
+    const senderIdentity = { runId: run.id, taskId: sender.id, attemptId: attempt.id };
+    const first = recordMessage(db, { sender: senderIdentity, type: 'peer_message', body: { text: 'a' } });
+    const second = recordMessage(db, { sender: senderIdentity, type: 'peer_message', body: { text: 'a' } });
+    expect(second.duplicate).toBe(true);
+    expect(second.message.id).toBe(first.message.id);
+    expect(listMessages(db, run.id)).toHaveLength(1);
+  });
+
+  it('keeps genuinely different messages apart when no key is supplied', () => {
     const { run, sender, attempt, db } = fixture();
     const senderIdentity = { runId: run.id, taskId: sender.id, attemptId: attempt.id };
     recordMessage(db, { sender: senderIdentity, type: 'peer_message', body: { text: 'a' } });
-    recordMessage(db, { sender: senderIdentity, type: 'peer_message', body: { text: 'a' } });
+    recordMessage(db, { sender: senderIdentity, type: 'peer_message', body: { text: 'b' } });
+    expect(listMessages(db, run.id)).toHaveLength(2);
+  });
+
+  it('does not let one sender squat another sender\'s idempotency key', () => {
+    const { run, sender, recipient, attempt, db } = fixture();
+    const attacker = { runId: run.id, taskId: sender.id, attemptId: attempt.id };
+    const victim = { runId: run.id, taskId: recipient.id, attemptId: null };
+    const first = recordMessage(db, { sender: attacker, type: 'peer_message', body: { text: 'attacker note' }, idempotencyKey: 'shared-key-7' });
+    const second = recordMessage(db, { sender: victim, type: 'peer_message', body: { text: 'the build is broken, stop' }, idempotencyKey: 'shared-key-7' });
+    expect(second.duplicate).toBe(false);
+    expect(second.message.id).not.toBe(first.message.id);
+    expect(second.message.senderTaskId).toBe(recipient.id);
+    expect(second.message.idempotencyKey).toBe('shared-key-7');
     expect(listMessages(db, run.id)).toHaveLength(2);
   });
 

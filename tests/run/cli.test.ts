@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -76,6 +76,74 @@ describe('workforce run end to end', () => {
     expect(after.tree).toBe(before.tree);
     expect(after.head).toBe(before.head);
     expect(after.status).toBe(before.status);
+  });
+
+  it('takes the planned path from a --plan file, dependencies and all', async () => {
+    // The dependency graph reaching the orchestrator from the CLI is the
+    // point: `decomposeRequest` never emits dependencies, so without a plan
+    // file `PlannedTaskInput.dependencies` is unreachable from the product.
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-cli-plan-'), 'state');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-cli-plan-config-'), { planner: true });
+    useScenario(fixTheBugScenario());
+    const planPath = path.join(tempDir('workforce-cli-plan-file-'), 'plan.json');
+    writeFileSync(
+      planPath,
+      JSON.stringify({
+        tasks: [
+          { key: 'fix', objective: 'Fix the pagination off-by-one.' },
+          { key: 'after', objective: 'Fix the pagination off-by-one.', dependencies: ['fix'] },
+        ],
+      }),
+    );
+
+    const result = await invoke([
+      'run',
+      '--repo',
+      fixture.path,
+      '--agents',
+      configPath,
+      '--task',
+      'Fix the pagination off-by-one.',
+      '--plan',
+      planPath,
+      '--state-dir',
+      stateDir,
+      '--json',
+    ]);
+
+    // Both tasks were dispatched, in dependency order, on the planned path.
+    const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
+    const final = lines[lines.length - 1] as { path?: string; route?: { path?: string }; tasks?: Array<{ key: string; accepted: boolean }> };
+    expect(final.path).toBe('planned');
+    expect(final.route?.path).toBe('planned');
+    // Both tasks were dispatched, in the order the plan named them, and each
+    // reached acceptance on its own branch. (They edit the same file here, so
+    // the combination is then correctly refused — which is AT13's rule, not
+    // this test's subject.)
+    expect(final.tasks?.map((task) => task.key)).toEqual(['fix', 'after']);
+    expect(final.tasks?.every((task) => task.accepted)).toBe(true);
+  });
+
+  it('refuses a plan whose dependencies form a cycle, before any work starts', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-cli-cycle-'), 'state');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-cli-cycle-config-'), { planner: true });
+    useScenario(fixTheBugScenario());
+    const planPath = path.join(tempDir('workforce-cli-cycle-file-'), 'plan.json');
+    writeFileSync(
+      planPath,
+      JSON.stringify({
+        tasks: [
+          { key: 'a', objective: 'One.', dependencies: ['b'] },
+          { key: 'b', objective: 'Two.', dependencies: ['a'] },
+        ],
+      }),
+    );
+
+    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Do both.', '--plan', planPath, '--state-dir', stateDir]);
+    expect(result.code).toBe(EXIT_CODES.invalidInput);
+    expect(result.stderr).toContain('dependency cycle');
   });
 
   it('exits 4 when the runtime claims success without changing anything', async () => {
