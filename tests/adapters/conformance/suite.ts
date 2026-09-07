@@ -358,7 +358,12 @@ export function runConformanceSuite(target: ConformanceTarget): void {
     });
 
     if (target.openSlow === undefined) {
-      it.skip(`delivery into an active turn: skipped — ${target.slowSkipReason ?? 'no long-running turn available'}`, () => undefined);
+      // Both checks of the branch below, so neither is quietly dropped: the
+      // else-arm defines two tests and a single `it.skip` used to hide one of
+      // them from every report.
+      const reason = target.slowSkipReason ?? 'no long-running turn available';
+      it.skip(`delivery into an active turn: skipped — ${reason}`, () => undefined);
+      it.skip(`an interrupt receipt says observed only when the turn actually ended: skipped — ${reason}`, () => undefined);
     } else {
       it('claims submission into a running turn only where that capability is verified', async () => {
         const session = await target.openSlow!();

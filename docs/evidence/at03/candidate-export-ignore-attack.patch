@@ -1,0 +1,15 @@
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000000000000000000000000000000000000..ab9f2fb5a1911e2d3014c111e181abb02a1f6b32
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1 @@
++test/pagination.test.js export-ignore
+diff --git a/test/zz-smoke.test.js b/test/zz-smoke.test.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..965d04c03b94d13381e82c21c909928394c40faf
+--- /dev/null
++++ b/test/zz-smoke.test.js
+@@ -0,0 +1,2 @@
++import test from 'node:test';
++test('smoke', () => {});

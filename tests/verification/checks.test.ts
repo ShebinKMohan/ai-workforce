@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -30,7 +30,7 @@ interface Candidate {
 }
 
 /** Build a frozen candidate with the ts-bug fixture either fixed or left broken. */
-async function frozenCandidate(options: { fix: boolean }): Promise<Candidate> {
+async function frozenCandidate(options: { fix: boolean; readonly extraFiles?: Readonly<Record<string, string>> }): Promise<Candidate> {
   const fixture = await useFixture('ts-bug');
   const workspaceRoot = tempDir('workforce-workspaces-');
   const workspace = await createCandidateWorkspace({
@@ -42,6 +42,10 @@ async function frozenCandidate(options: { fix: boolean }): Promise<Candidate> {
     workspaceRoot,
   });
   if (options.fix) writeFileSync(path.join(workspace.path, 'src', 'pagination.js'), fixedPaginationSource());
+  for (const [relative, content] of Object.entries(options.extraFiles ?? {})) {
+    mkdirSync(path.dirname(path.join(workspace.path, relative)), { recursive: true });
+    writeFileSync(path.join(workspace.path, relative), content);
+  }
   const snapshot = await snapshotCandidate(workspace);
   return {
     repo: fixture.path,
@@ -127,6 +131,38 @@ describe('runChecks executes checks itself against a frozen candidate (FR049)', 
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     expect(isProcessAlive(grandchild)).toBe(false);
+  });
+
+  it('runs against every tracked file even when the candidate marks the acceptance suite export-ignore', async () => {
+    // The attack: leave src/pagination.js broken, add a .gitattributes that
+    // hides the suite from `git archive`, and add one trivially passing test.
+    // Nothing a criterion pins is modified, so the candidate diff is two
+    // additions — and `git archive` alone would extract a tree with no
+    // pagination test in it, where `node --test test/` exits 0.
+    const candidate = await frozenCandidate({
+      fix: false,
+      extraFiles: {
+        '.gitattributes': 'test/pagination.test.js export-ignore\n',
+        'test/zz-smoke.test.js': "import test from 'node:test';\ntest('smoke', () => {});\n",
+      },
+    });
+
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], timeoutMs: 60_000 }],
+      outputRoot: candidate.outputRoot,
+    });
+
+    const receipt = receipts[0]!;
+    // The suite the candidate tried to hide ran, and it still fails.
+    expect(receipt.outcome).toBe('failed');
+    expect(receipt.exitCode).not.toBe(0);
+    expect(receipt.outputSummary.testsRun).toBe(6);
+    // And the copy says how it was completed, rather than silently differing
+    // from the candidate it claims to be.
+    expect(receipt.copyStrategy).toBe('git_archive_repaired');
+    expect(receipt.diagnostics.join(' ')).toContain('export-ignore');
+    expect(receipt.diagnostics.join(' ')).toContain('test/pagination.test.js');
   });
 
   it('treats a check that mutates tracked source as an integrity failure even when it exits zero', async () => {

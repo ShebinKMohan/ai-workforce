@@ -231,4 +231,44 @@ describe('turn evidence separates a write that happened from one that did not', 
     expect(evidence.fileChangesOutsideAllowedPaths).toEqual(['out.txt']);
     expect(evidence.unconfirmedFileChangesOutsideAllowedPaths).toEqual(['out.txt']);
   });
+
+  function terminal(payload: Record<string, unknown>, adapter: RuntimeEvent['adapter'] = 'claude-code'): RuntimeEvent {
+    return { kind: 'turn_completed', adapter, sessionId: 'session-1', turnId: 'turn-1', spawnToken: 'spawn-1', sequence: 9, timestamp: nowIso(), payload, rawRef: 'raw:9' };
+  }
+
+  it('reads a terminal record that reports its own failure as a failure, in either runtime\'s vocabulary', () => {
+    // Claude Code: the `result` record's is_error, with the subtype it carries.
+    const claude = summarizeTurnEvidence([
+      terminal({ subtype: 'error_during_execution', isError: true, terminalReason: null, resultText: 'Execution failed before the change was verified.' }),
+    ]);
+    expect(claude.completed).toBe(true);
+    expect(claude.turnFailure).toContain('error_during_execution');
+    expect(claude.turnFailure).toContain('Execution failed before the change was verified.');
+
+    // Codex: turn/completed with status "failed" and the provider's message.
+    const codex = summarizeTurnEvidence([
+      terminal({ status: 'failed', durationMs: 25_497, error: 'unexpected status 401 Unauthorized', errorClass: 'unknown', evidence: 'runtime_reported' }, 'codex'),
+    ]);
+    expect(codex.turnFailure).toContain('status "failed"');
+    expect(codex.turnFailure).toContain('401 Unauthorized');
+
+    // And an ordinary completion is still an ordinary completion.
+    expect(summarizeTurnEvidence([terminal({ subtype: 'success', isError: false, status: 'completed' })]).turnFailure).toBeNull();
+  });
+
+  it('names a record that reports a session id the coordinator never minted', () => {
+    const foreign = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const evidence = summarizeTurnEvidence([
+      { kind: 'session_started', adapter: 'claude-code', sessionId: 'session-1', turnId: null, spawnToken: 'spawn-1', sequence: 1, timestamp: nowIso(), payload: { reportedSessionId: foreign }, rawRef: 'raw:1' },
+      terminal({ subtype: 'success', isError: false }),
+    ]);
+
+    expect(evidence.sessionIdentityMismatches).toEqual([`session_started: ${foreign}`]);
+    // The matching id is not a mismatch.
+    expect(
+      summarizeTurnEvidence([
+        { kind: 'session_started', adapter: 'claude-code', sessionId: 'session-1', turnId: null, spawnToken: 'spawn-1', sequence: 1, timestamp: nowIso(), payload: { reportedSessionId: 'session-1' }, rawRef: 'raw:1' },
+      ]).sessionIdentityMismatches,
+    ).toEqual([]);
+  });
 });

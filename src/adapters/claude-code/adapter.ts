@@ -87,6 +87,8 @@ import {
   isDeltaRecord,
   mapPolicy,
   parseClaudeVersion,
+  readClaudeCredential,
+  type ClaudeCredentialReport,
   type ClaudeErrorClass,
   type ContentBlock,
   type PolicyMapping,
@@ -158,7 +160,11 @@ export interface ClaudeEffectiveSettings {
   readonly outputStyle: string | null;
   readonly cwd: string | null;
   readonly runtimeCapabilities: ReadonlyArray<string> | null;
-  /** `account.tokenSource` from the `initialize` control response; `"none"` means the CLI holds no usable credential. */
+  /**
+   * `account.tokenSource` from the `initialize` control response. `"none"`
+   * means the CLI holds no credential; the field is ABSENT when it does hold
+   * one, so null says nothing either way (see `readClaudeCredential`).
+   */
   readonly tokenSource: string | null;
 }
 
@@ -226,6 +232,8 @@ interface ClaudeSession {
   readonly pendingFileChanges: Map<string, { readonly tool: string; readonly path: string | null; readonly resolvedPath: string | null; readonly withinAllowedPaths: boolean | null; readonly rawRef: string }>;
   /** Turns for which an interrupt control request was accepted; their `result` normalizes to `turn_interrupted`. */
   readonly interruptRequested: Set<string>;
+  /** Session ids records claimed that this coordinator did not mint; reported once each. */
+  readonly foreignSessionIds: Set<string>;
   /** Deliveries held by the adapter because no live turn could take them; flushed into the next `startTurn`. */
   readonly queued: DeliveryInput[];
   effective: ClaudeEffectiveSettings;
@@ -278,18 +286,23 @@ function report(status: CapabilityStatus, note: string): CapabilityReport {
 /**
  * Capability statuses for claude 2.1.260 on macOS.
  *
- * `verified` means this package executed the control against the installed
- * runtime. Everything that needs a *completed model turn* is
- * `supported_unverified`, because on the recording machine the stored
- * claude.ai OAuth session is expired: every turn ends in ~60 ms with
- * `error: "authentication_failed"` and `result.terminal_reason: "api_error"`,
- * and re-authenticating is an interactive action. The stream, the control
- * protocol, the session identity, the process group and the tool surface were
- * all still exercised against the real binary, because none of them needs the
- * provider.
+ * `verified` means this package executed the behaviour against the installed
+ * runtime, including the model turns: `tests/adapters/claude-code/real-runtime.test.ts`
+ * was re-run on 7 September 2026 with the machine signed in through claude.ai,
+ * and its six model-turn checks passed (17 of 17, none skipped).
+ *
+ * An earlier version of this table said the opposite — that every turn failed
+ * authentication before reaching the provider — and pinned five statuses to
+ * `supported_unverified` on that basis. That reading came from treating a
+ * *missing* `account.tokenSource` as "no credential"; this build omits the
+ * field when it is signed in. The statuses below are what the re-run observed;
+ * anything still `supported_unverified` says which observation is missing.
  *
  * `write_containment` is `unsupported`, and that is the point of FR042 rather
  * than a gap in the testing: this runtime provides no process boundary at all.
+ * The re-run confirmed it again — a hook the runtime launched wrote outside
+ * every granted directory, wrote to /tmp, read outside them and reached the
+ * network.
  */
 export const CLAUDE_CODE_CAPABILITIES: Readonly<Record<CapabilityName, CapabilityReport>> = {
   structured_events: report(
@@ -301,16 +314,16 @@ export const CLAUDE_CODE_CAPABILITIES: Readonly<Record<CapabilityName, Capabilit
     'the uuid is minted by this adapter and passed as --session-id, so the coordinator knows the session id before the process starts; the installed build echoes it on every record and rejects a non-uuid value before starting',
   ),
   resume_session: report(
-    'supported_unverified',
-    '`--resume <id>` reuses the id (verified against the installed build; `--resume <id> --fork-session --session-id <new>` mints the new id, and an unknown id yields result subtype "error_during_execution" with an `errors` array). Whether the resumed turn actually continues the earlier conversation could not be executed on this machine: it needs a model turn and the stored OAuth session is expired',
+    'verified',
+    '`--resume <id>` reuses the id (`--resume <id> --fork-session --session-id <new>` mints the new id, and an unknown id yields result subtype "error_during_execution" with an `errors` array). Executed end to end: a first turn was asked to remember a random word, the process was stopped, a second adapter resumed the id in a fresh process, and the resumed turn answered from the earlier turn\'s history',
   ),
   interrupt_turn: report(
-    'supported_unverified',
-    'the control round-trip is verified against the installed build: `{"type":"control_request","request":{"subtype":"interrupt"}}` on stdin is answered with `{"type":"control_response","response":{"subtype":"success","response":{"still_queued":[]}}}`, and the init record advertises `interrupt_cancel_queued_v1`. Interrupting a *running model turn* and observing its terminal record could not be executed here (no credentials); the observed path is covered deterministically by the recorded-fixture replay',
+    'verified',
+    'the control round-trip: `{"type":"control_request","request":{"subtype":"interrupt"}}` on stdin is answered with `{"type":"control_response","response":{"subtype":"success","response":{"still_queued":[]}}}`, and the init record advertises `interrupt_cancel_queued_v1`. Executed against a *running model turn*: the receipt came back `observed` behind a `turn_interrupted` terminal record, and the owned process group was empty after the stop',
   ),
   active_turn_delivery: report(
     'supported_unverified',
-    'a user message written to the live process\'s stdin is acknowledged by the runtime (`--replay-user-messages` echoes it with isReplay=true) — verified. Whether the runtime injects it into the *running* turn or schedules it as the next one could not be observed here, and the runtime\'s own fields (`queued_turn_count`, `still_queued`) describe a queue. While this status is not `verified`, the adapter never issues the contract\'s strongest receipt on that evidence: an acknowledged mid-turn delivery is reported as `queued` with holder `runtime`, and `submitted_to_active_turn` is emitted only once this entry says `verified`',
+    'a user message written to the live process\'s stdin is acknowledged by the runtime (`--replay-user-messages` echoes it with isReplay=true) — executed against a real, running model turn. What is still not established is the part the status is about: whether the runtime injects that message into the *running* turn or schedules it as the next one. The runtime reports no field that distinguishes them, and its own `queued_turn_count` / `still_queued` describe a queue. So the adapter never issues the contract\'s strongest receipt on this evidence: an acknowledged mid-turn delivery is reported as `queued` with holder `runtime`, and `submitted_to_active_turn` is emitted only once this entry says `verified`',
   ),
   queued_delivery: report(
     'verified',
@@ -333,8 +346,8 @@ export const CLAUDE_CODE_CAPABILITIES: Readonly<Record<CapabilityName, Capabilit
     '`--effort` is accepted and the runtime lists `low, medium, high, xhigh, max` per model in the initialize control response. An unknown value is warned about on stderr and silently replaced by the default, so this adapter refuses one before spawning. The runtime does not report the *effective* effort back in any record, so what actually took effect cannot be recorded',
   ),
   usage_reporting: report(
-    'supported_unverified',
-    'the result record carries `usage` (input/output/cache tokens), `modelUsage` and `total_cost_usd`. On this machine every turn failed authentication before reaching the provider, so the only values observed were the zeros of a turn that made no API call. The adapter therefore reports cost as `measured` only when the turn actually reached the provider and as `unavailable` otherwise — never zero for unknown',
+    'verified',
+    'the result record carries `usage` (input/output/cache tokens), `modelUsage` and `total_cost_usd`, and all of it was observed on real turns: a small model turn reported measured token counts and `total_cost_usd` 0.036817. Claude Code is the only one of the two installed runtimes that reports a currency figure at all. The adapter reports cost as `measured` only when the turn actually reached the provider (`duration_api_ms > 0` or a non-zero token count) and as `unavailable` with a reason otherwise — never zero for unknown',
   ),
   coordination_bridge: report('unsupported', 'the agent-callable bridge arrives with WP06; `--mcp-config` plus `--strict-mcp-config` is the intended injection point and is not exercised here'),
 };
@@ -424,27 +437,30 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     }
 
     let controllable = false;
-    let tokenSource: string | null = null;
+    let credential: ClaudeCredentialReport | null = null;
     try {
       const discovered = await this.discoverSettings(executablePath);
       this.#settings = discovered.settings;
-      tokenSource = discovered.tokenSource;
+      credential = discovered.credential;
       controllable = true;
       if (discovered.settings.model.offered.length === 0) diagnostics.push('the initialize control response listed no models');
     } catch (error) {
       diagnostics.push(`the initialize control round-trip failed: ${(error as Error).message}`);
     }
 
-    // `claude auth status` reporting loggedIn=true is a claim about a stored
-    // profile, not about a usable credential: on the recording machine it said
-    // loggedIn=true while the CLI itself reported tokenSource "none" and every
-    // turn failed with "OAuth session expired and could not be refreshed".
+    // The runtime's own account block decides this, not `claude auth status`,
+    // which is a claim about a stored profile rather than about a spendable
+    // credential. Reading it needs care in both directions: this build reports
+    // `tokenSource: "none"` when it is signed out and omits the field when it
+    // is signed in, so an absent field is `unknown` and never "no credential".
     let effectiveAuth = authentication;
-    if (tokenSource !== null && tokenSource !== 'none') {
+    if (credential?.state === 'usable') {
       effectiveAuth = 'logged_in';
-    } else if (tokenSource === 'none') {
+    } else if (credential?.state === 'none') {
       effectiveAuth = 'logged_out';
-      diagnostics.push('the runtime reports account.tokenSource "none": it holds no usable credential, whatever `claude auth status` says. Run `claude auth login` before dispatching a turn');
+      diagnostics.push(`${credential.detail}. Run \`claude auth login\` before dispatching a turn`);
+    } else if (credential?.state === 'unknown') {
+      diagnostics.push(`${credential.detail}; the readiness above falls back to what \`claude auth status\` reported`);
     }
 
     return {
@@ -529,7 +545,9 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
    * request. This starts a process but no model turn, so it is safe for an
    * explicit connection check and costs nothing.
    */
-  async discoverSettings(executablePath: string = this.#options.executablePath): Promise<{ readonly settings: RuntimeSettingsSupport; readonly tokenSource: string | null; readonly raw: unknown }> {
+  async discoverSettings(
+    executablePath: string = this.#options.executablePath,
+  ): Promise<{ readonly settings: RuntimeSettingsSupport; readonly tokenSource: string | null; readonly credential: ClaudeCredentialReport; readonly raw: unknown }> {
     const sessionId = uuidv7();
     const mapping = mapPolicy('analysis');
     const args = [
@@ -571,7 +589,8 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
         effort: { offered: effortOffered, exhaustive: true },
       };
       this.#settings = settings;
-      return { settings, tokenSource: parsed.data.account?.tokenSource ?? null, raw };
+      const credential = readClaudeCredential(parsed.data.account);
+      return { settings, tokenSource: credential.tokenSource, credential, raw };
     } finally {
       await transport.stop();
     }
@@ -732,6 +751,7 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
       toolCalls: new Map(),
       pendingFileChanges: new Map(),
       interruptRequested: new Set(),
+      foreignSessionIds: new Set(),
       queued: [],
       effective,
       diagnostics,
@@ -868,6 +888,41 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     return `claude-code:${session.sessionId}:${session.identity.spawnToken}:${suffix}`;
   }
 
+  /**
+   * A record that names a session this coordinator did not open.
+   *
+   * The adapter mints the session id and passes it as `--session-id`, so every
+   * record of this conversation carries it back. One that does not belongs to
+   * another conversation, and its content is not this turn's evidence: it is
+   * reported as an error event carrying the id it claimed, so the coordinator
+   * sees it through the shared contract rather than through an accessor only
+   * this adapter has (FR003, FR004).
+   */
+  #checkSessionIdentity(session: ClaudeSession, value: Record<string, unknown>, rawRef: string): void {
+    const reported = value['session_id'];
+    if (typeof reported !== 'string' || reported.length === 0 || reported === session.sessionId) return;
+    if (session.foreignSessionIds.has(reported)) return;
+    session.foreignSessionIds.add(reported);
+    const message = `a record reported session id "${reported}" for a session this coordinator opened as "${session.sessionId}"; its content belongs to a conversation this run does not own`;
+    session.diagnostics.push(message);
+    this.#push(
+      session,
+      'error',
+      session.activeTurnId,
+      {
+        // Not fatal to the stream: the records keep arriving and are kept as
+        // evidence. What it is fatal to is reading them as this turn's work.
+        fatal: false,
+        reason: 'session_identity_mismatch',
+        message,
+        errorClass: 'unknown' satisfies ClaudeErrorClass,
+        reportedSessionId: reported,
+        recordType: typeof value['type'] === 'string' ? value['type'] : null,
+      },
+      `${rawRef}#session-identity`,
+    );
+  }
+
   #normalize(session: ClaudeSession, record: StreamRecord): void {
     const rawRef = this.#rawRef(session, record.sequence);
     const decoded = record.decoded;
@@ -885,6 +940,8 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
       if (this.#options.includeDeltas) this.#push(session, 'raw', session.activeTurnId, { reason: 'partial_message', record: summarizeUnknown(decoded.value) }, rawRef);
       return;
     }
+
+    this.#checkSessionIdentity(session, decoded.value, rawRef);
 
     switch (decoded.type) {
       case 'system':

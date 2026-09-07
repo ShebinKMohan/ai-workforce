@@ -253,6 +253,56 @@ export function readUnenforceable(events: ReadonlyArray<RuntimeEvent>): Readonly
   return [];
 }
 
+export interface WriteObservation {
+  /** Where the entries come from. There is no filesystem-level observation of a worker's writes. */
+  readonly basis: 'runtime_reported_tool_events';
+  /** Whether an enforced boundary stood behind the report; null when the profile writes nothing. */
+  readonly enforcedWriteBoundary: boolean | null;
+  /** True only when a boundary could have refused an unreported write. Never true for a runtime with no sandbox. */
+  readonly complete: boolean;
+  readonly note: string;
+}
+
+/**
+ * How much the run's list of writes outside the granted paths is worth.
+ *
+ * The list is assembled from `file_change` events, which exist because the
+ * runtime reported a tool call. That is a report, not an observation: a worker
+ * process that writes without reporting it produces an empty list, and on a
+ * runtime with `write_containment: unsupported` nothing else would have
+ * stopped it. Saying so in the manifest is the difference between "no escape
+ * was observed" and "no escape happened".
+ */
+export function writeObservation(adapter: string, containment: ContainmentAssessment): WriteObservation {
+  const enforced = containment.writes ? containment.status !== 'unsupported' : null;
+  const shared =
+    `every entry is a write the ${adapter} runtime itself reported through a tool event; the coordinator does not watch the filesystem, so this list can only be as complete as the runtime's reporting.`;
+  if (!containment.writes) {
+    return {
+      basis: 'runtime_reported_tool_events',
+      enforcedWriteBoundary: null,
+      complete: false,
+      note: `The profile grants no writes, so no write was expected at all; ${shared}`,
+    };
+  }
+  if (enforced === true) {
+    return {
+      basis: 'runtime_reported_tool_events',
+      enforcedWriteBoundary: true,
+      complete: true,
+      note:
+        `The runtime enforces a write boundary (write_containment "${containment.status}"), so a write outside the granted paths would have been refused whether or not it was reported; ${shared} An empty list therefore means no such write succeeded.`,
+    };
+  }
+  return {
+    basis: 'runtime_reported_tool_events',
+    enforcedWriteBoundary: false,
+    complete: false,
+    note:
+      `This run had no enforced write boundary, so an unreported write outside the granted paths would leave no trace here: ${shared} An empty list means nothing was reported, NOT that nothing was written.`,
+  };
+}
+
 /** The containment paragraph for this run, written from what the adapter reported rather than from a fixed template. */
 export function renderContainmentNote(adapter: string, containment: ContainmentAssessment): string {
   const shared =
@@ -978,7 +1028,15 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   let candidateSnapshot: CandidateSnapshot | null = null;
   let evidence: TurnEvidence | null = null;
   let interrupted = false;
-  let turnConclusion: 'completed' | 'interrupted' | 'runtime_exited' | 'no_turn' = 'no_turn';
+  /**
+   * How the turn ended, as the runtime reported it. `turn_failed` is a terminal
+   * record that says the turn itself failed: Claude Code's `result` with
+   * `is_error: true`, Codex's `turn/completed` with `status: "failed"`. It is
+   * separate from `completed` because a turn the runtime says went wrong must
+   * not be recorded as one that went right, and separate from `runtime_exited`
+   * because the process was still there to say so.
+   */
+  let turnConclusion: 'completed' | 'turn_failed' | 'interrupted' | 'runtime_exited' | 'no_turn' = 'no_turn';
   const runtimeEvents: RuntimeEvent[] = [];
   let receipts: CheckReceipt[] = [];
 
@@ -1156,6 +1214,11 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       }
     }
     evidence = summarizeTurnEvidence(runtimeEvents);
+    // A terminal record that reports its own failure is not a completed turn.
+    // The evidence summary reads that in the shared vocabulary (Claude Code's
+    // `isError`, Codex's `status: "failed"` plus `error`), so the conclusion
+    // does not have to be re-derived per runtime here.
+    if (turnConclusion === 'completed' && evidence.turnFailure !== null) turnConclusion = 'turn_failed';
     if (evidence.rawEvents > 0) {
       // Say how much was not shown rather than printing every unnormalized
       // notification: they are well-formed runtime output, not errors.
@@ -1164,6 +1227,12 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
 
     if (turnConclusion === 'runtime_exited') {
       unresolved.push(`the runtime process ended before the turn completed (${describeExit(runtimeEvents)}); the candidate contains only what it had written by then`);
+    }
+    if (evidence.turnFailure !== null) {
+      unresolved.push(`the runtime ended the turn reporting that it failed (${evidence.turnFailure}); the candidate contains only what the worker had written by then`);
+    }
+    for (const mismatch of evidence.sessionIdentityMismatches) {
+      unresolved.push(`a runtime record named a session this coordinator did not open (${mismatch}); records from another conversation are kept as evidence but are not this turn's work`);
     }
     for (const escaped of evidence.fileChangesOutsideAllowedPaths) {
       unresolved.push(
@@ -1284,6 +1353,17 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   for (const change of surfaceFindings.definitionChanges) {
     unresolved.push(`the candidate changed an acceptance definition (${change}); this run read the definition from the base revision, so the change did not affect it, but a later run would use the new one`);
   }
+  // `.gitattributes` is not repository source: it changes how the candidate is
+  // *materialized*. `export-ignore` in one removes files from a `git archive`
+  // of the candidate, which is how the verifier makes its disposable copy, so
+  // adding one is worth naming even though the check runner now completes the
+  // copy from the object database rather than trusting the archive.
+  const attributeChanges = (candidateSnapshot?.changes ?? []).filter((change) => path.basename(change.path) === '.gitattributes');
+  for (const change of attributeChanges) {
+    unresolved.push(
+      `the candidate changed ${change.path} (${change.status}); Git attributes decide what a \`git archive\` of the candidate contains, so this file affects how the verifier materializes the candidate rather than what it computes. The check runner compared its copy against the candidate's own tree listing and completed it, and the check receipts record the strategy actually used`,
+    );
+  }
 
   // Facts that block acceptance whatever the receipts say. Each one means the
   // run cannot honestly claim "verified candidate" (plan section 9, AT02, AT12).
@@ -1302,6 +1382,14 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   }
   if (turnConclusion === 'runtime_exited') {
     blockers.push(`the runtime process ended before the turn completed (${describeExit(runtimeEvents)}); a candidate produced by a crashed turn is not accepted`);
+  }
+  if (evidence?.turnFailure != null) {
+    blockers.push(`the runtime's own terminal record says the turn failed (${evidence.turnFailure}); a candidate produced by a failed turn is not accepted, whatever the checks report`);
+  }
+  for (const mismatch of evidence?.sessionIdentityMismatches ?? []) {
+    blockers.push(
+      `a runtime record carried a session id this coordinator did not mint (${mismatch}); evidence from a session this run does not own cannot be this turn's evidence (FR003, FR004)`,
+    );
   }
   if (candidateSnapshot !== null && !candidateSnapshot.checkpointCreated) {
     blockers.push('the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done');
@@ -1362,10 +1450,10 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     transitionRunSafely(db, runId, 'interrupted');
     recordReceiptSafely(db, operation.id, 'completed', { interrupted: true, turnConclusion, candidateRevision: candidateSnapshot?.candidateRevision ?? null });
   } else {
-    transitionAttemptSafely(db, attemptId, turnConclusion === 'runtime_exited' ? 'failed' : 'completed', {
+    transitionAttemptSafely(db, attemptId, turnConclusion === 'runtime_exited' || turnConclusion === 'turn_failed' ? 'failed' : 'completed', {
       outcome: { turnConclusion, claimedDone: evidence?.claimedDone ?? false, changedFiles: candidateSnapshot?.changedFiles.length ?? 0 },
     });
-    recordReceiptSafely(db, operation.id, turnConclusion === 'runtime_exited' ? 'failed' : 'completed', {
+    recordReceiptSafely(db, operation.id, turnConclusion === 'runtime_exited' || turnConclusion === 'turn_failed' ? 'failed' : 'completed', {
       turnConclusion,
       candidateRevision: candidateSnapshot?.candidateRevision ?? null,
       patchHash: candidateSnapshot?.patchHash ?? null,
@@ -1480,11 +1568,24 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       checkSource: resolvedChecks.source,
       checkSourceDetail: resolvedChecks.detail,
       runtimeClaimedDone: evidence?.claimedDone ?? false,
+      // What the runtime said about its own turn, kept apart from what the
+      // verifier established: a terminal record that reports failure is not a
+      // completed turn, and a record naming a session this run did not open is
+      // not this run's evidence.
+      runtimeReportedTurnFailure: evidence?.turnFailure ?? null,
+      sessionIdentityMismatches: evidence?.sessionIdentityMismatches ?? [],
       runtimeReportedFileChanges: evidence?.fileChanges ?? [],
       // Writes the runtime refused: recorded because a worker asked, and kept
       // out of the list above because nothing was written there.
       runtimeDeniedFileChanges: evidence?.deniedFileChanges ?? [],
       writesOutsideGrantedPaths: evidence?.fileChangesOutsideAllowedPaths ?? [],
+      // What that list is derived from, so an empty one cannot be read as a
+      // checked negative. Every entry comes from a tool event the runtime
+      // chose to report; nothing here watches the filesystem. Where the
+      // runtime enforces no write boundary, a write it never reported —  by
+      // the binary itself, by a hook it launched, by a shell command — leaves
+      // no trace in this field at all (FR042).
+      writeObservation: writeObservation(adapter.id, containment),
       // A write the runtime refused is the tool boundary working; a write whose
       // outcome it never reported is neither proof nor refutation. Both are
       // recorded separately so the manifest cannot say "wrote" about either.
@@ -1574,7 +1675,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     attemptId,
     outcome,
     taskState: outcome === 'accepted' ? 'accepted' : outcome === 'interrupted' ? 'cancelled' : 'failed',
-    attemptState: interrupted ? 'interrupted' : turnConclusion === 'runtime_exited' ? 'failed' : 'completed',
+    attemptState: interrupted ? 'interrupted' : turnConclusion === 'runtime_exited' || turnConclusion === 'turn_failed' ? 'failed' : 'completed',
     runState: outcome === 'accepted' ? 'ready_for_review' : outcome === 'interrupted' ? 'interrupted' : 'failed',
     acceptance,
     receipts,
@@ -1894,6 +1995,8 @@ export function renderSummary(manifest: RunManifest): string {
     );
     const unenforceable = (containment['unenforceable'] as Array<{ aspect: string; reason: string }> | undefined) ?? [];
     for (const entry of unenforceable) lines.push(`  - not enforced by the runtime — \`${entry.aspect}\`: ${entry.reason}`);
+    const observation = (manifest.evidence['writeObservation'] ?? null) as { note?: unknown } | null;
+    if (observation !== null && typeof observation.note === 'string') lines.push(`  - writes outside the granted paths: ${observation.note}`);
   }
   lines.push('');
   lines.push('## Requirement status');

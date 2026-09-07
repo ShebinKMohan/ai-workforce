@@ -1,0 +1,314 @@
+$ npm run typecheck
+
+> workforce@0.1.0 typecheck
+> tsc -p tsconfig.check.json
+
+# exit=0
+
+$ npm test
+
+> workforce@0.1.0 test
+> vitest run
+
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+
+ Test Files  27 passed | 2 skipped (29)
+      Tests  370 passed | 31 skipped (401)
+   Start at  18:51:31
+   Duration  17.45s (tests 96%, transform 2%, import 2%)
+
+# exit=0
+
+$ WORKFORCE_REAL_RUNTIMES=1 npx vitest run tests/adapters --reporter=verbose
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+ ✓ tests/adapters/claude-code/protocol.test.ts > version parsing > reads the installed executable version line 1ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > version parsing > returns null for anything else rather than guessing 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > argv > drives the documented programmatic mode with a stream on both pipes 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > argv > always passes --verbose, which this build requires with --print and stream-json 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > argv > never inherits the user's MCP servers or settings files 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > argv > closes every variadic option with a non-variadic one 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > argv > grants exactly the profile's tools and no shell 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > argv > denies anything that would prompt 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > argv > passes the session id we minted 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > argv > resumes with --resume alone, because this build refuses --session-id beside it 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > argv > passes model, effort and budget only when configured 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > policy mapping > gives analysis a read-only posture with no writers and no shell 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > policy mapping > gives local-development the file writers but not a shell 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > policy mapping > always records that this runtime provides no process containment 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > policy mapping > says out loud that granting a shell removes the write boundary 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > policy mapping > marks verification as this adapter's non-job 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > line decoding > decodes a record 1ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > line decoding > keeps a bare text line as evidence instead of throwing 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > line decoding > keeps JSON without a type as evidence 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > line decoding > preserves unknown fields on a known record 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > input frames > shapes a user frame the way the installed build accepts 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > input frames > shapes a control request the way the installed build answers 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > error classification > recognises the authentication failure this machine actually produced 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > error classification > recognises a missing conversation 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > error classification > leaves an unrecognised failure unknown rather than guessing it retryable 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > settings validation > refuses an effort level the runtime would silently replace 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > settings validation > accepts every effort level the executable documents 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > settings validation > passes an unlisted model through unchanged rather than mapping it 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > usage and cost (FR060, AT14) > reports cost as measured when the turn reached the provider 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > usage and cost (FR060, AT14) > never reports zero for a turn that made no provider call 0ms
+ ✓ tests/adapters/claude-code/protocol.test.ts > usage and cost (FR060, AT14) > reports cost unavailable when the record carries no usable number 0ms
+ ✓ tests/adapters/codex/rpc.test.ts > codex json-rpc transport > correlates responses, buffers partial lines and keeps unknown fields 52ms
+ ✓ tests/adapters/codex/rpc.test.ts > codex json-rpc transport > surfaces a json-rpc error as CodexRpcError without killing the connection 44ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: session and turn lifecycle > opens a thread, streams normalized events and reports what the server actually said 69ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > session identity (FR004, plan section 6) > the coordinator knows the session id before the runtime has produced a turn 58ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status
+codex version 0.147.0, authentication logged_in
+
+ ✓ tests/adapters/claude-code/adapter.test.ts > session identity (FR004, plan section 6) > passes that id to the runtime as --session-id and every event carries it 46ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > session identity (FR004, plan section 6) > refuses a second concurrent turn in the same session 42ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > session identity (FR004, plan section 6) > refuses to resume while the recorded process is still alive 42ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: session and turn lifecycle > counts one action per item even though the runtime reports it started and completed 39ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: session and turn lifecycle > keeps unknown notifications and unknown fields instead of failing the stream 42ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > probe returns a readiness report that never assumes readiness 112ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > every capability status is one of the three legal values and names the version it was tested against 66ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status 128ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > argv against the installed flag surface > grants the analysis profile no writers and no shell 48ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > argv against the installed flag surface > grants local-development the file writers, the candidate directory and still no shell 44ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > argv against the installed flag surface > refuses to open a session under the verification profile 1ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > argv against the installed flag surface > refuses an unsupported effort before anything is spawned 0ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > validateSettings refuses a value the adapter cannot honour rather than mapping it 81ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > session identity is known before the first event and stays stable 72ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: session and turn lifecycle > refuses a second concurrent turn in one session 97ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > event normalization > produces the documented kinds with a monotonic sequence and a raw reference 37ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > event normalization > records the effective settings the runtime reports in its init record (FR006) 38ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > event normalization > marks a file change inside the granted paths, as a request and then as an applied write 40ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: session and turn lifecycle > interrupts an active turn and reports observed only after the server confirms 92ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: session and turn lifecycle > makes a denied escalation and an out-of-workspace write visible in the events 37ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: session and turn lifecycle > reports a "done" claim with no file change as an assistant message, never as an accepted result 40ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > a session records a process identity that is more than a reusable pid 62ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > refuses a second turn while one is active 64ms
+ ✓ tests/adapters/codex/rpc.test.ts > codex json-rpc transport > times out a request that is never answered and keeps the process usable 339ms
+ ✓ tests/adapters/codex/rpc.test.ts > codex json-rpc transport > denies every server -> client escalation and never approves one 39ms
+ ✓ tests/adapters/codex/rpc.test.ts > codex json-rpc transport > keeps an undecodable frame as evidence instead of crashing 42ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > event normalization > marks an applied file change outside the granted paths as an escape 40ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > event normalization > distinguishes a write the runtime refused from one it applied 47ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: session and turn lifecycle > classifies a real recorded provider failure and never reports it as a completed task 46ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: delivery, stopping and reconciliation > queues a delivery with no active turn and flushes it into the next turn 40ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > normalizes into the documented event kinds, monotonically, with raw references 72ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > speaks one payload vocabulary, not one per provider 63ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > event normalization > treats a write whose outcome the runtime never reports as an escape it cannot rule out 39ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > event normalization > reports a completion claim as an assistant message, never as success (FR050) 38ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > event normalization > survives bare text, malformed JSON, unknown record types and unknown fields 36ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: delivery, stopping and reconciliation > steers an active turn when the runtime accepts it and says so in the receipt 40ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: delivery, stopping and reconciliation > queues rather than loses a delivery the runtime refuses to steer, and leaves the refusal in the events 37ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: delivery, stopping and reconciliation > stops the owned process group and reconciles honestly afterwards 41ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: delivery, stopping and reconciliation > will not signal a process it cannot identify, and says so 0ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > nothing a runtime says can end a turn as accepted (FR050) 61ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > unknown record types and malformed lines never break the stream 68ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > delivery receipts (plan section 6: queued vs submitted) > queues in the adapter when no turn is active, and flushes into the next turn 36ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > delivery receipts (plan section 6: queued vs submitted) > does not claim submission into the active turn on an acknowledgement alone 37ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: delivery, stopping and reconciliation > refuses to resume a thread whose previous process is still alive 36ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: delivery, stopping and reconciliation > resumes a thread through thread/resume once the previous process is gone 37ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: delivery, stopping and reconciliation > reports a rejected thread/start as an adapter error rather than a broken session 35ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: delivery, stopping and reconciliation > reports the app server exiting mid-turn as a fatal stream error, not as a completed turn 33ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: policy, settings and capability reporting > maps execution profiles onto sandbox policies that exclude /tmp and $TMPDIR 0ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: policy, settings and capability reporting > sends the granted roots and a never-approve policy on every turn 38ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: policy, settings and capability reporting > passes an undiscovered model or effort through unchanged instead of mapping or rejecting it 0ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: policy, settings and capability reporting > rejects a model the discovered table does not offer, before anything is spawned 0ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: policy, settings and capability reporting > builds config overrides only from values that cannot reshape the TOML expression 0ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: policy, settings and capability reporting > classifies the provider error codes the app server reports 0ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: policy, settings and capability reporting > records a tested version and platform for every declared capability 0ms
+ ✓ tests/adapters/codex/adapter.test.ts > codex adapter: temp fixtures > creates and removes its own temp roots 0ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > a delivery with no active turn is queued, names its holder, and is actually redeemed 63ms
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code control plane (installed runtime, no model turn) > reports the installed version in the documented shape 16ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > claims submission into a running turn only where that capability is verified 65ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > an interrupt receipt says observed only when the turn actually ended 62ms
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code control plane (installed runtime, no model turn) > a passive probe never claims readiness 143ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > opens a session under the "analysis" profile 63ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > opens a session under the "local-development" profile 62ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > refuses a session under the "verification" profile 1ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > delivery receipts (plan section 6: queued vs submitted) > holds an unacknowledged message itself and flushes it into the next turn 338ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > delivery receipts (plan section 6: queued vs submitted) > refuses a delivery to a session whose process is gone instead of promising a next turn 38ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > interrupt receipts (plan section 6: requested vs observed) > reports observed only when a terminal record actually arrives 39ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports
+codex models: gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4-mini, gpt-5.3-codex-spark
+codex efforts: low, medium, high, xhigh, max, ultra
+
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > exposes the settings the runtime reported through the shared contract method 62ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > reports usage in the shared shape, or not at all — never a zero standing in for unknown 61ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > reconcile reports process liveness, and a stop receipt reports what was observed 62ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: fake > never signals a process it can only identify by a bare pid 62ms
+ ↓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > probe: skipped — the replay binary is not the claude executable, so there is nothing to probe passively; the real target probes the installed one
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > every capability status is one of the three legal values and names the version it was tested against 42ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > validateSettings refuses a value the adapter cannot honour rather than mapping it 37ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > session identity is known before the first event and stays stable 46ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > a session records a process identity that is more than a reusable pid 36ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > refuses a second turn while one is active 35ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > normalizes into the documented event kinds, monotonically, with raw references 45ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > interrupt receipts (plan section 6: requested vs observed) > reports requested when the runtime accepts the interrupt but never ends the turn 440ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > interrupt receipts (plan section 6: requested vs observed) > reports observed without asking again when the turn already ended 35ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > stopping and reconciliation > reports the observed state of the owned process group 40ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > stopping and reconciliation > refuses to signal a process it can only identify by pid 0ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > stopping and reconciliation > reports an unknown session honestly rather than claiming liveness 0ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > speaks one payload vocabulary, not one per provider 35ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > nothing a runtime says can end a turn as accepted (FR050) 37ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > unknown record types and malformed lines never break the stream 37ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > one adapter turn is not one runtime turn > does not end a turn on the result of a turn the runtime scheduled for itself 35ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > one adapter turn is not one runtime turn > does the same when the extra runtime turn starts before the previous one ends 37ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > a result record always ends its turn (plan section 9) > accepts a result whose optional fields are JSON null 40ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > a delivery with no active turn is queued, names its holder, and is actually redeemed 35ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > claims submission into a running turn only where that capability is verified 36ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > an interrupt receipt says observed only when the turn actually ended 36ms
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code control plane (installed runtime, no model turn) > the live probe asks the runtime what it offers, and believes the runtime over `auth status` 884ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > a result record always ends its turn (plan section 9) > ends the turn with a protocol diagnostic when the result body cannot be read at all 41ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > usage and cost from the result record (FR060) > reports a measured cost when the turn reached the provider 36ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > usage and cost from the result record (FR060) > never reports zero cost for a turn that made no provider call 35ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > opens a session under the "analysis" profile 35ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > opens a session under the "local-development" profile 35ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > refuses a session under the "verification" profile 0ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > exposes the settings the runtime reported through the shared contract method 35ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > usage and cost from the result record (FR060) > answers the shared contract accessor the coordinator actually reads 38ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > the recorded real transcript > replays the authentication-failure path the installed runtime really produced 36ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > raw capture > writes every framed line in both directions into the run logs directory 37ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > raw capture > creates nothing when the session is refused before it is spawned 1ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > capability table (FR005) > states every capability against the tested version and OS 0ms
+ ✓ tests/adapters/claude-code/adapter.test.ts > capability table (FR005) > does not claim a write boundary this runtime does not provide (FR042) 0ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > reports usage in the shared shape, or not at all — never a zero standing in for unknown 39ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > reconcile reports process liveness, and a stop receipt reports what was observed 39ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (recorded replay) > never signals a process it can only identify by a bare pid 36ms
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code control plane (installed runtime, no model turn) > opens a session whose id the coordinator minted, and records the settings the runtime reports 250ms
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code control plane (installed runtime, no model turn) > queues a delivery with no active turn and flushes it into the next turn, which the runtime acknowledges 271ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree
+codex effective settings: {"model":"gpt-5.6-sol","effort":"low","sandbox":{"type":"workspaceWrite","writableRoots":[],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false},"approvalPolicy":"never","modelProvider":"openai"} diagnostics []
+
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code control plane (installed runtime, no model turn) > the interrupt control request is accepted by the installed runtime 285ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > probe returns a readiness report that never assumes readiness 898ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports 1061ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree 1919ms
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code control plane (installed runtime, no model turn) > stops the owned process group and leaves nothing behind 755ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > every capability status is one of the three legal values and names the version it was tested against 736ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > validateSettings refuses a value the adapter cannot honour rather than mapping it 777ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > rejects an interrupt with no active turn and a resume of a thread with no rollout 1322ms
+ ✓ tests/adapters/codex/rpc.test.ts > codex json-rpc transport > shuts down cleanly by closing stdin, and escalates to SIGKILL when the server ignores SIGTERM 4098ms
+ ✓ tests/adapters/codex/rpc.test.ts > codex json-rpc transport > ends the notification stream when the server exits so consumers cannot hang 37ms
+ ✓ tests/adapters/codex/rpc.test.ts > codex json-rpc transport > decodes each json-rpc frame shape the installed server sends, including frames without a jsonrpc member 0ms
+ ✓ tests/adapters/codex/rpc.test.ts > codex json-rpc transport > has a refusal for every server -> client request the protocol defines 0ms
+ ✓ tests/adapters/codex/rpc.test.ts > the replay fixture answers every client frame, however they are chunked > answers two requests that arrive in a single stdin write 45ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > session identity is known before the first event and stays stable 818ms
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code control plane (installed runtime, no model turn) > resumes by the id we minted, and reports an unknown id rather than inventing a session 1899ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > a session records a process identity that is more than a reusable pid 738ms
+ ↓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > one active turn per session: skipped — no turn can be kept running against the installed runtime here: the stored claude.ai OAuth session is expired, so every turn ends within ~60 ms with error "authentication_failed". The recorded-replay target covers these cases deterministically
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > normalizes into the documented event kinds, monotonically, with raw references 773ms
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code containment (FR042, executed against the installed runtime) > the tool surface is exactly what the profile grants — verified 1526ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > speaks one payload vocabulary, not one per provider 769ms
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code containment (FR042, executed against the installed runtime) > a process the runtime itself launches is NOT confined by the OS — the containment truth 1256ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > nothing a runtime says can end a turn as accepted (FR050) 764ms
+ ↓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > unknown and malformed output: skipped — the installed runtime cannot be made to emit malformed output on demand; the recorded-replay target covers it
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > a delivery with no active turn is queued, names its holder, and is actually redeemed 769ms
+ ↓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > delivery into an active turn: skipped — no turn can be kept running against the installed runtime here: the stored claude.ai OAuth session is expired, so every turn ends within ~60 ms with error "authentication_failed". The recorded-replay target covers these cases deterministically
+ ✓ tests/adapters/claude-code/real-runtime.test.ts > claude-code containment (FR042, executed against the installed runtime) > a registered project's own settings file cannot run commands in a worker session — but only because the adapter says so 1585ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > opens a session under the "analysis" profile 729ms
+ ↓ tests/adapters/claude-code/real-runtime.test.ts > claude-code model turns (skipped: the installed runtime holds no usable credential (the runtime reports account.tokenSource "none"). Run `claude auth login` and re-run with WORKFORCE_REAL_RUNTIMES=1) > a turn writes the requested file into the granted candidate
+ ↓ tests/adapters/claude-code/real-runtime.test.ts > claude-code model turns (skipped: the installed runtime holds no usable credential (the runtime reports account.tokenSource "none"). Run `claude auth login` and re-run with WORKFORCE_REAL_RUNTIMES=1) > a "done" claim with no edit is an assistant message, not a success
+ ↓ tests/adapters/claude-code/real-runtime.test.ts > claude-code model turns (skipped: the installed runtime holds no usable credential (the runtime reports account.tokenSource "none"). Run `claude auth login` and re-run with WORKFORCE_REAL_RUNTIMES=1) > an interrupt ends a slow turn and leaves no surviving process
+ ↓ tests/adapters/claude-code/real-runtime.test.ts > claude-code model turns (skipped: the installed runtime holds no usable credential (the runtime reports account.tokenSource "none"). Run `claude auth login` and re-run with WORKFORCE_REAL_RUNTIMES=1) > a resumed session continues the SAME conversation
+ ↓ tests/adapters/claude-code/real-runtime.test.ts > claude-code model turns (skipped: the installed runtime holds no usable credential (the runtime reports account.tokenSource "none"). Run `claude auth login` and re-run with WORKFORCE_REAL_RUNTIMES=1) > a model-driven turn cannot write outside the granted candidate through its file tools
+ ↓ tests/adapters/claude-code/real-runtime.test.ts > claude-code model turns (skipped: the installed runtime holds no usable credential (the runtime reports account.tokenSource "none"). Run `claude auth login` and re-run with WORKFORCE_REAL_RUNTIMES=1) > a model-driven turn CAN read outside the granted candidate
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > opens a session under the "local-development" profile 719ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > refuses a session under the "verification" profile 1ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: execution boundary (FR042, no model tokens) > confines writes to the granted roots and denies /tmp, $TMPDIR, a sibling workspace and the network 6292ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > exposes the settings the runtime reported through the shared contract method 722ms
+stdout | tests/adapters/claude-code/real-runtime.test.ts > claude-code model turns (skipped: the installed runtime holds no usable credential (the runtime reports account.tokenSource "none"). Run `claude auth login` and re-run with WORKFORCE_REAL_RUNTIMES=1)
+
+--- claude-code real-runtime timings (one sample each; observations, not performance claims) ---
+     16 ms  passive probe: claude --version  (2.1.260 (Claude Code))
+    143 ms  passive probe: --version + auth status
+    883 ms  live probe: initialize control round-trip
+    205 ms  openSession (local-development): spawn + initialize handshake
+      0 ms  startTurn accepted
+     44 ms  turn: first frame to terminal event  (5 normalized events)
+    215 ms  openSession (analysis): spawn + initialize handshake
+    236 ms  openSession (analysis): spawn + initialize handshake
+     48 ms  interrupt: control request to receipt  (state=observed)
+    220 ms  openSession (analysis): spawn + initialize handshake
+    530 ms  stopOwnedProcesses (whole group)  (state=process_tree_terminated)
+    274 ms  openSession (analysis): spawn + initialize handshake
+    241 ms  resumeSession in a fresh process
+   1255 ms  containment probe: hook launched by the runtime
+--- claude-code containment observations ---
+  installed version: 2.1.260
+  passive probe authentication: logged_out
+  models reported by the runtime: default, opus[1m], claude-fable-5-1[1m], sonnet, haiku
+  effort levels reported by the runtime: low, medium, high, xhigh, max
+  account.tokenSource: none
+  effective tools (local-development): Edit, Glob, Grep, Read, Write
+  effective model: claude-opus-5[1m]
+  cost status for this turn: unavailable (the turn made no provider call (duration_api_ms is 0 and no tokens were counted), so the reported total_cost_usd is not a measurement)
+  interrupt receipt on a turn that ends by itself: observed: terminal record observed: turn_interrupted
+  process group after stop: empty
+  resume by minted id: the runtime reported the same session id in a new process
+  resume of an unknown id: reported as `No conversation found with session ID: …` plus a result record with subtype error_during_execution
+  analysis: tools the runtime offers the model: Glob, Grep, Read
+  local-development: tools the runtime offers the model: Edit, Glob, Grep, Read, Write
+  a runtime-launched process writing OUTSIDE every granted directory: ALLOWED
+  a runtime-launched process writing to /tmp: ALLOWED
+  a runtime-launched process reading OUTSIDE every granted directory: ALLOWED
+  a runtime-launched process reaching the network: 200
+  a project's own .claude/settings.json SessionStart hook, without --setting-sources '': RAN
+  the same hook under this adapter's argv: did not run
+
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > reports usage in the shared shape, or not at all — never a zero standing in for unknown 785ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > reconcile reports process liveness, and a stop receipt reports what was observed 756ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: claude-code (installed runtime) > never signals a process it can only identify by a bare pid 720ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > probe returns a readiness report that never assumes readiness 842ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > every capability status is one of the three legal values and names the version it was tested against 854ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > validateSettings refuses a value the adapter cannot honour rather than mapping it 1023ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > session identity is known before the first event and stays stable 7022ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > a session records a process identity that is more than a reusable pid 984ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > refuses a second turn while one is active 951ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository
+codex token usage notification observed: true
+
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > normalizes into the documented event kinds, monotonically, with raw references 5733ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository 16532ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > speaks one payload vocabulary, not one per provider 6321ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > steers an active turn through turn/steer and reports submission, not queueing 9830ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > nothing a runtime says can end a turn as accepted (FR050) 5315ms
+ ↓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > unknown and malformed output: skipped — the installed app server cannot be made to emit malformed frames on demand; tests/adapters/codex/adapter.test.ts covers it with a recorded replay
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > a delivery with no active turn is queued, names its holder, and is actually redeemed 6313ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone
+codex resumed thread reply: ["banana"]
+
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > claims submission into a running turn only where that capability is verified 1032ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone 12920ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > an interrupt receipt says observed only when the turn actually ended 758ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > opens a session under the "analysis" profile 830ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > opens a session under the "local-development" profile 774ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > refuses a session under the "verification" profile 1ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > exposes the settings the runtime reported through the shared contract method 772ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > interrupts a running turn and leaves no owned process behind 9401ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > reports usage in the shared shape, or not at all — never a zero standing in for unknown 8506ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > reconcile reports process liveness, and a stop receipt reports what was observed 847ms
+ ✓ tests/adapters/conformance/conformance.test.ts > adapter conformance: codex (installed runtime) > never signals a process it can only identify by a bare pid 826ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > denies a model-driven write outside the granted workspace and shows the denial in the events 23188ms
+stdout | tests/adapters/codex/real-runtime.test.ts
+
+codex real-runtime timings
+{"check":"passive probe","ms":126}
+{"check":"model/list","ms":1060}
+{"check":"process start to thread/start response","ms":286}
+{"check":"stopOwnedProcesses","ms":566,"state":"process_tree_terminated","signal":null}
+{"check":"command/exec inside granted root","ms":1022,"exitCode":0}
+{"check":"model turn","sessionOpenedMs":187,"turnStartedMs":194,"firstEventMs":194,"firstToolActionMs":7096,"completedMs":14586}
+{"check":"token usage observed","observed":true,"payload":"{\"method\":\"thread/tokenUsage/updated\",\"params\":{\"threadId\":\"01a07c08-6a7d-7703-8c69-a98f328f443a\",\"turnId\":\"01a07c08-6af6-7681-85ba-8e5af71322a8\",\"tokenUsage\":{\"total\":{\"totalTokens\":19859,\"inputTokens\":19801,\"cachedInputTokens\":12032,\"cacheWriteInputTokens\":0,\"outputTokens\":58,\"reasoningOutputToken"}
+{"check":"turn/steer","ms":1,"state":"submitted_to_active_turn"}
+{"check":"thread/resume","ms":126}
+{"check":"interrupt","requestToObservedMs":6,"state":"observed"}
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > reports a "done" message with no file change as an assistant message, not as success 25283ms
+
+ Test Files  7 passed (7)
+      Tests  200 passed | 11 skipped (211)
+   Start at  18:51:49
+   Duration  108.16s (tests 99%, import 1%)
+
+# exit=0

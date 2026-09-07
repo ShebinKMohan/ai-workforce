@@ -219,7 +219,16 @@ export function controlRequestFrame(requestId: string, subtype: string, extra: R
 
 /** Control subtypes this adapter sends. Both were exercised against the installed build. */
 export const CONTROL_SUBTYPE = {
-  /** Returns commands, agents, models (with `supportedEffortLevels`), `account.tokenSource`, `pid` and `current_permission_mode`. No model turn. */
+  /**
+   * Returns commands, agents, models (with `supportedEffortLevels`), an
+   * `account` block, `pid` and `current_permission_mode`. No model turn.
+   *
+   * The account block is NOT uniform: on 2.1.260 a signed-out CLI reports
+   * `tokenSource: "none"` and a signed-in one omits `tokenSource` entirely,
+   * naming the account instead (`email`, `organization`, `subscriptionType`,
+   * `apiProvider`). Absence of the field therefore says nothing on its own —
+   * see `readClaudeCredential`.
+   */
   initialize: 'initialize',
   /** Returns `{ still_queued: [...] }`; `interrupt_cancel_queued_v1` in the init `capabilities` array names this behaviour. */
   interrupt: 'interrupt',
@@ -238,13 +247,77 @@ export const InitializeResponseSchema = z.looseObject({
       }),
     )
     .optional(),
-  account: z.looseObject({ tokenSource: z.string().optional(), apiProvider: z.string().optional() }).optional(),
+  account: z
+    .looseObject({
+      tokenSource: z.string().optional(),
+      apiProvider: z.string().optional(),
+      email: z.string().optional(),
+      organization: z.string().optional(),
+      subscriptionType: z.string().optional(),
+    })
+    .optional(),
   output_style: z.string().optional(),
   current_permission_mode: z.string().optional(),
   session_state: z.string().optional(),
   pid: z.number().optional(),
 });
 export type InitializeResponse = z.infer<typeof InitializeResponseSchema>;
+
+/**
+ * Whether the runtime holds a credential it can spend, as far as its own
+ * `initialize` response says.
+ *
+ * `unknown` is a real answer and the reason this function exists. The first
+ * WP05 recording read a *missing* `account.tokenSource` as "no credential",
+ * which is exactly backwards on claude 2.1.260: the field appears with the
+ * value `"none"` when the CLI is signed out and is absent when it is signed
+ * in. That inversion made the gated model-turn checks skip themselves on a
+ * working machine and stamped "the runtime holds no usable credential" into a
+ * recorded evidence file as observed fact.
+ *
+ * Executed on claude 2.1.260 / darwin, signed in with claude.ai:
+ * `{"email":"…","organization":"…","subscriptionType":"Claude Max","apiProvider":"firstParty"}`
+ * — no `tokenSource` key at all.
+ */
+export interface ClaudeCredentialReport {
+  readonly state: 'usable' | 'none' | 'unknown';
+  readonly tokenSource: string | null;
+  readonly apiProvider: string | null;
+  readonly subscriptionType: string | null;
+  /** True when the account block names an account (an email or a subscription), whatever the token source says. */
+  readonly identified: boolean;
+  /** One sentence naming the evidence, for a diagnostic or a skip reason. */
+  readonly detail: string;
+}
+
+export function readClaudeCredential(account: InitializeResponse['account']): ClaudeCredentialReport {
+  const tokenSource = account?.tokenSource ?? null;
+  const apiProvider = account?.apiProvider ?? null;
+  const subscriptionType = account?.subscriptionType ?? null;
+  const identified = (account?.email ?? '').length > 0 || (subscriptionType ?? '').length > 0;
+  const base = { tokenSource, apiProvider, subscriptionType, identified };
+  if (account === undefined) {
+    return { ...base, state: 'unknown', detail: 'the initialize control response carried no account block, so the runtime said nothing about its credential' };
+  }
+  if (tokenSource === 'none') {
+    return { ...base, state: 'none', detail: 'the runtime reports account.tokenSource "none": it holds no usable credential, whatever `claude auth status` says' };
+  }
+  if (tokenSource !== null && tokenSource.length > 0) {
+    return { ...base, state: 'usable', detail: `the runtime reports account.tokenSource ${JSON.stringify(tokenSource)}` };
+  }
+  if (identified) {
+    return {
+      ...base,
+      state: 'usable',
+      detail:
+        `the runtime reports no account.tokenSource and names a signed-in account instead` +
+        `${subscriptionType !== null ? ` (subscriptionType ${JSON.stringify(subscriptionType)})` : ''}` +
+        `${apiProvider !== null ? `, apiProvider ${JSON.stringify(apiProvider)}` : ''}` +
+        '; this build omits the field when it holds a credential and reports "none" when it does not',
+    };
+  }
+  return { ...base, state: 'unknown', detail: 'the initialize control response named no account and no token source, so whether the runtime holds a credential is unknown' };
+}
 
 // ---------------------------------------------------------------------------
 // Documented value sets (from the installed executable's own `--help`)

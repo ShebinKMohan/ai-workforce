@@ -7,9 +7,9 @@ Adapter: `src/adapters/claude-code/` · Transport: `src/adapters/claude-code/tra
 | --- | --- |
 | Executable tested | `~/.local/bin/claude`, `2.1.260 (Claude Code)`, native build, commit `e51f681183f7` |
 | Platform | macOS 26.6.2, arm64 (`process.platform === 'darwin'`) |
-| Authentication on the recording machine | `claude auth status` → `loggedIn: true`, `authMethod: "claude.ai"`, `subscriptionType: "max"` — **but the runtime itself reports `account.tokenSource: "none"` and every turn fails with `authentication_failed`.** See §9. |
+| Authentication on the recording machine | `claude auth status` → `loggedIn: true`, `authMethod: "claude.ai"`, `subscriptionType: "max"`, and the runtime spends it: model turns run, report usage and report a price. For one afternoon during WP05 it did not, and §9 records both states and the reading error between them. |
 | Protocol source of truth | the installed executable's own `--help`, and recorded stdout/stdin frames |
-| Date checked | 2026-09-07 |
+| Date checked | 2026-09-07; §6, §7 and §9 re-checked the same evening after independent verification |
 
 Everything below was executed against that installed build. Where a statement is
 not backed by an executed check, it says so and says why.
@@ -431,15 +431,15 @@ Machine-readable copy: `docs/verified-capabilities.json`.
 | --- | --- | --- |
 | `structured_events` | **verified** | real sessions produced `system/init`, `user` (including `--replay-user-messages` echoes), `assistant`, `result` and `control_response` records, all normalized; bare non-JSON stdout lines and unknown record types are preserved as `raw` |
 | `session_identity` | **verified** | the uuid is minted by the adapter and passed as `--session-id`; the runtime echoes it on every record, rejects a non-uuid, and `reconcile` returns it before any turn |
-| `resume_session` | supported_unverified | `--resume <id>` reuses the id in a fresh process (executed); `--fork-session` mints a new one; an unknown id yields `subtype: "error_during_execution"`. **Whether the resumed turn continues the earlier conversation needs a model turn and could not be executed here** (§9) |
-| `interrupt_turn` | supported_unverified | the control round-trip is verified against the installed build (`still_queued` returned; `interrupt_cancel_queued_v1` advertised). Interrupting a *running model turn* was not executable here; the `observed`/`requested` split is covered deterministically by the recorded replay |
-| `active_turn_delivery` | supported_unverified | a message written to the live process's stdin is acknowledged by the runtime (verified). Whether it joins the running turn or the next one was not observable here; the runtime's own fields describe a queue. While this is not `verified` the adapter reports an acknowledged mid-turn delivery as `queued` with holder `runtime`, never as `submitted_to_active_turn` |
+| `resume_session` | **verified** | `--resume <id>` reuses the id in a fresh process; `--fork-session` mints a new one; an unknown id yields `subtype: "error_during_execution"`. Executed end to end: a first turn was asked to remember a random word, its process was stopped, and the resumed turn in a new process answered from the earlier turn's history |
+| `interrupt_turn` | **verified** | the control round-trip (`still_queued` returned; `interrupt_cancel_queued_v1` advertised), and interrupting a *running model turn*: the receipt came back `observed` behind a `turn_interrupted` terminal record, and the owned process group was empty afterwards |
+| `active_turn_delivery` | supported_unverified | a message written to the live process's stdin **during a real running turn** is acknowledged by the runtime (executed). What is still unestablished is what the status is about: whether it joins the running turn or the next one. The runtime reports no field that distinguishes them and its own `queued_turn_count` / `still_queued` describe a queue, so the adapter reports an acknowledged mid-turn delivery as `queued` with holder `runtime`, never as `submitted_to_active_turn` |
 | `queued_delivery` | **verified** | a delivery with no active turn is held by the adapter and flushed into the next turn; the installed runtime echoed the combined frame back |
 | `process_tree_stop` | **verified** | spawned as a process-group leader; stdin close → SIGTERM → SIGKILL. Executed: SIGTERM to the group ended it (exit 143) and left the group empty |
 | `write_containment` | **unsupported** | §5. There is no OS sandbox. What is bounded is the tool surface, not the process |
 | `model_selection` | **verified** | the `initialize` control response lists `default, opus[1m], claude-fable-5-1[1m], sonnet, haiku` with their resolved ids; `--model sonnet` was reflected in the session's `init` record as `claude-sonnet-5` |
 | `effort_selection` | supported_unverified | `--effort` is accepted and the runtime lists `low, medium, high, xhigh, max` per model. An unknown value is silently ignored, so the adapter refuses one. **The runtime never reports the effective effort back**, so what took effect cannot be recorded |
-| `usage_reporting` | supported_unverified | the `result` record carries `usage`, `modelUsage` and `total_cost_usd`. On this machine every turn failed authentication before reaching the provider, so only the zeros of a turn that made no API call were observed. The numbers reach the run manifest through `RuntimeAdapter.lastTurnUsage`, the shared contract accessor the coordinator reads |
+| `usage_reporting` | **verified** | the `result` record carries `usage`, `modelUsage` and `total_cost_usd`, and all three were observed on real turns: a small turn reported measured token counts and `total_cost_usd` 0.0369615, and a coordinator run of the `ts-bug` task reported 10 / 1 644 tokens at 0.0533808. The numbers reach the run manifest through `RuntimeAdapter.lastTurnUsage`, the shared contract accessor the coordinator reads |
 | `coordination_bridge` | unsupported | arrives with WP06; `--mcp-config` + `--strict-mcp-config` is the intended injection point and is not exercised here |
 
 ### Cost (FR060, AT14)
@@ -472,7 +472,22 @@ From `tests/adapters/claude-code/real-runtime.test.ts` on the recording machine
 | `stopOwnedProcesses` (whole group) | 545 ms |
 | containment probe (hook launched by the runtime) | 1 332 ms |
 
-No timing for a turn that reaches the model: none could be run (§9).
+Those numbers come from the WP05 recording, when no turn reached the model. The
+re-check the same evening, with the runtime spending its credential, added the
+measurements that were missing (same file, one sample each):
+
+| Measurement | Value |
+| --- | --- |
+| model turn: create `hello.txt` (10 normalized events) | 4 273 ms |
+| model turn: interrupt request → receipt (`observed`) | 33 ms |
+| turn frame → terminal event, tiny prompt | 1 871 ms, 6 normalized events |
+| `resumeSession` in a fresh process | 1 346 ms |
+| `openSession` (spawn + `initialize` handshake) | 673–2 053 ms |
+| live probe (spawn, `initialize` round-trip, stop) | 2 041 ms |
+
+The two sets are not comparable with each other: they were taken minutes apart
+under different machine load, and the WP05 turn figure is an authentication
+failure rather than a turn.
 
 ---
 
@@ -508,13 +523,17 @@ window in which two frames can interleave differently between runs.
 | `session-null-fields-result.synthetic.json` | synthetic: a `result` whose optional fields are JSON `null` rather than absent |
 | `session-unreadable-result.synthetic.json` | synthetic: a `result` whose body the schema cannot read at all |
 | `session-hang-then-answer.synthetic.json` | synthetic: a turn that never echoes a delivered message, so the adapter must take it back |
+| `session-foreign-session-id.synthetic.json` | synthetic: a complete, genuine worker turn whose every record names a session id the coordinator never minted |
+| `session-error-result.synthetic.json` | synthetic: a genuine `Write` of the fix ended by a `result` that reports the turn FAILED (`is_error: true`, `subtype: error_during_execution`) |
+| `session-unreported-write.synthetic.json` | synthetic: the same genuine turn plus two writes the runtime never reports as tool calls — what a binary, or a hook it launches, can do on a runtime with no enforced boundary |
 
 ```sh
 npm run typecheck
 npm test                                  # deterministic; real-runtime checks are skipped
 
-# installed runtime. The control-plane and containment blocks cost nothing;
-# the model-turn block is skipped unless the CLI holds a usable credential.
+# installed runtime. The control-plane and containment blocks cost nothing; the
+# model-turn block spends the signed-in account's quota, and is skipped only when
+# the runtime itself says it holds nothing to spend (see section 9).
 WORKFORCE_REAL_RUNTIMES=1 \
 WORKFORCE_CLAUDE_PATH=~/.local/bin/claude \
   npx vitest run --reporter=verbose tests/adapters/claude-code/real-runtime.test.ts
@@ -529,18 +548,18 @@ WORKFORCE_CODEX_MODEL=gpt-5.6-sol \
 
 ---
 
-## 9. The credential state on the recording machine, and what it cost
+## 9. Reading this runtime's credential state, and the mistake WP05 made
 
-`claude auth status` reports:
+This section replaces the WP05 original, which drew a false conclusion from a
+real observation. Both are kept here, because the correction is the useful part.
 
-```json
-{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "max", …}
-```
+### What was observed during WP05 (afternoon of 2026-09-07)
 
-The runtime disagrees with itself. Its own `initialize` control response reports
+`claude auth status` reported `{"loggedIn": true, "authMethod": "claude.ai", …}`
+while the runtime's own `initialize` control response reported
 `account: {"tokenSource": "none", "apiProvider": "firstParty"}`, `claude doctor`
-prints *"Managed settings (remote): not fetched — no usable credentials"* and
-*"Not signed in to claude.ai"*, and every turn ends in about 60 ms with:
+printed *"not fetched — no usable credentials"* and *"Not signed in to
+claude.ai"*, and every turn ended in about 60 ms with:
 
 ```
 assistant  { error: "authentication_failed", is_api_error_message: true,
@@ -549,45 +568,76 @@ result     { subtype: "success", is_error: true, terminal_reason: "api_error",
              duration_api_ms: 0, total_cost_usd: 0 }
 ```
 
-That is the exact transcript kept as `session-auth-failure.real.json`.
+That is the exact transcript kept as `session-auth-failure.real.json`. All of it
+happened; none of it is withdrawn.
 
-Two consequences, both recorded rather than worked around:
+### The conclusion that was wrong
 
-1. **`claude auth status` reporting `loggedIn: true` is not evidence of a usable
-   credential.** The live probe believes the runtime over the status command:
-   `tokenSource: "none"` makes readiness `not_ready` with a diagnostic, whatever
-   `auth status` said. That is an FR002 improvement this machine's state made
-   visible, and it is reachable from the product rather than only from the
-   adapter:
+WP05 concluded that the credential was unusable **until an interactive
+`claude auth login`**, and encoded that conclusion in four places: the model-turn
+test gate, the conformance target's `slowSkipReason`, five capability statuses,
+and the AT03 evidence record. Hours later, with no login performed, the same
+binary ran turns, reported usage and reported a price.
 
-   - `workforce doctor` (passive) now says that a `loggedIn: true` describes a
-     stored profile, and adds a diagnostic naming the disagreement observed on
-     this build and pointing at the connection check;
-   - `workforce doctor --connect` runs that live probe for every discovered
-     runtime — the Codex app-server handshake and Claude Code's `initialize`
-     control request. Both start a process, neither starts a model turn, and it
-     is the only path to `verified_ready` (plan section 6 rule 6). Executed on
-     this machine it reported codex `verified_ready` and claude-code
-     `logged_out` with `account.tokenSource "none"`, against an `auth status`
-     that could not establish a login at all.
+The defect is the reading, not the runtime:
 
-   `docs/runtime-compatibility.md` carries the corrected record.
+> **On claude 2.1.260 the `account` block reports `tokenSource: "none"` when it
+> is signed OUT, and omits `tokenSource` entirely when it is signed IN.**
 
-2. **Six checks that need a completed model turn are skipped, with the reason in
-   the test name**, and every capability that depends on one is
-   `supported_unverified`:
-   - a turn writes `hello.txt` into the granted candidate;
-   - a "done" claim with no edit is an assistant message, not a success;
-   - an interrupt ends a slow turn and leaves no surviving process;
-   - a resumed session continues the SAME conversation;
-   - a model-driven write outside the granted candidate;
-   - a model-driven read outside the granted candidate.
+Executed, signed in through claude.ai:
 
-   Re-authenticate with `claude auth login` (an interactive action) and re-run
-   the gated file; the block un-skips itself by asking the runtime for its
-   `tokenSource` before the tests are defined.
+```json
+{"email": "…", "organization": "…", "subscriptionType": "Claude Max", "apiProvider": "firstParty"}
+```
 
-A skipped check is not a passing check, and none of these are counted as one.
+There is no `tokenSource` key at all. The gate computed
+`usable = tokenSource !== null && tokenSource !== 'none'`, so it read a healthy
+runtime as an empty one — failing in the direction that manufactures a green
+suite, because a check that cannot be run is indistinguishable in a report from a
+check that was refused.
+
+### How it is read now
+
+`readClaudeCredential` (`src/adapters/claude-code/protocol.ts`) returns three
+states, and **absence is never a denial**:
+
+| Signal | Verdict |
+| --- | --- |
+| `tokenSource: "none"` | `none` — the runtime says it holds nothing to spend |
+| `tokenSource` present with any other value | `usable` |
+| no `tokenSource`, but the block names an account (`email`, `subscriptionType`) | `usable` |
+| no account block, or a block naming neither | `unknown` |
+
+One function serves both the product and its tests, so they cannot disagree
+about the same runtime: `ClaudeCodeAdapter.probe` uses it for
+`workforce doctor --connect`, and `tests/adapters/claude-code/real-runtime.test.ts`
+uses it for the model-turn gate. The gate skips on `none` only. `unknown` runs
+the checks and lets a failure be reported as a failure, because "the runtime
+would not say" is not evidence that a check would fail.
+
+### What this leaves in place
+
+1. **`claude auth status` reporting `loggedIn: true` is still not evidence of a
+   spendable credential, and neither is `loggedIn: false` evidence of the
+   absence of one.** Both disagreements have now been observed on this build.
+   `workforce doctor` (passive) says so and points at the connection check;
+   `workforce doctor --connect` runs the live `initialize` round-trip, which
+   starts a process and no model turn, and is the only path to `verified_ready`
+   (plan section 6 rule 6).
+2. **The gated model-turn checks are checks, not decorations.** With the
+   credential readable, `WORKFORCE_REAL_RUNTIMES=1 npx vitest run
+   tests/adapters/claude-code/real-runtime.test.ts` runs 17 of 17 with no skip:
+   a turn writes `hello.txt` into the granted candidate; a "done" claim with no
+   edit is an assistant message; an interrupt ends a running turn and leaves no
+   process; a resumed session continues the same conversation; a model-driven
+   write outside the granted candidate does not appear on disk; a model-driven
+   read outside it is recorded either way.
+3. **A skipped check is still not a passing check** — which is exactly why the
+   skips that remain are the ones no environment can clear (malformed output on
+   demand), and why the ones that were keyed on a machine's mood are gone.
+
+`docs/evidence/at03/` is the executed record; `docs/evidence/at03/2026-09-07-initial/`
+keeps the superseded one with a banner naming what was false in it.
 
 ---
 
@@ -620,8 +670,9 @@ A skipped check is not a passing check, and none of these are counted as one.
 7. **The default model comes from the user's configuration.** On this machine
    `claude-opus-5[1m]`. Pin a model in the agent configuration rather than
    inheriting it; the adapter records the reported model either way.
-8. **`--max-budget-usd` is passed through but unproven.** No turn reached the
-   provider, so no budget was ever consumed or enforced here.
+8. **`--max-budget-usd` is passed through but unproven.** Turns now reach the
+   provider and report a price, but no check has driven a session into its
+   budget, so nothing here establishes that the flag stops one.
 9. **`--mcp-config` is not used yet.** WP06 owns the coordination bridge, and
    `coordination_bridge` stays `unsupported` until it is proved against this
    build.

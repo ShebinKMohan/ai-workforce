@@ -1,0 +1,1 @@
+The paginated search endpoint drops results. With 7 matches and a page size of 3 the API reports 2 pages, so page 3 is never requested and the last match is never shown. `paginate()` also returns one item too few on every page. Find the cause and fix it. `npm test` reproduces it.

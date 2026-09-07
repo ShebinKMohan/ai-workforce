@@ -45,6 +45,8 @@ export interface GitOptions {
   readonly maxOutputBytes?: number;
   readonly signal?: AbortSignal;
   readonly extraEnv?: Readonly<Record<string, string>>;
+  /** Written to the command's stdin (`git checkout-index --stdin`, `git hash-object --stdin`). */
+  readonly input?: string;
 }
 
 export class GitError extends Error {
@@ -116,6 +118,7 @@ export async function git(args: ReadonlyArray<string>, options: GitOptions): Pro
     timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
     ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
     ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    ...(options.input !== undefined ? { input: options.input } : {}),
   });
 }
 

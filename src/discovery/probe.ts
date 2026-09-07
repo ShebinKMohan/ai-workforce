@@ -118,16 +118,18 @@ export function parseClaudeAuthStatus(result: ProbeResult): AuthObservation {
   const json = extractJsonObject(result.stdout);
   if (json !== null) {
     const loggedIn = json['loggedIn'];
-    // A stored profile is not a usable credential. Observed on 2.1.260:
-    // loggedIn=true while the runtime itself reported
-    // `account.tokenSource: "none"` and every turn failed with "OAuth session
-    // expired and could not be refreshed" (docs/runtime-claude-code.md section 9).
+    // A stored profile is not the same thing as what the runtime can spend,
+    // and the two have disagreed in BOTH directions on 2.1.260: once with
+    // `auth status` reporting loggedIn=true while the runtime reported
+    // account.tokenSource "none" and every turn failed authentication, and
+    // once with `auth status` reporting loggedIn=false while turns worked.
+    // Only the live handshake settles it (docs/runtime-claude-code.md §9).
     if (loggedIn === true) {
       return {
         auth: 'logged_in',
-        detail: '`claude auth status` reported loggedIn=true, which describes a stored profile rather than a usable credential',
+        detail: '`claude auth status` reported loggedIn=true, which describes a stored profile rather than what the runtime can spend',
         caveat:
-          '`claude auth status` reporting loggedIn=true is not evidence that Claude Code holds a usable credential: on the tested build it reported loggedIn=true while the runtime itself reported account.tokenSource "none" and every turn failed authentication. Run `workforce doctor --connect` to ask the runtime, which is the only check that can reach verified_ready',
+          '`claude auth status` reporting loggedIn=true describes a stored profile, not what the runtime can spend; the two have disagreed in both directions on this build. Run `workforce doctor --connect` to ask the runtime itself, which is the only check that can reach verified_ready',
       };
     }
     if (loggedIn === false) return { auth: 'logged_out', detail: '`claude auth status` reported loggedIn=false' };

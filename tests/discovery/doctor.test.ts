@@ -141,9 +141,12 @@ describe('workforce doctor reports what it found', () => {
     };
     expect(claudeReport.auth).toBe('logged_in');
     expect(claudeReport.authDetail).toContain('stored profile');
-    // The disagreement WP05 found on the recording machine, stated where a
-    // user reads it rather than only in the adapter.
-    expect(claudeReport.diagnostics.join(' ')).toContain('account.tokenSource');
+    // The disagreement WP05 found, stated where a user reads it rather than
+    // only in the adapter. It has since been observed in BOTH directions on
+    // 2.1.260 — loggedIn=true with no spendable credential, and loggedIn=false
+    // with working turns — so the diagnostic points at the live handshake
+    // rather than at either verdict.
+    expect(claudeReport.diagnostics.join(' ')).toContain('disagreed in both directions');
     expect(claudeReport.diagnostics.join(' ')).toContain('--connect');
     expect(claudeReport.readiness).not.toBe('verified_ready');
   });

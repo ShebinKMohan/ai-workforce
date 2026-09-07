@@ -15,14 +15,18 @@
  *      determined by execution. Also free.
  *
  *   3. MODEL TURNS — the checks that need a turn that actually reaches the
- *      provider. These are skipped, with the reason recorded, when the CLI
- *      reports no usable credential. A skipped check is not a passing check.
+ *      provider. They spend the signed-in account's quota, so the prompts are
+ *      deliberately tiny. They are skipped ONLY when the runtime itself says
+ *      it holds no credential to spend. A skipped check is not a passing check.
  *
- * On the recording machine part 3 is skipped: `claude auth status` reports
- * loggedIn=true, but the CLI's own `initialize` control response reports
- * `account.tokenSource: "none"` and every turn ends in about 60 ms with
- * `error: "authentication_failed"` / `terminal_reason: "api_error"`.
- * Re-authenticating is `claude auth login`, an interactive action.
+ * The gate below reads the runtime's own `initialize` account block, and it
+ * reads it in both directions, which the first WP05 recording did not: claude
+ * 2.1.260 reports `account.tokenSource: "none"` when it is signed OUT and
+ * omits the field entirely when it is signed IN. Treating the absent field as
+ * "no credential" skipped every model-turn check on a working machine and
+ * recorded a false reason for doing so. An account the runtime cannot describe
+ * at all is `unknown`, and unknown does NOT skip: the checks run and a failure
+ * is reported as a failure.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
@@ -68,28 +72,35 @@ afterAll(() => {
   for (const o of observations) console.log(`  ${o.what}: ${o.result}`);
 });
 
+interface CredentialGate {
+  /** False only when the runtime said it holds nothing to spend. `unknown` runs the checks. */
+  readonly skip: boolean;
+  readonly state: 'usable' | 'none' | 'unknown' | 'unavailable';
+  readonly tokenSource: string | null;
+  readonly detail: string;
+}
+
 /**
  * Ask the installed CLI, through its own `initialize` control request, whether
- * it holds a usable credential. This starts a process but no model turn.
+ * it holds a credential it can spend. This starts a process but no model turn.
+ *
+ * The verdict comes from `readClaudeCredential`, the same function
+ * `ClaudeCodeAdapter.probe` uses for `workforce doctor --connect`, so the
+ * product and its own test suite cannot disagree about the same runtime.
  */
-async function credentialState(): Promise<{ usable: boolean; tokenSource: string | null; detail: string }> {
-  if (!REAL) return { usable: false, tokenSource: null, detail: 'real-runtime checks are gated' };
-  if (!existsSync(CLAUDE)) return { usable: false, tokenSource: null, detail: `no executable at ${CLAUDE}` };
+async function credentialGate(): Promise<CredentialGate> {
+  if (!REAL) return { skip: true, state: 'unavailable', tokenSource: null, detail: 'real-runtime checks are gated' };
+  if (!existsSync(CLAUDE)) return { skip: true, state: 'unavailable', tokenSource: null, detail: `no executable at ${CLAUDE}` };
   const adapter = new ClaudeCodeAdapter({ executablePath: CLAUDE, startupTimeoutMs: 60_000, controlTimeoutMs: 60_000, stopTimeoutMs: 8_000 });
   try {
-    const discovered = await adapter.discoverSettings(CLAUDE);
-    const tokenSource = discovered.tokenSource;
-    return {
-      usable: tokenSource !== null && tokenSource !== 'none',
-      tokenSource,
-      detail: `the runtime reports account.tokenSource ${JSON.stringify(tokenSource)}`,
-    };
+    const { credential } = await adapter.discoverSettings(CLAUDE);
+    return { skip: credential.state === 'none', state: credential.state, tokenSource: credential.tokenSource, detail: credential.detail };
   } catch (error) {
-    return { usable: false, tokenSource: null, detail: `the initialize control round-trip failed: ${(error as Error).message}` };
+    return { skip: true, state: 'unavailable', tokenSource: null, detail: `the initialize control round-trip failed: ${(error as Error).message}` };
   }
 }
 
-const credentials = REAL ? await credentialState() : { usable: false, tokenSource: null, detail: 'gated' };
+const credentials: CredentialGate = REAL ? await credentialGate() : { skip: true, state: 'unavailable', tokenSource: null, detail: 'gated' };
 
 const open: Array<{ adapter: ClaudeCodeAdapter; handle: SessionHandle }> = [];
 async function stopAll(): Promise<void> {
@@ -169,12 +180,19 @@ describe.skipIf(!REAL)('claude-code control plane (installed runtime, no model t
     observe('effort levels reported by the runtime', settings.effort.offered.map((e) => e.value).join(', '));
 
     // `claude auth status` can say loggedIn=true while the CLI holds nothing
-    // usable. The probe reports what the runtime itself says.
+    // usable. The probe reports what the runtime itself says — and the gate
+    // below reads the same answer, so the product and this suite cannot
+    // disagree about whether the runtime can spend a credential.
     observe('account.tokenSource', String(credentials.tokenSource));
-    if (credentials.tokenSource === 'none') {
+    observe('credential state derived from the account block', `${credentials.state} — ${credentials.detail}`);
+    if (credentials.state === 'none') {
       expect(readiness.authentication).toBe('logged_out');
       expect(readiness.ready).toBe('not_ready');
       expect(readiness.diagnostics.some((d) => d.includes('tokenSource'))).toBe(true);
+    }
+    if (credentials.state === 'usable') {
+      expect(readiness.authentication).toBe('logged_in');
+      expect(readiness.ready).toBe('verified_ready');
     }
   });
 
@@ -455,9 +473,9 @@ describe.skipIf(!REAL)('claude-code containment (FR042, executed against the ins
 // 3. Model turns — need a credential the recording machine does not have
 // ---------------------------------------------------------------------------
 
-const modelTurnSkip = `skipped: the installed runtime holds no usable credential (${credentials.detail}). Run \`claude auth login\` and re-run with WORKFORCE_REAL_RUNTIMES=1`;
+const modelTurnSkip = `skipped: the installed runtime says it holds no credential to spend (${credentials.detail}). Run \`claude auth login\` and re-run with WORKFORCE_REAL_RUNTIMES=1`;
 
-describe.skipIf(!REAL || !credentials.usable)(`claude-code model turns (${credentials.usable ? 'credentials available' : modelTurnSkip})`, () => {
+describe.skipIf(!REAL || credentials.skip)(`claude-code model turns (${credentials.skip ? modelTurnSkip : `credential state: ${credentials.state} — ${credentials.detail}`})`, () => {
   it('a turn writes the requested file into the granted candidate', async () => {
     const workspace = tempWorkspace('wf-claude-turn-');
     const logsDir = path.join(path.dirname(workspace), 'logs');

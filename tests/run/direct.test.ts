@@ -34,6 +34,7 @@ import {
   fixThenExitCleanlyScenario,
   fixThePythonBugScenario,
   hangScenario,
+  hideTheTestsFromTheArchiveScenario,
   longRunningScenario,
   registerCleanup,
   rewriteTheTestsScenario,
@@ -408,6 +409,25 @@ describe('the direct path produces a verified candidate (FR019, FR020, FR041, FR
     });
   });
 
+  it('refuses acceptance when the candidate hides the acceptance suite from the verifier\'s copy', async () => {
+    const h = await harness();
+
+    const result = await h.run(hideTheTestsFromTheArchiveScenario());
+
+    // Nothing the acceptance surface pins was modified or deleted: the diff is
+    // two additions, so the fixture-mutation rule never fires.
+    expect(result.snapshot!.changes.every((change) => change.status.startsWith('A'))).toBe(true);
+    expect(result.manifest.evidence['acceptanceFixtureMutations']).toEqual([]);
+    // The verifier still ran the suite the base revision defined, and it fails.
+    expect(result.receipts[0]!.outcome).toBe('failed');
+    expect(result.receipts[0]!.copyStrategy).toBe('git_archive_repaired');
+    expect(result.receipts[0]!.diagnostics.join(' ')).toContain('export-ignore');
+    expect(result.outcome).toBe('failed');
+    expect(result.acceptance.accepted).toBe(false);
+    // And the change that tried it is named for a reader rather than left silent.
+    expect(result.manifest.unresolved.join(' ')).toContain('.gitattributes');
+  });
+
   it('does not read a suite that executed zero tests as a passing check', async () => {
     const h = await harness();
 
@@ -530,7 +550,9 @@ describe('a writing profile needs a write boundary (plan sections 6, 8 and 9; FR
     };
   }
 
-  async function runClaude(options: { allowUnconfinedWrites?: boolean; policy?: 'analysis' | 'local-development' } = {}): Promise<{
+  async function runClaude(
+    options: { allowUnconfinedWrites?: boolean; policy?: 'analysis' | 'local-development'; scenario?: string; vars?: Record<string, string> } = {},
+  ): Promise<{
     result: RunDirectResult | null;
     error: unknown;
     lines: string[];
@@ -565,7 +587,7 @@ describe('a writing profile needs a write boundary (plan sections 6, 8 and 9; FR
             controlTimeoutMs: 10_000,
             stopTimeoutMs: 3_000,
           }),
-        sessionEnv: claudeScenarioEnv('session-fix-pagination.synthetic.json', { fix: fixedPaginationSource() }),
+        sessionEnv: claudeScenarioEnv(options.scenario ?? 'session-fix-pagination.synthetic.json', { fix: fixedPaginationSource(), ...(options.vars ?? {}) }),
         ...(options.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
       });
       return { result, error: null, lines, stateRoot };
@@ -634,6 +656,99 @@ describe('a writing profile needs a write boundary (plan sections 6, 8 and 9; FR
     const summary = readFileSync(result!.summaryPath, 'utf8');
     expect(summary).toContain('this run had no enforced write boundary');
     expect(summary).toContain('not enforced by the runtime');
+  });
+});
+
+describe('what the runtime says about its own turn is read as a claim, not as a result (FR003, FR004, FR042, FR050)', () => {
+  const CLAUDE_REPLAY = fileURLToPath(new URL('../../fixtures/claude-code/fake-claude.mjs', import.meta.url));
+
+  async function runReplay(scenario: string, vars: Record<string, string> = {}): Promise<RunDirectResult> {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-claude-claims-');
+    const configPath = writeClaudeAgentsConfig(tempDir('workforce-claude-claims-config-'));
+    const paths = createStatePaths(stateRoot);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    try {
+      const loaded = loadAgentConfigFile(configPath);
+      return await runDirect({
+        repoPath: fixture.path,
+        config: loaded.config,
+        configRaw: loaded.raw,
+        configPath: loaded.path,
+        requestText: REQUEST_TEXT,
+        requestSource: 'argument',
+        paths,
+        db: store.db,
+        stream: { line: () => {}, event: () => {} },
+        adapterFactory: (_runtime, context) =>
+          new ClaudeCodeAdapter({
+            executablePath: process.execPath,
+            extraArgs: [CLAUDE_REPLAY],
+            logsDir: context.logsDir,
+            startupTimeoutMs: 10_000,
+            controlTimeoutMs: 10_000,
+            stopTimeoutMs: 3_000,
+          }),
+        sessionEnv: {
+          WORKFORCE_FAKE_CLAUDE_SCENARIO: fileURLToPath(new URL(`../../fixtures/claude-code/${scenario}`, import.meta.url)),
+          WORKFORCE_FAKE_CLAUDE_VARS: JSON.stringify({ fix: fixedPaginationSource(), ...vars }),
+        },
+        allowUnconfinedWrites: true,
+      });
+    } finally {
+      store.close();
+    }
+  }
+
+  it('refuses a candidate whose evidence carries a session id the coordinator never minted', async () => {
+    const result = await runReplay('session-foreign-session-id.synthetic.json');
+
+    // The fix itself is real and the check passes on the frozen candidate...
+    expect(result.receipts[0]!.outcome).toBe('passed');
+    // ...and the run is still refused, because the records that describe the
+    // work name a conversation this coordinator did not open.
+    expect(result.outcome).toBe('failed');
+    expect(result.acceptance.accepted).toBe(false);
+    expect(result.acceptance.reasons.join(' ')).toContain('ffffffff-ffff-4fff-8fff-ffffffffffff');
+    expect(result.acceptance.reasons.join(' ')).toContain('session id this coordinator did not mint');
+    expect(result.evidence!.sessionIdentityMismatches.join(' ')).toContain('ffffffff-ffff-4fff-8fff-ffffffffffff');
+    expect(String(result.manifest.evidence['sessionIdentityMismatches'])).toContain('ffffffff-ffff-4fff-8fff-ffffffffffff');
+    expect(result.manifest.unresolved.join(' ')).toContain('a session this coordinator did not open');
+  });
+
+  it('does not record a terminal record that reports failure as a completed turn', async () => {
+    const result = await runReplay('session-error-result.synthetic.json');
+
+    // Same real fix, same passing verifier-executed check.
+    expect(result.receipts[0]!.outcome).toBe('passed');
+    // The runtime said the turn failed, so the manifest says so too.
+    expect(result.manifest.runtime['turnConclusion']).toBe('turn_failed');
+    expect(String(result.manifest.evidence['runtimeReportedTurnFailure'])).toContain('error_during_execution');
+    expect(result.outcome).toBe('failed');
+    expect(result.acceptance.accepted).toBe(false);
+    expect(result.acceptance.reasons.join(' ')).toContain('terminal record says the turn failed');
+    expect(result.manifest.unresolved.join(' ')).toContain('reporting that it failed');
+    expect(readFileSync(result.summaryPath, 'utf8')).toContain('reporting that it failed');
+  });
+
+  it('does not present an empty escape list as a checked negative on a runtime with no write boundary', async () => {
+    const outside = path.join(tempDir('workforce-claude-escape-'), 'ESCAPED.txt');
+    const result = await runReplay('session-unreported-write.synthetic.json', { escape: outside });
+
+    // The write really happened, and the runtime never reported it, so the
+    // list of observed escapes is empty...
+    expect(existsSync(outside)).toBe(true);
+    expect(result.manifest.evidence['writesOutsideGrantedPaths']).toEqual([]);
+    // ...which is exactly why the manifest has to say what that emptiness is
+    // worth on a runtime that enforces nothing.
+    expect(result.manifest.evidence['writeObservation']).toMatchObject({
+      basis: 'runtime_reported_tool_events',
+      enforcedWriteBoundary: false,
+      complete: false,
+    });
+    const note = String((result.manifest.evidence['writeObservation'] as { note: string }).note);
+    expect(note).toContain('An empty list means nothing was reported, NOT that nothing was written.');
+    expect(readFileSync(result.summaryPath, 'utf8')).toContain('nothing was reported');
   });
 });
 

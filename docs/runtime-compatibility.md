@@ -326,17 +326,27 @@ policy becomes, plus what it cannot enforce:
 WP05 opened real Claude Code sessions and found the two facts a readiness report
 must not leave unsaid. Both are now in the product, not only in the adapter.
 
-### 1. A login-status command is not evidence of a usable credential
+### 1. A login-status command is not evidence either way
 
 On the recording machine `claude auth status` reported
 `{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "max"}` while
 the runtime itself reported `account.tokenSource: "none"` and **every turn
 failed** with *"Failed to authenticate: OAuth session expired and could not be
-refreshed"* (docs/runtime-claude-code.md section 9).
+refreshed"*.
 
-So the passive line above is corrected: `claude auth status` describes a stored
-profile. Passive discovery now says exactly that and adds a diagnostic naming
-the disagreement, and `verified_ready` remains unreachable passively.
+The reverse has since been observed on the same build, and it matters more:
+`auth status` reporting a login while the runtime reported **no**
+`account.tokenSource` at all — and the runtime ran turns perfectly. claude
+2.1.260 emits `tokenSource: "none"` when it is signed out and **omits the field**
+when it is signed in, so an absent field is not a denial. WP05 read it as one,
+which made a working runtime look credential-less to the test gate and to this
+record (docs/runtime-claude-code.md section 9 carries the correction, and
+`docs/evidence/at03/` the executed evidence).
+
+So the passive line above is corrected in both directions: `claude auth status`
+describes a stored profile and settles nothing. Passive discovery says exactly
+that, adds a diagnostic naming the disagreement, and `verified_ready` remains
+unreachable passively.
 
 ### 2. `workforce doctor --connect` — the explicit connection check
 
@@ -347,28 +357,30 @@ Both start a process; **neither starts a model turn**, so the check is free. It
 is the only way to reach `verified_ready`, and where the runtime and its status
 command disagree, the runtime's answer is the one recorded.
 
-Executed on this machine, 7 September 2026:
+Executed on this machine, 7 September 2026 (WP05 recording, afternoon):
 
 ```console
 $ workforce doctor --connect
-workforce doctor — discovery plus an explicit connection check (a process is started; no model turn is)
-
 RUNTIME      VERSION  READINESS       AUTH        EXECUTABLE
 codex        0.147.0  verified_ready  logged_in   /opt/homebrew/bin/codex
 claude-code  2.1.260  controllable    logged_out  /Users/…/.local/bin/claude
-
-codex — Codex CLI
-  readiness:     verified_ready
-  authentication: logged_in — `codex login status` reports an active login, confirmed by the connection check
-  write boundary: a tested containment boundary is reported for writing profiles
-  note: verified ready by live check: codex connection check against /opt/homebrew/bin/codex (0.147.0): the runtime answered its own control handshake
-
-claude-code — Claude Code
-  readiness:     controllable (after an explicit connection check)
-  authentication: logged_out — `claude auth status` exited 1; login state is not established, but the connection check asked the runtime and it reports logged_out; the runtime's own answer is the one recorded
-  write boundary: NONE — sandbox_workspace_write is unsupported, so writing profiles (local-development) are refused for this runtime unless a run passes --allow-unconfined-writes
-  note: connection check: the runtime reports account.tokenSource "none": it holds no usable credential, whatever `claude auth status` says. Run `claude auth login` before dispatching a turn
 ```
+
+Executed again the same evening, after the credential reading was corrected and
+after this machine's ChatGPT sign-in expired — the same command, both verdicts
+reversed (`docs/evidence/at03/doctor-connect.json` is the full record):
+
+```console
+$ workforce doctor --connect --json
+codex        0.147.0  controllable    logged_out   # `codex login status` prints "Not logged in"
+claude-code  2.1.260  verified_ready  logged_in    # the runtime answered its own control handshake
+```
+
+Two lessons, both about this command rather than about either vendor: readiness
+is a property of the machine at a moment, so it is recorded with a date and never
+compiled into a capability table; and where a status command and a runtime
+disagree, the runtime's answer is the one recorded — including when the runtime's
+answer is "I said nothing about it", which is `unknown` and not `not_ready`.
 
 ### 3. The write boundary is reported per runtime, and it gates writing profiles
 

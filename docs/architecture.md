@@ -77,8 +77,8 @@ Settings (FR006): `validateSettings` reports each of model and effort as `runtim
 9. Adapter streams survive unknown event kinds, unknown fields and malformed lines; receipts say what was requested versus observed; owned process trees are terminated as a group; after a restart a process is signalled only when its recorded identity (pid + start time + spawn token) matches, never by pid alone.
 10. Human-readable output and projections are redacted without masking readiness, usage or git metadata fields; passive probes start no model turn.
 11. A failed `BEGIN` never converts later transactions into autocommit; model/effort settings are validated against what the adapter offers before anything is spawned.
-12. Acceptance needs more than a zero exit code. The check *definition* is read from the base revision, and the files that definition *executes* are pinned there too: a candidate that modified or deleted them makes the criterion `compromised`, which is neither a pass nor an ordinary failure. Adding a new test file is recorded and does not block. A recognized runner that exits 0 having executed zero tests is a `no_tests_executed` receipt, not a pass.
-13. Run-level facts veto acceptance whatever the receipts say: an observed write outside the granted paths, a runtime that died mid-turn, and a candidate identical to its base. Each appears in `acceptance.reasons`, so a refusal always says why.
+12. Acceptance needs more than a zero exit code. The check *definition* is read from the base revision, and the files that definition *executes* are pinned there too: a candidate that modified or deleted them makes the criterion `compromised`, which is neither a pass nor an ordinary failure. Adding a new test file is recorded and does not block. A recognized runner that exits 0 having executed zero tests is a `no_tests_executed` receipt, not a pass. And the copy the criterion runs in must *be* the candidate: `git archive` obeys the archived revision's own `.gitattributes`, so the disposable copy is compared against the revision's `git ls-tree` listing and completed from the object database before anything runs, and a copy still missing a tracked path makes the receipt an `error` rather than a result.
+13. Run-level facts veto acceptance whatever the receipts say: an observed write outside the granted paths, a runtime that died mid-turn, a terminal record in which the runtime reports its own turn *failed*, a record carrying a session id this coordinator never minted, and a candidate identical to its base. Each appears in `acceptance.reasons`, so a refusal always says why. What the evidence cannot claim it does not: `writesOutsideGrantedPaths` travels with a `writeObservation` block saying that the list is assembled from tool events the runtime chose to report, so on a runtime with no enforced boundary an empty list means nothing was reported, not that nothing was written.
 14. An interruption is bounded: the coordinator persists the intent, requests runtime interruption, waits `INTERRUPT_ACKNOWLEDGEMENT_MS` for an observed end of turn, then terminates the process group it owns. `runTimeoutMinutes` starts the same sequence on its own, so an unresponsive runtime cannot hold the coordinator open.
 
 ## Deliberately not here yet
@@ -112,16 +112,22 @@ independent verification found to be false.
 
 ## AT03 demonstration evidence
 
-`docs/evidence/at03/` holds the two-runtime demonstration: the same `ts-bug` task, one agent per
-runtime in one `agents.json`, run once through each installed executable. Codex reached `accepted`
-(exit 0) on a candidate whose patch was proved outside the coordinator to fix the bug. Claude Code
-did **not**: on this machine the installed `claude` holds no usable credential
-(`account.tokenSource: "none"`), so every turn ends in ~50 ms with `authentication_failed` and the
-run correctly refused acceptance with exit 4. That half of AT03 is blocked on an interactive
-`claude auth login`, not on this code, and the README says so in its first paragraph rather than
-substituting a passing-looking result.
+`docs/evidence/at03/` holds the executed record: the same `ts-bug` task, one agent per runtime in one
+`agents.json`, run once through each installed executable. **Claude Code reached `accepted`**
+(exit 0) with a real model turn, on a candidate whose patch was proved outside the coordinator to fix
+the bug — and whose bytes are identical to the ones Codex produced for the same fixture. **Codex did
+not run at all**: this machine's ChatGPT sign-in has expired, so the turn ends in
+`401 Unauthorized` and the run correctly refused acceptance with exit 4. That half is blocked on an
+interactive `codex login`, not on this code.
 
-The same directory records what *is* established for the Claude Code path: the real coordinator and
-the real `ClaudeCodeAdapter`, driven by the recorded-replay binary, reach `accepted` on the same
-task, and refuse the acceptance-surface attack (a worker that rewrites the acceptance suite) with a
-`compromised` criterion and exit 4.
+`docs/evidence/at03/2026-09-07-initial/` keeps the superseded first recording, which claimed the
+opposite and was wrong about it: it read the *absence* of `account.tokenSource` in claude 2.1.260's
+handshake as "no usable credential", when this build omits that field precisely when it is signed in.
+The banner on that file names what was false and what the runs it recorded did establish.
+
+The same directory records both acceptance-surface attacks, each refused through the real
+coordinator: a worker that rewrites the acceptance suite (`compromised` criterion, exit 4), and a
+worker that leaves the suite alone and adds a `.gitattributes` marking it `export-ignore`, which
+would have deleted the suite from the `git archive` copy the verifier executes. The check runner now
+completes its copy from the object database and records `copyStrategy: git_archive_repaired` when it
+had to.

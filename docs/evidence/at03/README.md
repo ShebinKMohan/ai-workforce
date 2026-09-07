@@ -1,117 +1,126 @@
-# AT03 evidence — the same fixture task through both installed runtimes
+# AT03 evidence — the same fixture task through the installed Claude Code runtime
 
 Release gate: **R1** · Acceptance test: **AT03** · Work package: **WP05 — second adapter**, integrated
 into `main` · Features exercised: **FR003, FR004, FR005, FR006, FR011, FR012, FR041, FR042, FR049,
 FR050, FR058, FR059, FR060**
 
-Recorded 7 September 2026 on the author's macOS machine. Everything below was executed; every number
-comes from a file in this directory. Where a statement is not backed by an executed command it says so.
+Re-recorded 7 September 2026 on the author's macOS machine, after independent verification found the
+first AT03 record's central claim false. The first recording is kept unchanged in
+[`2026-09-07-initial/`](2026-09-07-initial/) with a banner saying what was wrong with it.
+Everything below was executed; every number comes from a file in this directory. Where a statement
+is not backed by an executed command it says so.
 
 ---
 
 ## The headline, before anything else
 
-**Half of this demonstration passed and half is blocked, and the blocked half is not a code defect.**
+**The installed Claude Code runtime fixes the fixture bug and the run reaches `accepted`, exit 0.
+The installed Codex runtime cannot be run today at all: this machine's ChatGPT sign-in has expired.**
 
-- The fixture task reached `accepted` through the **installed Codex runtime**, exit 0, on a candidate
-  a verifier-executed check passed and whose patch really fixes the bug. That is run **A**.
-- The identical task through the **installed Claude Code runtime** did not reach `accepted`. The run
-  worked exactly as designed — session opened, turn started, event stream normalized, evidence
-  recorded, acceptance refused — but the runtime itself could not reach the provider. Every turn on
-  this machine ends in about 50 ms with
-  `Failed to authenticate: OAuth session expired and could not be refreshed`. That is run **B**, and
-  it exits 4.
+That is the exact reverse of what the first record said, and the reversal has two different causes
+that should not be confused:
 
-`claude auth status` on this machine now reports `{"loggedIn": false, "authMethod": "none"}`, and the
-runtime's own `initialize` handshake reports `account.tokenSource: "none"`. Restoring it needs
-`claude auth login`, an interactive browser sign-in a coding agent must not perform on the user's
-behalf. Nothing in this repository can work around it.
+1. **The Claude Code half was never blocked.** The first record said the installed `claude` "holds
+   no usable credential" and that only an interactive `claude auth login` could restore it. That
+   diagnosis was wrong. claude 2.1.260 reports `account.tokenSource: "none"` when it is signed
+   **out** and **omits the field entirely** when it is signed **in**; the adapter, the test gate,
+   the capability table and the conformance target all read the absent field as a denial. Executed
+   here, with no login performed, the `initialize` account block is
+   `{"email": …, "organization": …, "subscriptionType": "Claude Max", "apiProvider": "firstParty"}`
+   and there is no `tokenSource` key at all. The reading is fixed in code
+   (`readClaudeCredential`, `src/adapters/claude-code/protocol.ts`), and run **B** below is what the
+   runtime does when it is asked properly.
+2. **The Codex half is blocked now, by the machine, not by this code.** `codex login status` reports
+   `Not logged in`, and run **A** ends in `unexpected status 401 Unauthorized … url:
+   https://api.openai.com/v1/responses`. The run behaves correctly — session opened, stream
+   normalized, evidence recorded, acceptance refused, exit 4 — but no model did any work. Restoring
+   it needs an interactive `codex login`, which a coding agent must not perform on the user's
+   behalf. **No claim is made here about what Codex would do today.**
 
 So, stated precisely:
 
 | Reading of AT03 | Status |
 | --- | --- |
-| The plan's own wording (§12): "Both Codex and Claude Code pass adapter lifecycle/conformance tests, including stream/result parsing and owned session continuity" | **Partly.** Both adapters run the same shared conformance suite against their installed executables. Codex passes every check but one documented skip. Claude Code passes every check that does not need a completed model turn; the eight that do are skipped with the credential as the stated reason. A skipped check is not a passing check. |
-| The stronger demonstration this package was asked for: the same task `accepted` through both installed runtimes | **No.** Codex yes; Claude Code blocked on the runtime's credential. |
+| The plan's own wording (§12): "Both Codex and Claude Code pass adapter lifecycle/conformance tests, including stream/result parsing and owned session continuity" | **For Claude Code, yes:** 17 of 17 real-runtime checks pass with no skip, and 19 of 20 shared conformance checks pass against the installed executable (the 20th is the malformed-output check, which no installed runtime can be made to produce on demand; the recorded replay covers it). **For Codex, not today:** its 12 gated checks fail on HTTP 401 because the sign-in expired. The Codex half passed on this machine when WP03 and the first AT03 record were made; `2026-09-07-initial/checks.txt` is that run. |
+| The stronger demonstration: the same task `accepted` through the installed runtime | **Claude Code: yes** (run B, exit 0, a real model turn, a patch proved outside the coordinator to fix the bug). **Codex: not today.** |
 
-What *is* established for the Claude Code side, with the code path the product actually uses:
-
-- run **C**: the same task, the same `commandRun` coordinator, the same real `ClaudeCodeAdapter` —
-  with the adapter's executable pointed at the deterministic recorded-replay binary instead of the
-  installed `claude`. It reaches `accepted`, exit 0, and its patch really fixes the bug. **No model
-  turn happened. This is not evidence that Claude Code fixed anything.** It is evidence that
-  everything between the coordinator and the runtime's stdio is complete, so that when a credential
-  exists the only untested link is the model's own work.
-- run **D**: the acceptance-surface attack down that same claude-code path — a worker that rewrites
-  the acceptance suite instead of fixing the bug. Refused, exit 4.
+Nothing here is a two-runtime comparison. One runtime worked when this was recorded.
 
 ---
 
 ## Source revision that produced this evidence
 
-**Commit: `d05bbae` — "AT03 evidence: the same task accepted via Codex and Claude Code"**, whose
-parent is `2d9a910` ("Merge WP05 (Claude Code adapter) into main"). `dist/` was built with
+**Commit: "Address WP05/AT03 verification findings"**, whose parent is `8a97b87`
+("AT03 evidence: say accurately what happened to the scratch directory"). `dist/` was built with
 `npm run build` from that commit's `src/`, and nothing under `src/` or `fixtures/` changed between
-that build and these runs. (`tests/` gained one file-scoped hygiene fix afterwards, described at the
-end of this file; it cannot affect a `dist/` run.)
-`npm run typecheck`, `npm test` and the gated real-runtime suites were run against the same tree, and
-`checks.txt` is their verbatim output:
+that build and these runs — with one exception, named here rather than glossed over: after the runs,
+the doc comment on `turnConclusion` in `src/core/run-direct.ts` was reworded to mention Codex's
+`status: "failed"` beside Claude Code's `is_error`, because run A had just demonstrated the Codex
+shape. It is a comment; no statement changed, and the commit is the tree with the reworded comment in
+it. (`tsc` keeps comments in its output, so `dist/core/run-direct.js` is not byte-identical across
+that edit even though its behaviour is.)
 
-| Command | Result |
-| --- | --- |
-| `npm run typecheck` | clean, exit 0 |
-| `npm test` | **370 passed, 31 skipped**, 27 files passed / 2 skipped, exit 0 |
-| `WORKFORCE_REAL_RUNTIMES=1 npx vitest run tests/adapters --reporter=verbose` | **200 passed, 11 skipped**, 7 files passed, exit 0 |
+| Command | Result | File |
+| --- | --- | --- |
+| `npm run typecheck` | clean, exit 0 | `checks.txt` |
+| `npm test` | **381 passed, 31 skipped**, 27 files passed / 2 skipped, exit 0 | `checks.txt` |
+| `WORKFORCE_REAL_RUNTIMES=1 npx vitest run tests/adapters --reporter=verbose` | **201 passed, 12 failed, 3 skipped**, exit 1 | `checks.txt` |
 
-The 11 skips in the real-runtime run are each named with its reason in `checks.txt`:
+The gated suite does not pass, and the reason is named rather than hidden: **all 12 failures are
+Codex**, six in `tests/adapters/codex/real-runtime.test.ts` and six in the codex conformance target,
+each one a 401 or a timeout waiting for a turn that never reaches the provider. Every claude-code
+check in the same run passes.
+
+Only three checks are skipped now, down from eleven:
 
 | Skips | Reason |
 | --- | --- |
-| 6 | `claude-code model turns` — the installed runtime holds no usable credential |
-| 2 | claude-code conformance: *one active turn per session*, *delivery into an active turn* — no turn can be kept running without a credential; the recorded-replay target covers both |
-| 2 | *unknown and malformed output*, one per installed runtime — neither can be made to emit malformed frames on demand; each is covered by a recorded replay |
+| 1 | claude-code conformance, *unknown and malformed output* — the installed runtime cannot be made to emit malformed frames on demand; the recorded-replay target covers it |
+| 1 | codex conformance, the same check for the same reason |
 | 1 | the replay target's passive probe — the replay binary is not the `claude` executable, so there is nothing to probe |
 
-**A skipped check is not a passing check**, and those first eight are exactly where AT03's Claude
-Code half stands.
-
-`main` at the time of the runs: the WP05 merge (`Merge WP05 (Claude Code adapter) into main`) plus
-the FR006 effective-settings change described under [What changed in the code for this
-record](#what-changed-in-the-code-for-this-record).
+The eight skips that are gone were the ones the first record described as "exactly where AT03's
+Claude Code half stands": six model-turn checks and two conformance checks. They were not skipped
+because of a credential. Six skipped on the inverted `tokenSource` reading, and two on a
+`slowSkipReason` string literal in `tests/adapters/conformance/targets.ts` that no environment could
+ever clear — the target simply supplied no long-running session, so those checks could not run on any
+machine. A third check was worse than skipped: `suite.ts` registered **one** `it.skip` for a branch
+whose else-arm defines **two** tests, so *"an interrupt receipt says observed only when the turn
+actually ended"* was silently dropped from every report for that target. Both are fixed.
 
 ## Environment
 
 | Fact | Value |
 | --- | --- |
-| Codex | `codex-cli 0.147.0` at `/opt/homebrew/bin/codex`, ChatGPT sign-in, `verified_ready` |
-| Claude Code | `claude 2.1.260` at `~/.local/bin/claude`, **`logged_out`**, `account.tokenSource: "none"` |
+| Claude Code | `claude 2.1.260` at `~/.local/bin/claude`, **`logged_in`** (claude.ai, Claude Max), `verified_ready` |
+| Codex | `codex-cli 0.147.0` at `/opt/homebrew/bin/codex`, **`logged_out`** — `codex login status` prints `Not logged in` |
 | Node | v26.8.1 · Git 2.50.1 · darwin 25.6.0, arm64 |
-| Model pinned for `codex-local` | `gpt-5.6-sol` / effort `medium` (from `model/list`) |
 | Model pinned for `claude-local` | `sonnet` / effort `medium` (from the runtime's own model list) |
+| Model pinned for `codex-local` | `gpt-5.6-sol` / effort `medium` (from `model/list`) |
 
 The Codex model is pinned deliberately: this machine's `~/.codex/config.toml` defaults to
 `gpt-6-astra`, which `codex-cli 0.147.0` rejects with HTTP 400.
 
 `doctor-connect.json` is `workforce doctor --connect --json` against both runtimes — a live control
-handshake per runtime, no model turn — and is where the readiness verdicts above come from. It says
-`codex: verified_ready` and `claude-code: controllable` with the diagnostic
-*"the runtime reports account.tokenSource \"none\": it holds no usable credential, whatever
-`claude auth status` says."*
+handshake per runtime, no model turn. It reports `claude-code: verified_ready` / `logged_in` and
+`codex: controllable` / `logged_out`. In the superseded record those two verdicts are the other way
+round.
 
 ## The agent configuration
 
-`agents.json` declares **both** runtimes and binds one agent to each:
+`agents.json` declares both installed runtimes plus the deterministic fake one, and binds one agent
+to each:
 
 ```json
 "runtimes": {
-  "codex-local":  { "adapter": "codex",       "executable": "/opt/homebrew/bin/codex",              "model": "gpt-5.6-sol", "effort": "medium" },
-  "claude-local": { "adapter": "claude-code", "executable": "/Users/…/.local/bin/claude",           "model": "sonnet",      "effort": "medium" }
-},
-"agents": [ { "id": "engineer-codex", "runtime": "codex-local", … }, { "id": "engineer-claude", "runtime": "claude-local", … } ]
+  "codex-local":  { "adapter": "codex",       "executable": "/opt/homebrew/bin/codex",    "model": "gpt-5.6-sol", "effort": "medium" },
+  "claude-local": { "adapter": "claude-code", "executable": "/Users/…/.local/bin/claude", "model": "sonnet",      "effort": "medium" },
+  "fake-local":   { "adapter": "fake",        "executable": "fixtures/fake-runtime/fake-runtime.mjs" }
+}
 ```
 
-Both agents carry the same instructions and the same `local-development` policy. Only the runtime
-binding differs — which is FR012, and the reason the two runs below are comparable at all.
+All three agents carry the same instructions and the same `local-development` policy. Only the
+runtime binding differs — which is FR012.
 
 ## What was run
 
@@ -120,26 +129,26 @@ and worktrees and the verifier executes repository code. `fixtures/ts-bug` itsel
 
 ```sh
 ROOT=$(mktemp -d)
-npx tsx materialize.mts "$ROOT/repo-codex"          # → base ea90433a57c6 on branch main
-npx tsx materialize.mts "$ROOT/repo-claude"         # → base 0c96effc4902
-npx tsx materialize.mts "$ROOT/repo-claude-replay"  # → base 0c96effc4902
-npx tsx materialize.mts "$ROOT/repo-claude-attack"  # → base d7e90e3402ee
-( cd "$ROOT/repo-<each>" && node --test test/ )     # → exit 1 in all four: the bug reproduces
+npx tsx materialize.mts "$ROOT/repo-claude"          # → base ebaaa31f652f on branch main
+npx tsx materialize.mts "$ROOT/repo-codex"           # → base ebaaa31f652f
+npx tsx materialize.mts "$ROOT/repo-claude-attack"   # → base 17694a47fd26
+npx tsx materialize.mts "$ROOT/repo-archive-attack"  # → base 17694a47fd26
+( cd "$ROOT/repo-<each>" && node --test test/ )      # → exit 1 in all four: the bug reproduces
 
-# A — the installed Codex runtime
-node dist/cli/index.js run --repo $ROOT/repo-codex --agents $ROOT/agents.json \
-  --agent engineer-codex --state-dir $ROOT/state-codex --task "$(cat $ROOT/task.txt)"
-
-# B — the installed Claude Code runtime, same task text, its own state dir
+# B — the installed Claude Code runtime
 node dist/cli/index.js run --repo $ROOT/repo-claude --agents $ROOT/agents.json \
   --agent engineer-claude --allow-unconfined-writes --state-dir $ROOT/state-claude \
   --task "$(cat $ROOT/task.txt)"
 
-# C, D — the same coordinator and the same ClaudeCodeAdapter, executable = the replay binary
-node replay-run.mjs $ROOT/repo-claude-replay $ROOT/agents.json $ROOT/state-claude-replay \
-  $ROOT/task.txt fixtures/claude-code/session-fix-pagination.synthetic.json "$(cat vars-fix.json)"
-node replay-run.mjs $ROOT/repo-claude-attack $ROOT/agents.json $ROOT/state-claude-attack \
+# A — the installed Codex runtime, same task text, its own state dir
+node dist/cli/index.js run --repo $ROOT/repo-codex --agents $ROOT/agents.json \
+  --agent engineer-codex --state-dir $ROOT/state-codex --task "$(cat $ROOT/task.txt)"
+
+# D, E — the two acceptance-surface attacks, through the same coordinator entry point
+node replay-run.mjs $ROOT/repo-claude-attack  $ROOT/agents.json $ROOT/state-claude-attack \
   $ROOT/task.txt scenario-claude-rewrite-tests.json '{}'
+node fake-run.mjs   $ROOT/repo-archive-attack $ROOT/agents.json $ROOT/state-archive-attack \
+  $ROOT/task.txt scenario-fake-export-ignore.json engineer-fake
 ```
 
 The task text is the fixture's bug report, verbatim (`task.txt`, from `fixtures/ts-bug/README.md`):
@@ -149,84 +158,80 @@ The task text is the fixture's bug report, verbatim (`task.txt`, from `fixtures/
 > one item too few on every page. Find the cause and fix it. `npm test` reproduces it.
 
 No acceptance check was passed on the command line. All four runs resolved `.workforce/checks.json`
-**from the base revision** — `node --test test/` — and pinned the files that definition executes, so
-a worker that rewrites them cannot pass. Run D is that attack.
+**from the base revision** — `node --test test/` — and pinned the files that definition executes.
+Runs D and E are the two ways a worker can attack that arrangement.
 
 ### Why run B needs `--allow-unconfined-writes` and run A does not
 
 `claude-code` reports `write_containment: unsupported` for 2.1.260 on darwin, so the run path
 *refuses* a writing profile on it unless a human explicitly accepts an unconfined run. That refusal
-is WP05's finding, not a workaround: a SessionStart hook the installed runtime itself launched wrote
-outside every `--add-dir` directory, wrote to `/tmp`, read outside and reached the network — with and
-without `--restricted --permission-mode plan --permission-prompts none`. Codex needs no such flag
-because its `workspaceWrite` sandbox with `excludeSlashTmp`/`excludeTmpdirEnvVar` is `verified`.
-
-This is the single largest behavioural difference a user would notice between the two runtimes, and
-it is the first thing `transcript-claude.txt` prints.
+is WP05's finding and it is unchanged by anything here: a SessionStart hook the installed runtime
+itself launched wrote outside every `--add-dir` directory, wrote to `/tmp`, read outside and reached
+the network — with and without `--restricted --permission-mode plan --permission-prompts none`. The
+gated suite re-confirmed all four of those observations in this run (`checks.txt`, the
+"claude-code containment observations" block). Codex needs no such flag because its `workspaceWrite`
+sandbox with `excludeSlashTmp`/`excludeTmpdirEnvVar` is `verified`.
 
 ## Results
 
-| | **A** codex (real) | **B** claude-code (real) | **C** claude-code (replay) | **D** claude-code attack (replay) |
+| | **B** claude-code (real) | **A** codex (real) | **D** rewrite-the-suite attack | **E** export-ignore attack |
 | --- | --- | --- | --- | --- |
-| run id | `01a07bf5-7769-70c5-9a94-123f82562ef4` | `01a07bff-9d26-7041-addb-9b75b69f8c9a` | `01a07bff-d96a-750d-bd94-8b0ac8251501` | `01a07bff-db7b-7021-9eab-0e500bb71387` |
-| exit code | **0** | **4** | **0** | **4** |
-| outcome | `accepted` | `failed` | `accepted` | `failed` |
-| base | `ea90433a57c6` | `0c96effc4902` | `0c96effc4902` | `d7e90e3402ee` |
-| candidate | `6a94ca7c8105` | none (identical to base) | `c2284267eb37` | `03c031e8b59e` |
-| patch sha256 | `2a4859774b60…` | `e3b0c44298fc…` (empty) | `0ca76d6e018e…` | `19bdbba6e5c5…` |
-| changed files | `M src/pagination.js` | none | `M src/pagination.js` | `M test/pagination.test.js` |
-| check `node-tests-pass` | passed, exit 0, 77 ms, 5 tests | failed, exit 1, 81 ms, 5 tests | passed, exit 0, 83 ms, 5 tests | passed, exit 0, 77 ms, **1 test** — and **compromised** |
+| runtime | installed `claude` | installed `codex` | claude-code adapter, replay binary | fake runtime |
+| run id | `01a07cbe-1fef-7672-967b-d07703840c25` | `01a07cbe-a343-72e6-a8fb-39af8350b0db` | `01a07cbf-0d76-7443-a022-ccb29415afdb` | `01a07cbf-0fa9-70c2-b64f-8281c4328f34` |
+| exit code | **0** | **4** | **4** | **4** |
+| outcome | `accepted` | `failed` | `failed` | `failed` |
+| base | `ebaaa31f652f` | `ebaaa31f652f` | `17694a47fd26` | `17694a47fd26` |
+| candidate | `35c902f92944` | none (identical to base) | `7fa238e00f3e` | `1fb27d383e7b` |
+| patch sha256 | `2a4859774b60…` | `e3b0c44298fc…` (empty) | `19bdbba6e5c5…` | `89f9a1ba28d9…` |
+| changed files | `M src/pagination.js` | none | `M test/pagination.test.js` | `A .gitattributes`, `A test/zz-smoke.test.js` |
+| check `node-tests-pass` | passed, exit 0, 83 ms, 5 tests | failed, exit 1, 84 ms, 5 tests | passed, exit 0, 81 ms, **1 test** — and **compromised** | failed, exit 1, 84 ms, **6 tests** |
+| copy strategy | `git_archive` | `git_archive` | `git_archive` | **`git_archive_repaired`** |
 | evidence provenance | `verifier_executed` | `verifier_executed` | `verifier_executed` | `verifier_executed` |
-| requested → effective model | `gpt-5.6-sol` → `gpt-5.6-sol` | `sonnet` → **`claude-sonnet-5`** | `sonnet` → `claude-opus-5[1m]` (the scenario's) | same |
-| worker shell commands | 4 | 0 | 0 | 0 |
-| runtime errors | 0 | 1 (`authentication_failed`) | 0 | 0 |
+| requested → effective model | `sonnet` → **`claude-sonnet-5`** | `gpt-5.6-sol` → `gpt-5.6-sol` | `sonnet` → `claude-opus-5[1m]` (the scenario's) | `fake-default` |
+| worker tool calls / shell commands | 4 / 0 | 0 / 0 | 1 / 0 | 2 / 0 |
+| `turnConclusion` | `completed` | **`turn_failed`** | `completed` | `completed` |
+| runtime errors | 0 | **10** (ending in the 401) | 0 | 0 |
 
-Run A's patch is byte-identical to the R0 recording's (`sha256 2a4859774b60…`): `Math.floor` →
-`Math.ceil` in `pageCount`, and the `- 1` removed from the `slice` end in `paginate`, with the BUG
-comments deleted. That is a property of this fixture, not a reproducibility guarantee.
+Run B's patch is byte-identical to the Codex patch the superseded record captured
+(`sha256 2a4859774b60…`): `Math.floor` → `Math.ceil` in `pageCount`, and the `- 1` removed from the
+`slice` end in `paginate`, with the BUG comments deleted. Two different models on two different days
+produced the same bytes for this fixture. That is a property of this fixture, not a reproducibility
+guarantee.
 
 ### Timing split (FR060)
 
-| phase | A codex (real) | B claude-code (real) | C claude-code (replay) |
-| --- | --- | --- | --- |
-| dispatch — intent committed → worker dispatchable | 144 ms | 151 ms | 150 ms |
-| runtime startup — `openSession` incl. the runtime's own handshake | **1 010 ms** | **548 ms** | 37 ms |
-| model/runtime turn | **86 964 ms** | 47 ms *(no provider call)* | 5 ms |
-| validation — freeze + contained check | 181 ms | 161 ms | 184 ms |
-| **elapsed, submission → result** | **89 341 ms** | 1 432 ms | 380 ms |
+| phase | B claude-code (real) | A codex (real, 401) |
+| --- | --- | --- |
+| dispatch — intent committed → worker dispatchable | 165 ms | 163 ms |
+| runtime startup — `openSession` incl. the runtime's own handshake | 736 ms | 447 ms |
+| model/runtime turn | **19 707 ms** | 26 239 ms *(nine reconnect attempts, then the 401)* |
+| validation — freeze + contained check | 208 ms | 186 ms |
+| **elapsed, submission → result** | **21 280 ms** | 27 044 ms |
+
+One sample each. Run A's turn time is a retry loop against an unauthenticated endpoint, not work.
 
 ### Usage and cost availability
 
-| | A codex | B claude-code (real) | C claude-code (replay) |
-| --- | --- | --- | --- |
-| status | `measured` | `measured` | `measured` |
-| input / output tokens | 195 314 / 1 935 | 0 / 0 | 1 200 / 40 |
-| cost (USD) | **`null`** — the app server reports no price at all | **`null`** | `0.0123` |
+| | B claude-code | A codex |
+| --- | --- | --- |
+| status | `measured` | `unavailable` |
+| input / output tokens | 10 / 1 644 | — |
+| cost (USD) | **`0.0533808`** | — |
 
-Codex reports token counts and no currency figure ever, so cost is `null` with a source line saying
-so — never zero. Claude Code *does* report `total_cost_usd`, and the adapter decides whether that
-number is a measurement: in run B the turn made no provider call (`duration_api_ms` is 0), so the
-reported cost is discarded and recorded as unavailable; in run C the scenario's result record carries
-a cost for a turn that reached a provider, so it is recorded. Run B's `0 / 0` tokens are the zeros
-the runtime itself reported for a turn that never called the provider — the number is real, the turn
-is not.
+Claude Code reports `total_cost_usd`, and the adapter records it as `measured` only for a turn that
+reached the provider. Codex reported no usage at all for a turn that never got past authentication,
+and the manifest says `unavailable` with a source line — never zero.
 
-## Honest comparison of the two runtimes
-
-Two runs are **observations, not a benchmark**. One machine, one fixture, one sample each, warm
-caches, and the Claude Code sample never reached a model at all. Nothing here supports a
-distributional claim, a p95, or "runtime X is faster".
-
-| Dimension | Codex 0.147.0 | Claude Code 2.1.260 | What a user would notice |
-| --- | --- | --- | --- |
-| Startup (`openSession` → usable session) | 1 010 ms | 548 ms | Codex is ~2× slower to open here, and most of that is the *user's own MCP servers*, which start with every Codex thread and which the adapter cannot suppress on this version. Claude Code is passed `--strict-mcp-config`, so it starts none. |
-| Turn time | 86 964 ms for the full fix | not measurable | Not comparable. Run A is a real multi-step fix; run B is an authentication failure. |
-| Total accepted-result latency | 89.3 s | — | Only Codex produced one. A second, earlier run of the identical Codex command on this machine took 61.0 s with 135 261 input tokens; its artifacts are not part of this record, but it is the honest indication of how much run-to-run variance one fixture shows. |
-| Cost availability | tokens only, **never** a price | tokens **and** `total_cost_usd`, when the turn reached the provider | Claude Code is the only one of the two from which a per-turn currency figure can be reported at all. |
-| Write containment | `verified` — kernel-enforced writable roots, `/tmp` and `$TMPDIR` excluded | `unsupported` — no OS sandbox; a hook it launched escaped every granted directory | The visible difference: a `local-development` run on Claude Code is **refused** unless the operator passes `--allow-unconfined-writes`, and the manifest, the summary and the terminal all say the run was unconfined. |
-| Session/turn shape | request/response app server; `turn/steer` mid-turn; `turn/interrupt` with an observed confirmation | a turn *is* a stdin frame; interrupts and model listing ride a small control protocol on the same pipes | Invisible through the CLI: the shared adapter contract absorbs it. That is the point of the conformance suite. |
-| Effective settings | echoes model and effort in the `thread/start` response | echoes the model in each turn's `system.init` record; **no effort** | `sonnet` was recorded as effectively `claude-sonnet-5`. An alias the configuration writes is not the model that ran, and the manifest now says both. |
-| Event volume for the same task | 80 unnormalized runtime events kept verbatim beside the normalized stream | 1 | Codex emits far more (MCP startup, reasoning items, rate-limit and diff notifications); none of it is dropped. |
+This corrects a claim in the superseded record and in `docs/verified-capabilities.json`: five
+claude-code capabilities were pinned to `supported_unverified` with the justification that "every
+turn failed authentication before reaching the provider, so the only values observed were the zeros
+of a turn that made no API call". Measured token counts and a measured price were observed here on
+the same version and OS. `token_usage_report`, `cost_report`, `observed_cancellation` and
+`resume_session` are now `verified`, each with the executed evidence named.
+`active_turn_delivery` stays `supported_unverified` — for the reason the status is actually about,
+now stated correctly: the runtime acknowledges a message delivered mid-turn (observed here, during a
+real running turn) but reports nothing that distinguishes injection into the running turn from
+scheduling it as the next one.
 
 ## What was verified, and how
 
@@ -234,177 +239,163 @@ distributional claim, a p95, or "runtime X is faster".
 files each run left behind. Every claim here is a line in that file.
 
 **1 — Acceptance came only from a verifier-executed receipt on the frozen candidate.** For every run,
-`checks[].evidenceProvenance` is `verifier_executed` and `copyStrategy` is `git_archive`: the check
-ran in a separate throwaway copy of the frozen candidate revision, under an environment cut to
-`HOME`, `PATH`, `TMPDIR`. The receipt's own `candidate.revision` and `candidate.patchHash` equal the
-manifest's, and `sha256(candidate.patch)` equals both. The integrity scan over all 6 tracked files
-reports `mutated: false`, with the same tree hash before and after. `node --test` reported **5 tests**
-in runs A, B and C, so an exit-0 run that executed nothing could not pass for this — and run D's receipt records `testsRun: 1`, the single empty test its rewritten suite
-contained. The runtime's "done" claim is recorded as `evidence.runtimeClaimedDone` and decides
-nothing: it is `true` in run A, which was accepted because a check passed, and `false` in runs B, C
-and D — including run C, which was accepted anyway, and run D, whose check *passed* and was still
-refused.
+`checks[].evidenceProvenance` is `verifier_executed`: the check ran in a separate throwaway copy of
+the frozen candidate revision, under an environment cut to `HOME`, `PATH`, `TMPDIR`. The receipt's
+own `candidate.revision` and `candidate.patchHash` equal the manifest's, and `sha256(candidate.patch)`
+equals both. The integrity scan reports `mutated: false`. `node --test` reported **5 tests** in runs
+A and B, so an exit-0 run that executed nothing could not pass for this. The runtime's "done" claim
+is recorded as `evidence.runtimeClaimedDone` and decides nothing — it is `false` in run B, which was
+accepted because a check passed, and `true` in run E, which was refused.
 
 **2 — The accepted patch actually fixes the bug, checked twice.** A clean `git archive` of the base
 fails `node --test` (exit 1). `git apply candidate.patch` applies cleanly (exit 0). The patched copy
 then passes (exit 0). **And then the acceptance suite is restored from the base revision over the
 patched source and run again** — because "the patched copy passes its own tests" is exactly what a
-rewritten suite would also produce. Runs A and C pass that second check (exit 0). Run D fails it
-(exit 1), which is precisely the attack being caught.
+rewritten suite would also produce. Run B passes that second check (exit 0). Run D fails it
+(exit 1), which is precisely the attack being caught. Run E fails both, because it never fixed
+anything.
 
-**3 — No temp repository's branch or working tree was touched.** After all four runs each repo
-is still on `main` at its base revision, `git status --porcelain` is empty, `src/pagination.js` still
+**3 — No temp repository's branch or working tree was touched.** After all four runs each repo is
+still on `main` at its base revision, `git status --porcelain` is empty, `src/pagination.js` still
 contains `Math.floor`, and `main`'s reflog holds exactly one entry — the fixture import. No `reset`,
 `clean` or `stash` was run against any of them. Each run left one extra branch,
 `workforce/<run>/<task>/<attempt>`.
 
-**4 — The checkpoint commit is the coordinator's, never the user's.** Runs A, C and D each have a
-checkpoint commit authored **and** committed by `workforce coordinator <coordinator@workforce.invalid>`,
-with the base revision as its parent. The machine's own Git identity
-(`Shebin Mohan K <shebin.m@…>`) appears nowhere. Run B has `checkpointCreated: false` — the worker
-changed nothing, so its candidate branch simply names the base commit, whose author is the fixture
-import identity; `verification.txt` labels that case explicitly rather than letting it read as a
+**4 — The checkpoint commit is the coordinator's, never the user's.** Runs B, D and E each have a
+checkpoint commit authored **and** committed by
+`workforce coordinator <coordinator@workforce.invalid>`, with the base revision as its parent. The
+machine's own Git identity appears nowhere. Run A has `checkpointCreated: false` — the worker changed
+nothing — and `verification.txt` labels that case explicitly rather than letting it read as a
 coordinator commit.
 
-**5 — The manifest records the runtime and the effective model.** Each manifest's `runtime` block
-carries `adapter`, `runtimeId`, `executable`, the requested `model`/`effort` with their validation
-status, and — new for this record — `effectiveModel`, `effectiveEffort` and
-`effectiveSettingsSource`. In run B, requested `sonnet` versus effective `claude-sonnet-5` is a real
-difference the manifest could not previously express.
+**5 — The manifest records the runtime and the effective model.** Run B requested `sonnet`
+(`modelStatus: supported_unverified`, because the run path passes a pinned value through
+unvalidated) and the runtime reported `claude-sonnet-5` in effect; the terminal printed the
+difference as it happened.
 
 **6 — The evidence files exist.** Each run directory holds `request.json`, `contract.json`,
 `config-snapshot.json`, `events.jsonl`, `artifacts/result.json`, `artifacts/summary.md`,
 `artifacts/candidate.patch`, the check receipt with its stdout/stderr logs, and the adapter's raw
-stdio capture (`artifacts/logs/…jsonl`). Run A's event projection has 109 records, run B's 15.
+stdio capture (`artifacts/logs/…jsonl`). Run B's event projection has 29 records, run A's 69.
 
-## The acceptance-surface attack against the claude-code path
+## The two acceptance-surface attacks
 
-**Which one was run: the deterministic version.** The installed `claude` cannot complete a turn on
-this machine, so it cannot be steered into misbehaving at all; and even with a credential, driving a
-real model into rewriting a test suite on demand is neither cheap nor reproducible. Run D therefore
-uses the **real `ClaudeCodeAdapter` and the real coordinator**, with the adapter's executable pointed
-at `fixtures/claude-code/fake-claude.mjs` replaying `scenario-claude-rewrite-tests.json` — the same
-technique WP05 uses for its recorded-replay conformance target, and the same technique the R0 record
-used against the fake runtime. What is exercised is the coordinator's decision path and the
-claude-code adapter's event normalization; what is *not* exercised is a model choosing to cheat.
+A worker that cannot fix the bug has two ways to make `node --test test/` exit 0 anyway. Both are
+run here through the real coordinator, and both are refused.
 
-The scenario leaves `src/pagination.js` untouched and rewrites `test/pagination.test.js` to a single
-empty test, then claims success. The result (`attack-claude.txt`):
+**D — rewrite the suite.** The scenario leaves `src/pagination.js` untouched and rewrites
+`test/pagination.test.js` to a single empty test, then claims success. The check *passes*
+(exit 0, 1 test) and the run is still refused: the candidate modified a file the criterion executes,
+so the criterion is `compromised` — a third status, neither pass nor ordinary failure
+(`attack-claude.txt`). This uses the real `ClaudeCodeAdapter` with its executable pointed at the
+deterministic replay binary, because driving a real model into rewriting a test suite on demand is
+neither cheap nor reproducible. What is exercised is the coordinator's decision path; what is *not*
+exercised is a model choosing to cheat.
 
-```
-  tool Write -> ok
-  changed test/pagination.test.js
-  check node-tests-pass: passed (exit 0) in 77ms
-not accepted: criterion "node-tests-pass" passed (exit 0, 77ms), but the candidate changed the files
-this criterion executes (M test/pagination.test.js), so the result does not establish the criterion
-the base revision defined
-run …: failed          COMP node-tests-pass          # exit code 4
-```
+**E — hide the suite from the verifier instead of rewriting it.** This one is new, and it is the
+verification finding that this record exists to close. The worker leaves the source broken and adds
+two files: a `.gitattributes` containing `test/pagination.test.js export-ignore`, and one trivially
+passing test. **Nothing the acceptance surface pins is modified or deleted** — the candidate diff is
+two `A` entries — so the fixture-mutation rule never fires. But the verifier materialized its
+disposable copy with `git archive`, which obeys the archived revision's own `.gitattributes`, so the
+copy the criterion ran in had no pagination test in it and `node --test test/` exited 0 over one
+empty test. That was an accepted run for a candidate where the bug was still present.
 
-The check *passed* and the run was still refused: `COMP` is a third status, neither pass nor ordinary
-failure. `verification.txt` run D confirms the attack was real — the patched source fails the base
-revision's suite (exit 1) — and that the coordinator caught it anyway.
+The check runner now compares its copy against the candidate's own `git ls-tree` listing and
+completes it from the object database before running anything. Run E's receipt records
+`copyStrategy: git_archive_repaired`, its diagnostics name the export-ignore rule and the path it
+removed, and the check runs the real suite and **fails, exit 1, 6 tests** (`attack-export-ignore.txt`).
+The run also lists the `.gitattributes` change under `unresolved`, because a file that decides what a
+`git archive` of the candidate contains is worth naming even when it no longer works.
 
 ## What changed in the code for this record
 
-One change, in `main`, to satisfy "the manifest records the runtime and the effective model":
+Beyond the credential reading described in the headline:
 
-- `src/adapters/types.ts` — a new optional shared-contract method
-  `RuntimeAdapter.effectiveSettings(session)` returning `EffectiveRuntimeSettings { model, effort? }`.
-  Both real adapters already captured what their runtime echoed back, but into **adapter-shaped
-  accessors the coordinator could not read** — the exact mistake `lastTurnUsage` exists to avoid.
-- `src/core/run-direct.ts` — reads it and records `effectiveModel`, `effectiveEffort` and
-  `effectiveSettingsSource` (`runtime_reported` | `not_reported`) in the manifest and the summary,
-  and prints a terminal note when the effective model differs from the requested one. An adapter that
-  does not implement the method yields `not_reported` — never the requested value repeated as if it
-  had been confirmed.
-- `src/adapters/fake/adapter.ts` — implements it from the fake runtime's own `session_started` echo.
-- Tests: one conformance check (runs against all four targets, and starts no turn, so a real target
-  is not charged for it) and three behavioural tests in `tests/run/direct.test.ts`.
-
-And one test-hygiene fix that this record forced: `tests/adapters/claude-code/real-runtime.test.ts`
-used `describe.skipIf(REAL)` for its "gate is off" placeholder, so a run *with* the gate on still
-reported a skip whose stated reason was "set `WORKFORCE_REAL_RUNTIMES=1`". The placeholder is now
-defined only when the gate is off. No check was weakened — the message simply contradicted the
-command that produced it, which a recorded suite must not do.
-
-It earned its place immediately: `sonnet` → `claude-sonnet-5` in run B, and the runtime *default*
-recorded for a run that requested nothing, which the `model` field structurally cannot express.
+- `src/verification/checks.ts` — the disposable copy is verified against `git ls-tree -r -l` and
+  completed with `git checkout-index` through a throwaway index (`GIT_INDEX_FILE`), so the user's own
+  index is never touched. A copy that is still incomplete after that makes the receipt an `error`
+  rather than a result. New strategy value: `git_archive_repaired`.
+- `src/telemetry/events.ts` and `src/core/run-direct.ts` — a terminal record in which the runtime
+  reports its *own* turn failed is recorded as `turnConclusion: "turn_failed"` and blocks acceptance,
+  instead of being normalized to `completed` and disappearing. It is read in the shared vocabulary,
+  not one runtime's: Claude Code's `result` carries `is_error: true`, Codex's `turn/completed`
+  carries `status: "failed"` with the provider's message. **Run A is that case, live**: its manifest
+  now says `turn_failed` and its `acceptance.reasons` carry the 401 verbatim, where the same run
+  against the previous build recorded `completed` and mentioned the failure nowhere outside the event
+  stream. A record carrying a session id the coordinator never minted blocks acceptance the same way
+  (FR003, FR004) — before, a run could exit 0, `accepted`, `unresolved: []` on evidence from a
+  conversation it did not own.
+- `src/core/run-direct.ts` — `evidence.writesOutsideGrantedPaths` now travels with
+  `evidence.writeObservation`, which says what the list is worth. On a runtime with no enforced
+  boundary it reads: *"An empty list means nothing was reported, NOT that nothing was written."*
+  Run B's manifest carries exactly that.
+- `tests/integration/wiring.test.ts` — one ungated test in the default `npm test` suite was
+  configured with `executable: 'claude'`, which resolves on PATH to the installed binary. It ran the
+  whole `run` command, so every `npm test` on this machine opened a real Claude Code session, started
+  a paid model turn and then timed out at 20 s — while its own comment said "the executable is never
+  reached". It now uses a stub, like its Codex sibling.
 
 ## Limitations this record does not hide
 
-- **The Claude Code half of AT03 is not demonstrated.** Runs C and D exercise the coordinator and the
-  adapter, not the model. No claim is made here that Claude Code can fix this bug, or how long it
-  would take, or what it would cost.
-- **Run C's manifest names the wrong executable.** It records
-  `runtime.executable: "/Users/…/.local/bin/claude"` because that is what `agents.json` configured;
-  the process actually spawned was `node fixtures/claude-code/fake-claude.mjs`, substituted by
-  `replay-run.mjs` at the adapter-factory level. The manifest records the configured binding, not the
-  adapter's overridden executable. Read `transcript-claude-replay.txt` and `replay-run.mjs`, not the
-  manifest's `executable` field, for what ran.
-- **Runs C and D are synthetic, and their `total_cost_usd` is a made-up number** in a scenario file.
-  It is real enough to prove the adapter reports cost through the shared contract; it is not a price
-  anyone paid.
-- **The replay scenarios are not recordings.** `fixtures/claude-code/session-fix-pagination.synthetic.json`
-  and `scenario-claude-rewrite-tests.json` use record shapes taken from
-  `session-auth-failure.real.json`, which is a real transcript — but no turn on this machine ever
-  reached the model, so the *content* is written, not captured. Both files say so in their own
-  `provenance` field.
-- **Run B tells you nothing about Claude Code's normal behaviour.** It measures a 47 ms
-  authentication failure. Its startup number (548 ms) is real; its turn number is not a turn.
-- **No enforced execution boundary (FR042) is claimed for either run.** The verifier runs repository
-  tests with this user's own privileges; only the environment is sanitized and the candidate is a
-  throwaway copy. Codex's sandbox bounds the *worker's* writes and network, not reads, and not the
-  verifier. Claude Code bounds neither, which is why run B needed an explicit flag.
-- **Two samples, one fixture.** Nothing here establishes a latency distribution, a dispatch-overhead
+- **The Codex half of AT03 is not demonstrated today.** Run A reached no model. Nothing here says
+  what Codex would do with this task now, how long it would take or what it would cost. The Codex
+  demonstration that *was* executed is in `2026-09-07-initial/`, made when the sign-in still worked;
+  it is superseded as a record of AT03's status, not as a record of that run.
+- **The gated real-runtime suite does not pass end to end.** 12 codex checks fail on the 401. A
+  reader should treat `checks.txt` as the current state of this machine, not as a green suite.
+- **Run D is synthetic**, and its `total_cost_usd` is a made-up number in a scenario file. It is real
+  enough to prove the adapter reports cost through the shared contract; it is not a price anyone
+  paid. `fixtures/claude-code/*.synthetic.json` say so in their own `provenance` field.
+- **One sample, one fixture.** Nothing here establishes a latency distribution, a dispatch-overhead
   percentile, or a comparison against using either runtime directly.
+- **No enforced execution boundary (FR042) is claimed for run B.** The verifier runs repository tests
+  with this user's own privileges; only the environment is sanitized and the candidate is a throwaway
+  copy. Claude Code bounds neither the worker's writes nor its network, which is why run B needed an
+  explicit flag and why its manifest says the escape list is not a checked negative.
 - **`modelStatus` is `supported_unverified` in every run.** The run path does not call the runtime's
   model listing before dispatching, so a pinned value is passed through unvalidated and reported
-  honestly as unverified. `effectiveModel` is what closes that gap after the fact, not before.
-- **The Codex startup figure includes the user's own MCP servers.** They start with every Codex
-  thread and this version gives the adapter no way to suppress them, so the two startup numbers are
-  not a like-for-like measurement of the two CLIs.
-- **Run A's four `exec` calls ran under `/bin/zsh -lc`**, which is Codex's own shell tooling inside
-  its sandbox, not a shell string this coordinator built. The coordinator spawns only
-  `spawn(executable, argv, { shell: false })`.
+  honestly as unverified. `effectiveModel` closes that gap after the fact, not before.
+- **The capability upgrades are scoped to what was executed.** `active_turn_delivery` stays
+  `supported_unverified`; `write_containment` stays `unsupported`; `effort_selection` stays
+  `supported_unverified` because the runtime still reports no effective effort in any record.
 
 ## Redaction
 
 No credential, token or key appears in any file here. Each was scanned for bearer tokens, `sk-`,
-`ghp_`, `xox*`, `AKIA*` and JWT-shaped strings; there are no matches.
-
-`doctor-connect.json` is the one edited file: each runtime's `searchedLocations` array — the
-recording machine's full `PATH` plus known install locations, naming unrelated local tooling and
-per-session directories — was replaced by a one-line note giving the count (61 each). Everything else
-in it is verbatim. Absolute paths are kept elsewhere because they are what makes the record
-reproducible: the two runtime executables, this repository, and the throwaway `$ROOT` the runs used
-(a scratch directory under `$TMPDIR`, outside this repository, deleted after the evidence was copied
-out of it).
+`ghp_`, `xox*`, `AKIA*` and JWT-shaped strings; there are no matches. The account email the
+`claude auth status` probe prints is replaced in `transcript-claude.txt` by
+`"<the machine owner>"`. `doctor-connect.json` has each runtime's `searchedLocations` array — the
+recording machine's full `PATH` plus known install locations — replaced by a one-line note giving the
+count. Everything else in both files is verbatim. Absolute paths are kept elsewhere because they are
+what makes the record reproducible.
 
 ## Files
 
 | File | What it is |
 | --- | --- |
-| `transcript-codex.txt` | run A: the command, full stdout+stderr, exit code, start and finish times |
-| `transcript-claude.txt` | run B: the same, for the installed Claude Code runtime |
-| `transcript-claude-replay.txt` | run C: the supplementary replay-driven run |
-| `attack-claude.txt` | run D: the acceptance-surface attack, refused |
-| `manifest-codex.json` | run A `artifacts/result.json` — the portable run report (FR059) |
-| `manifest-claude.json` | run B's manifest |
-| `manifest-claude-replay.json` · `manifest-claude-attack.json` | runs C and D |
-| `candidate-codex.patch` | run A's candidate: the accepted fix |
-| `candidate-claude.patch` | run B's candidate — **empty, 0 bytes**: the worker changed nothing |
-| `candidate-claude-replay.patch` · `candidate-claude-attack.patch` | runs C and D |
-| `summary-codex.md` · `summary-claude.md` | the human-readable run reports |
-| `events-codex.jsonl` · `events-claude.jsonl` | the durable event projections (FR058) |
+| `transcript-claude.txt` | run B: the command, full stdout+stderr, exit code, start and finish times |
+| `transcript-codex.txt` | run A: the same, for the installed Codex runtime, plus `codex login status` |
+| `attack-claude.txt` | run D: the rewrite-the-suite attack, refused |
+| `attack-export-ignore.txt` | run E: the export-ignore attack, refused |
+| `manifest-claude.json` | run B `artifacts/result.json` — the portable run report (FR059) |
+| `manifest-codex.json` · `manifest-claude-attack.json` · `manifest-export-ignore-attack.json` | runs A, D and E |
+| `candidate-claude.patch` | run B's candidate: the accepted fix |
+| `candidate-codex.patch` | run A's candidate — **empty, 0 bytes**: the worker changed nothing |
+| `candidate-claude-attack.patch` · `candidate-export-ignore-attack.patch` | runs D and E |
+| `summary-claude.md` · `summary-codex.md` | the human-readable run reports |
+| `events-claude.jsonl` · `events-codex.jsonl` · `events-export-ignore-attack.jsonl` | the durable event projections (FR058) |
 | `verification.txt` | raw output of checks 1–6 above, for all four runs |
-| `checks.txt` | `npm run typecheck`, `npm test` and `WORKFORCE_REAL_RUNTIMES=1 npx vitest run tests/adapters`, verbatim |
+| `checks.txt` | `npm run typecheck`, `npm test` and the gated `tests/adapters` run, verbatim |
 | `doctor-connect.json` | `workforce doctor --connect --json` for both runtimes; `searchedLocations` omitted |
-| `agents.json` | the configuration all four runs used: both runtimes, one agent each (FR011, FR012) |
+| `agents.json` | the configuration all four runs used (FR011, FR012) |
 | `task.txt` | the task text, the fixture's bug report verbatim |
 | `verify.sh` | the verification script that produced `verification.txt` |
-| `replay-run.mjs` | the driver for runs C and D: real coordinator, real adapter, replay executable |
-| `scenario-claude-rewrite-tests.json` | run D's scenario — synthetic, and it says so |
+| `materialize.mts` | the one-line driver that materializes the `ts-bug` fixture into a throwaway repo |
+| `replay-run.mjs` | the driver for run D: real coordinator, real adapter, replay executable |
+| `fake-run.mjs` | the driver for run E: real coordinator, fake runtime, scenario through the session env |
+| `scenario-claude-rewrite-tests.json` · `scenario-fake-export-ignore.json` | runs D and E — synthetic, and they say so |
+| `2026-09-07-initial/` | the superseded first recording, unchanged, with a banner naming what was false in it |
 
 ## Reproducing
 
@@ -413,7 +404,5 @@ npm run build
 # then the commands under "What was run", with your own $ROOT
 ```
 
-A real Codex run spends ChatGPT quota; run ids, revisions, patches and timings will differ. The
-Claude Code half will keep failing the same way until someone runs `claude auth login` on this
-machine — after which the six skipped real-runtime checks un-skip themselves (they ask the runtime
-for its `tokenSource` before the tests are defined) and run B can be repeated as written.
+A real Claude Code run spends the signed-in account's quota; run ids, revisions, patches and timings
+will differ. The Codex half needs an interactive `codex login` first.

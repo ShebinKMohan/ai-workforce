@@ -140,6 +140,17 @@ export function recordRuntimeEvent(db: DatabaseSync, event: RuntimeEvent, ctx: E
 export interface TurnEvidence {
   readonly claimedDone: boolean;
   readonly completed: boolean;
+  /**
+   * The runtime's own statement that the turn it just ended FAILED, in its own
+   * words, or null when it reported no failure.
+   *
+   * A terminal record is not the same as a successful one: Claude Code ends a
+   * turn it could not finish with `is_error: true` and a subtype such as
+   * `error_during_execution`, and Codex ends one with an error item. Treating
+   * that as "completed" is how a run reports a clean accepted result over a
+   * turn the runtime said went wrong.
+   */
+  readonly turnFailure: string | null;
   readonly interrupted: boolean;
   /**
    * Distinct paths the runtime reported writing — applied, or with an outcome
@@ -169,6 +180,12 @@ export interface TurnEvidence {
   readonly commandsExecuted: number;
   readonly toolCalls: number;
   readonly errors: ReadonlyArray<Record<string, unknown>>;
+  /**
+   * Records that named a session id the coordinator did not mint, as
+   * `<event kind>: <reported id>`. Evidence carrying a foreign session identity
+   * belongs to a conversation this run does not own.
+   */
+  readonly sessionIdentityMismatches: ReadonlyArray<string>;
   /** Well-formed runtime events the adapter kept verbatim rather than normalizing. */
   readonly rawEvents: number;
 }
@@ -224,10 +241,67 @@ function fileChangeOutcome(payload: Record<string, unknown>): FileChangeOutcome 
   return 'unconfirmed';
 }
 
+const FAILED_TURN_STATUSES = new Set(['failed', 'error', 'errored', 'failure']);
+
+/**
+ * Does this terminal record say the turn failed?
+ *
+ * Read in the shared vocabulary, not one runtime's: Claude Code marks a failed
+ * turn with `isError: true` on its `result` record, Codex reports
+ * `status: "failed"` with an `error` message on `turn/completed`. Both are
+ * terminal, and neither is a turn that did its work.
+ */
+function reportsTurnFailure(payload: Record<string, unknown>): boolean {
+  if (payload['isError'] === true) return true;
+  const status = payload['status'];
+  if (typeof status === 'string' && FAILED_TURN_STATUSES.has(status.toLowerCase())) return true;
+  const error = payload['error'];
+  return typeof error === 'string' && error.trim().length > 0;
+}
+
+/** The runtime's terminal record, read as a sentence, when it says the turn failed. */
+function describeTurnFailure(payload: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const [label, key] of [
+    ['status', 'status'],
+    ['subtype', 'subtype'],
+    ['terminal reason', 'terminalReason'],
+    ['error class', 'errorClass'],
+  ] as const) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.length > 0) parts.push(`${label} "${value}"`);
+  }
+  for (const [label, key] of [
+    ['error', 'error'],
+    ['result text', 'resultText'],
+  ] as const) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim().length > 0) parts.push(`${label} "${value.trim().slice(0, 300)}"`);
+  }
+  return parts.length > 0 ? parts.join(', ') : 'the runtime reported the turn as an error and said nothing further about it';
+}
+
+/**
+ * Session identity a record claimed, when it is not the identity the
+ * coordinator minted for the session the record arrived on.
+ *
+ * Adapters put what the runtime reported in `reportedSessionId`; anything that
+ * differs from the event's own `sessionId` is a record from a conversation this
+ * coordinator does not own, and its content is not this turn's evidence
+ * (FR003, FR004).
+ */
+function sessionIdentityMismatch(event: RuntimeEvent): string | null {
+  const reported = event.payload['reportedSessionId'];
+  if (typeof reported !== 'string' || reported.length === 0) return null;
+  return reported === event.sessionId ? null : reported;
+}
+
 export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvidence {
   let claimedDone = false;
   let completed = false;
+  let turnFailure: string | null = null;
   let interrupted = false;
+  const sessionIdentityMismatches = new Set<string>();
   /**
    * File changes grouped by path, and within a path by the *request* that asked
    * for them. An adapter reports one write twice — the request, then its
@@ -247,12 +321,17 @@ export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvide
   const errors: Record<string, unknown>[] = [];
   let rawEvents = 0;
   for (const event of events) {
+    const foreignSession = sessionIdentityMismatch(event);
+    if (foreignSession !== null) sessionIdentityMismatches.add(`${event.kind}: ${foreignSession}`);
     switch (event.kind) {
       case 'assistant_message':
         if (event.payload['claimsDone'] === true) claimedDone = true;
         break;
       case 'turn_completed':
         completed = true;
+        // A terminal record that reports a failure is kept as one. The turn
+        // ended; it did not succeed.
+        if (turnFailure === null && reportsTurnFailure(event.payload)) turnFailure = describeTurnFailure(event.payload);
         break;
       case 'turn_interrupted':
         interrupted = true;
@@ -316,7 +395,9 @@ export function summarizeTurnEvidence(events: Iterable<RuntimeEvent>): TurnEvide
   return {
     claimedDone,
     completed,
+    turnFailure,
     interrupted,
+    sessionIdentityMismatches: [...sessionIdentityMismatches].sort(),
     fileChanges,
     deniedFileChanges: deniedChanges,
     fileChangesOutsideAllowedPaths: escaped,

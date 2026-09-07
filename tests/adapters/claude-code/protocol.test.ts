@@ -11,6 +11,7 @@ import {
   decodeStreamLine,
   mapPolicy,
   parseClaudeVersion,
+  readClaudeCredential,
   userFrame,
   controlRequestFrame,
 } from '../../../src/adapters/claude-code/protocol.js';
@@ -258,5 +259,42 @@ describe('usage and cost (FR060, AT14)', () => {
     const usage = readUsage({ usage: { input_tokens: 10, output_tokens: 2 }, duration_api_ms: 900 });
     expect(usage.costStatus).toBe('unavailable');
     expect(usage.costUsd).toBeNull();
+  });
+});
+
+describe('the credential the runtime reports (FR002, FR005)', () => {
+  it('reads a signed-in account that reports no tokenSource as a usable credential', () => {
+    // Executed against claude 2.1.260 on darwin, signed in with claude.ai: the
+    // initialize control response's account block has NO tokenSource key.
+    const credential = readClaudeCredential({
+      email: 'someone@example.com',
+      organization: 'Example',
+      subscriptionType: 'Claude Max',
+      apiProvider: 'firstParty',
+    });
+
+    expect(credential.state).toBe('usable');
+    expect(credential.tokenSource).toBeNull();
+    expect(credential.identified).toBe(true);
+    expect(credential.detail).toContain('no account.tokenSource');
+  });
+
+  it('reads tokenSource "none" as no credential', () => {
+    const credential = readClaudeCredential({ tokenSource: 'none', apiProvider: 'firstParty' });
+
+    expect(credential.state).toBe('none');
+    expect(credential.detail).toContain('"none"');
+  });
+
+  it('reads a named token source as a usable credential', () => {
+    expect(readClaudeCredential({ tokenSource: 'apiKey' }).state).toBe('usable');
+  });
+
+  it('says unknown rather than "no credential" when the runtime reports nothing', () => {
+    // The inversion this exists to prevent: an ABSENT field is not a denial.
+    // Reading it as one is what made the WP05 record claim a working runtime
+    // held no credential, and made six gated checks skip themselves.
+    expect(readClaudeCredential(undefined).state).toBe('unknown');
+    expect(readClaudeCredential({ apiProvider: 'firstParty' }).state).toBe('unknown');
   });
 });

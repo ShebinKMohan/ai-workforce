@@ -136,9 +136,17 @@ export const claudeReplayTarget: ConformanceTarget = {
 };
 
 export function realClaudeTarget(executablePath: string): ConformanceTarget {
-  const open = async (policy: Policy): Promise<ConformanceSession> => {
+  const open = async (policy: Policy, options: { readonly allowCommandExecution?: boolean } = {}): Promise<ConformanceSession> => {
     const workspace = workspaceRoot('wf-conf-claude-');
-    const adapter = new ClaudeCodeAdapter({ executablePath, startupTimeoutMs: 60_000, controlTimeoutMs: 60_000, interruptTimeoutMs: 15_000, stopTimeoutMs: 8_000, deliveryAckTimeoutMs: 5_000 });
+    const adapter = new ClaudeCodeAdapter({
+      executablePath,
+      startupTimeoutMs: 60_000,
+      controlTimeoutMs: 60_000,
+      interruptTimeoutMs: 15_000,
+      stopTimeoutMs: 8_000,
+      deliveryAckTimeoutMs: 5_000,
+      ...options,
+    });
     const handle = await adapter.openSession({ cwd: workspace, allowedWritePaths: [workspace], policy, systemInstructions: 'You are a workforce conformance worker. Answer in one short sentence.' });
     return {
       adapter,
@@ -160,12 +168,15 @@ export function realClaudeTarget(executablePath: string): ConformanceTarget {
     observeQueuedDelivery: (events, messageId) =>
       events.some((event) => event.kind === 'raw' && event.payload['reason'] === 'user_message_replay' && String(event.payload['text'] ?? '').includes(messageId)),
     policySupport: { analysis: 'opens', 'local-development': 'opens', verification: 'refuses' },
-    openWithPolicy: open,
-    // A turn cannot be held open on a machine whose stored OAuth session is
-    // expired: every turn terminates in about 60 ms with an authentication
-    // error. See docs/runtime-claude-code.md.
-    slowSkipReason:
-      'no turn can be kept running against the installed runtime here: the stored claude.ai OAuth session is expired, so every turn ends within ~60 ms with error "authentication_failed". The recorded-replay target covers these cases deterministically',
+    openWithPolicy: (policy) => open(policy),
+    // A turn that stays open until it is interrupted, the same way the Codex
+    // target gets one: grant Bash and ask for a sleep. Nothing here is keyed on
+    // the machine's credential state — the previous version of this target
+    // hard-coded "the OAuth session is expired" as the reason these three
+    // checks could not run, so they could never run on ANY machine, including
+    // one where turns work.
+    openSlow: () => open('local-development', { allowCommandExecution: true }),
+    slowPrompt: 'Run exactly this shell command and nothing else: sleep 45',
     noisySkipReason: 'the installed runtime cannot be made to emit malformed output on demand; the recorded-replay target covers it',
   };
 }

@@ -58,8 +58,19 @@ function useScenario(): void {
 }
 
 /** An executable that answers nothing and exits: enough to drive the adapter, never a model turn. */
-function stubExecutable(dir: string): string {
-  const file = path.join(dir, 'codex-stub');
+/**
+ * An executable that exits immediately.
+ *
+ * Every test here that reaches the adapter layer must use one. Naming an
+ * installed runtime instead (`executable: 'claude'`) resolves on PATH to the
+ * real binary, and `run` then opens a real session and starts a real, paid
+ * model turn from the default `npm test` — which is what happened here until
+ * this was fixed: the case below passed only while the installed runtime
+ * happened to fail authentication in ~47 ms, and started charging the user's
+ * account and timing out the moment its credential worked again.
+ */
+function stubExecutable(dir: string, name = 'runtime-stub'): string {
+  const file = path.join(dir, name);
   writeFileSync(file, '#!/bin/sh\nexit 0\n');
   chmodSync(file, 0o755);
   return file;
@@ -140,7 +151,8 @@ describe('the CLI refuses an unconfined writing run unless a human accepts one',
     const stateDir = path.join(tempDir('workforce-boundary-state-'), 'state');
     // The default worker binding fixtures/agents/example.json ships: an agent
     // on claude-code under local-development.
-    const configPath = writeClaudeAgentsConfig(tempDir('workforce-boundary-config-'));
+    const configDir = tempDir('workforce-boundary-config-');
+    const configPath = writeClaudeAgentsConfig(configDir, { executable: stubExecutable(configDir, 'claude-stub') });
 
     const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
 
@@ -158,10 +170,14 @@ describe('the CLI refuses an unconfined writing run unless a human accepts one',
   it('accepts the run when --allow-unconfined-writes is passed, and the flag reaches the coordinator', async () => {
     const fixture = await useFixture('ts-bug');
     const stateDir = path.join(tempDir('workforce-boundary-ok-state-'), 'state');
-    const configPath = writeClaudeAgentsConfig(tempDir('workforce-boundary-ok-config-'));
+    const configDir = tempDir('workforce-boundary-ok-config-');
+    // A stub binary, never the installed `claude`: this case runs the whole
+    // `run` command, so a real executable here would open a real session and
+    // spend the user's quota on every `npm test`.
+    const configPath = writeClaudeAgentsConfig(configDir, { executable: stubExecutable(configDir, 'claude-stub') });
 
-    // The executable is never reached: the point is that the gate no longer
-    // refuses, so the run proceeds to the adapter and fails there instead.
+    // The point is that the gate no longer refuses, so the run proceeds to the
+    // adapter and fails there instead — against a stub that exits at once.
     const result = await invoke([
       'run',
       '--repo',
@@ -179,6 +195,9 @@ describe('the CLI refuses an unconfined writing run unless a human accepts one',
     const document = JSON.parse(result.stdout.trimEnd().split('\n').at(-1) as string) as { error?: { code?: string } };
     expect(document.error?.code).not.toBe('write_boundary_unsupported');
     expect(result.stderr).toContain('WARNING: no enforced write boundary');
+    // It got as far as the runtime and failed there: the flag reached the
+    // coordinator, and no model turn was started by the default test suite.
+    expect(result.code).toBe(EXIT_CODES.executionFailure);
   });
 });
 

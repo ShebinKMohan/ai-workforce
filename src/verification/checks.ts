@@ -13,7 +13,12 @@
  *      result has no Git administration at all, so a test cannot reach the
  *      shared object database or the preserved candidate; `git worktree
  *      --detach` is the fallback when archive/tar is unavailable, and the
- *      strategy actually used is recorded on the receipt.
+ *      strategy actually used is recorded on the receipt. The copy is then
+ *      compared against the revision's own tree listing and completed from the
+ *      object database: `git archive` obeys the archived revision's
+ *      `.gitattributes`, so a candidate that adds an `export-ignore` rule would
+ *      otherwise delete the acceptance suite from the tree the criterion runs
+ *      against while modifying no pinned file at all.
  *   2. Tracked files are hashed before the command runs.
  *   3. The command runs with `spawn(..., { shell: false })` in its own
  *      process group, under a sanitized environment (PATH, a *fresh* HOME and
@@ -41,7 +46,7 @@
  * criterion executes as compromised evidence rather than as a pass.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -187,7 +192,7 @@ export interface CheckReceipt {
   readonly durationMs: number;
   readonly environmentIdentity: EnvironmentIdentity;
   readonly candidate: { readonly repoRoot: string; readonly revision: string; readonly patchHash: string | null };
-  readonly copyStrategy: 'git_archive' | 'git_worktree_detached';
+  readonly copyStrategy: CopyStrategy;
   readonly integrity: IntegrityReport;
   /** What the command's own output says it executed; `runner: null` when unrecognized. */
   readonly outputSummary: CheckOutputSummary;
@@ -376,22 +381,180 @@ function compareScans(before: IntegrityScan, after: IntegrityScan): IntegrityRep
   };
 }
 
+export type CopyStrategy = 'git_archive' | 'git_archive_repaired' | 'git_worktree_detached';
+
 interface DisposableCopy {
   readonly root: string;
-  readonly strategy: 'git_archive' | 'git_worktree_detached';
+  readonly strategy: CopyStrategy;
   readonly diagnostics: ReadonlyArray<string>;
+  /**
+   * Tracked paths of the frozen candidate that are still absent from the copy
+   * after materialization and repair. A check never runs against an incomplete
+   * copy: an absent acceptance suite is exactly how a passing exit code is
+   * manufactured, so this turns the receipt into an error instead.
+   */
+  readonly missingPaths: ReadonlyArray<string>;
   dispose(): Promise<void>;
+}
+
+const TREE_LISTING_MAX_BYTES = 32 * 1024 * 1024;
+
+interface FrozenTreeEntry {
+  /** Git file mode: 100644, 100755, 120000 (symlink) or 160000 (submodule). */
+  readonly mode: string;
+  /** Blob size Git recorded, or null when it reported none. */
+  readonly size: number | null;
+}
+
+export interface FrozenTree {
+  readonly entries: ReadonlyMap<string, FrozenTreeEntry>;
+  /** False when the listing could not be read in full; the completeness check is then bounded. */
+  readonly complete: boolean;
+}
+
+/**
+ * Every path the frozen candidate revision tracks, with the size Git recorded
+ * for it.
+ *
+ * This is the ground truth a disposable copy is checked against, and it exists
+ * because `git archive` is not a faithful export of a tree: it applies the
+ * archived revision's own `.gitattributes`, so a candidate that merely *adds*
+ * `test/ export-ignore` removes the acceptance suite from the copy the
+ * criterion executes — without modifying a single pinned file. The candidate
+ * diff shows one added file; the check runs against a tree with no tests in it
+ * and exits 0.
+ */
+export async function listFrozenTree(candidate: CandidateRef, signal?: AbortSignal): Promise<FrozenTree> {
+  const run = await git(['ls-tree', '-r', '-l', '-z', candidate.revision], {
+    cwd: candidate.repoRoot,
+    maxOutputBytes: TREE_LISTING_MAX_BYTES,
+    ...(signal !== undefined ? { signal } : {}),
+  });
+  const entries = new Map<string, FrozenTreeEntry>();
+  if (!run.ok) return { entries, complete: false };
+  for (const record of run.stdout.split('\0')) {
+    if (record.length === 0) continue;
+    const tab = record.indexOf('\t');
+    if (tab < 0) continue;
+    // "<mode> SP <type> SP <object> SP <size> TAB <path>", size right-aligned or "-".
+    const meta = record.slice(0, tab).trim().split(/\s+/);
+    const relative = record.slice(tab + 1);
+    if (relative.length === 0) continue;
+    const rawSize = meta[3] ?? '-';
+    entries.set(relative, { mode: meta[0] ?? '', size: /^\d+$/.test(rawSize) ? Number(rawSize) : null });
+  }
+  return { entries, complete: !run.truncated };
+}
+
+interface CopyDifference {
+  readonly missing: ReadonlyArray<string>;
+  readonly sizeMismatch: ReadonlyArray<string>;
+}
+
+/** Which tracked paths the copy does not hold, and which hold a different number of bytes than Git recorded. */
+function compareCopyToTree(root: string, tree: FrozenTree): CopyDifference {
+  const missing: string[] = [];
+  const sizeMismatch: string[] = [];
+  for (const [relative, entry] of tree.entries) {
+    // A submodule is a gitlink: no materialization strategy populates one.
+    if (entry.mode === '160000') continue;
+    let stats;
+    try {
+      stats = lstatSync(path.join(root, relative));
+    } catch {
+      missing.push(relative);
+      continue;
+    }
+    if (entry.size !== null && !stats.isDirectory() && stats.size !== entry.size) sizeMismatch.push(relative);
+  }
+  return { missing: missing.sort(), sizeMismatch: sizeMismatch.sort() };
+}
+
+/**
+ * Write the named tracked paths into the copy straight from the object
+ * database, through an index this function owns.
+ *
+ * `GIT_INDEX_FILE` points at a throwaway file, so the registered project's own
+ * index is never read or written; `--prefix` writes only inside the disposable
+ * copy. No attribute can suppress a path here: `export-ignore` is an archive
+ * rule and this is a checkout.
+ */
+async function restoreFromObjectDatabase(candidate: CandidateRef, destination: string, paths: ReadonlyArray<string>, signal?: AbortSignal): Promise<void> {
+  const indexFile = `${destination}.restore-index`;
+  rmSync(indexFile, { force: true });
+  const extraEnv = { GIT_INDEX_FILE: indexFile };
+  try {
+    await gitOrThrow(['read-tree', candidate.revision], {
+      cwd: candidate.repoRoot,
+      extraEnv,
+      ...(signal !== undefined ? { signal } : {}),
+    });
+    await gitOrThrow(['checkout-index', '-f', '-z', '--stdin', `--prefix=${destination.endsWith(path.sep) ? destination : `${destination}${path.sep}`}`], {
+      cwd: candidate.repoRoot,
+      extraEnv,
+      input: `${paths.join('\0')}\0`,
+      ...(signal !== undefined ? { signal } : {}),
+    });
+  } finally {
+    rmSync(indexFile, { force: true });
+  }
+}
+
+/**
+ * Make the copy hold every path the frozen tree does, and say so when it did
+ * not already.
+ */
+async function completeCopy(
+  candidate: CandidateRef,
+  destination: string,
+  tree: FrozenTree,
+  diagnostics: string[],
+  signal?: AbortSignal,
+): Promise<{ readonly repaired: boolean; readonly missing: ReadonlyArray<string> }> {
+  if (tree.entries.size === 0) return { repaired: false, missing: [] };
+  const before = compareCopyToTree(destination, tree);
+  const needed = [...new Set([...before.missing, ...before.sizeMismatch])].sort();
+  if (needed.length === 0) return { repaired: false, missing: [] };
+
+  diagnostics.push(
+    `the materialized copy did not match the frozen candidate: ${before.missing.length} tracked path(s) absent` +
+      `${before.sizeMismatch.length > 0 ? ` and ${before.sizeMismatch.length} of a different size` : ''} (${describePaths(needed)}). ` +
+      'git archive applies the archived revision\'s own .gitattributes, so an export-ignore rule the candidate itself adds removes the files a criterion executes; ' +
+      'they were restored from the object database so the check runs against the complete candidate',
+  );
+  try {
+    await restoreFromObjectDatabase(candidate, destination, needed, signal);
+  } catch (error) {
+    diagnostics.push(`restoring them from the object database failed: ${(error as Error).message}`);
+  }
+  const after = compareCopyToTree(destination, tree);
+  if (after.sizeMismatch.length > 0) {
+    diagnostics.push(
+      `${after.sizeMismatch.length} restored path(s) still hold a different number of bytes than the recorded blob (a content filter or an eol attribute explains this): ${describePaths(after.sizeMismatch)}`,
+    );
+  }
+  return { repaired: true, missing: after.missing };
+}
+
+function describePaths(paths: ReadonlyArray<string>): string {
+  return paths.length <= 10 ? paths.join(', ') : `${paths.slice(0, 10).join(', ')}, … and ${paths.length - 10} more`;
 }
 
 /**
  * Materialize the frozen candidate into a throwaway directory. `git archive`
  * is preferred: the extracted tree has no `.git` at all, so untrusted test
- * code cannot reach the shared repository through it.
+ * code cannot reach the shared repository through it. Whatever the strategy,
+ * the result is compared against the revision's own tree listing and completed
+ * from the object database before any check runs against it.
  */
 export async function materializeFrozenCandidate(candidate: CandidateRef, destination: string, signal?: AbortSignal): Promise<DisposableCopy> {
   const diagnostics: string[] = [];
   mkdirSync(destination, { recursive: true, mode: 0o700 });
   const tarPath = `${destination}.tar`;
+  const tree = await listFrozenTree(candidate, signal);
+  if (!tree.complete) {
+    diagnostics.push('the frozen candidate\'s tree listing could not be read in full, so the copy was checked against a bounded list of its tracked paths');
+  }
 
   const archive = await git(['archive', '--format=tar', `--output=${tarPath}`, candidate.revision], {
     cwd: candidate.repoRoot,
@@ -408,10 +571,12 @@ export async function materializeFrozenCandidate(candidate: CandidateRef, destin
     });
     rmSync(tarPath, { force: true });
     if (extract.ok) {
+      const completed = await completeCopy(candidate, destination, tree, diagnostics, signal);
       return {
         root: destination,
-        strategy: 'git_archive',
+        strategy: completed.repaired ? 'git_archive_repaired' : 'git_archive',
         diagnostics,
+        missingPaths: completed.missing,
         dispose: async () => {
           rmSync(destination, { recursive: true, force: true });
         },
@@ -432,10 +597,12 @@ export async function materializeFrozenCandidate(candidate: CandidateRef, destin
     ...(signal !== undefined ? { signal } : {}),
   });
   diagnostics.push('the disposable copy is a linked worktree and shares Git administration with the repository; this is weaker isolation than an archive extract');
+  const completed = await completeCopy(candidate, destination, tree, diagnostics, signal);
   return {
     root: destination,
     strategy: 'git_worktree_detached',
     diagnostics,
+    missingPaths: completed.missing,
     dispose: async () => {
       await git(['worktree', 'remove', '--force', destination], { cwd: candidate.repoRoot, noHooksDir: path.dirname(destination) });
       rmSync(destination, { recursive: true, force: true });
@@ -489,7 +656,7 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
   const identity = environmentIdentity(env);
   const candidate = { repoRoot: input.candidate.repoRoot, revision: input.candidate.revision, patchHash: input.candidate.patchHash ?? null };
 
-  const failReceipt = (outcome: CheckOutcome, startedAt: string, message: string, strategy: 'git_archive' | 'git_worktree_detached'): CheckReceipt => ({
+  const failReceipt = (outcome: CheckOutcome, startedAt: string, message: string, strategy: CopyStrategy): CheckReceipt => ({
     id,
     criterionId: check.criterionId,
     description: check.description ?? null,
@@ -533,6 +700,14 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
   diagnostics.push(...copy.diagnostics);
 
   try {
+    if (copy.missingPaths.length > 0) {
+      return failReceipt(
+        'error',
+        startedAt,
+        `the disposable copy is missing ${copy.missingPaths.length} tracked path(s) of the frozen candidate (${describePaths(copy.missingPaths)}), so the command would not have run against the candidate this criterion is about`,
+        copy.strategy,
+      );
+    }
     const cwd = path.resolve(copy.root, check.cwd ?? '.');
     if (!isWithin(copy.root, cwd)) {
       return failReceipt('error', startedAt, `check cwd "${check.cwd}" escapes the candidate copy`, copy.strategy);
