@@ -10,6 +10,18 @@ describe('redaction masks credential-shaped keys only', () => {
     expect(readiness).toEqual({ authentication: 'unknown', ready: 'verified_ready', usage: { inputTokens: 1234, outputTokens: 56, status: 'measured' }, idempotencyKey: 'fake:s1:abc:7', author: 'Jane Doe' });
   });
 
+  it('keeps the spawn token readable, because the same value is legible in every rawRef beside it', () => {
+    // Masking it bought no privacy and made the event projection unreadable:
+    // spawnToken is a process-instance identity, not a credential.
+    expect(isSensitiveKey('spawnToken')).toBe(false);
+    expect(isSensitiveKey('spawn_token')).toBe(false);
+    const event = { adapter: 'codex', spawnToken: 'f85e1282ac959692', rawRef: 'codex:s1:f85e1282ac959692:12' };
+    expect(redactValue(event)).toEqual(event);
+    // The exception is exactly that one identifier; anything else ending in "token" is still masked.
+    expect(isSensitiveKey('spawnAuthToken')).toBe(true);
+    expect(isSensitiveKey('token')).toBe(true);
+  });
+
   it('masks passwords, tokens, api keys, secrets and authorization headers in any casing', () => {
     for (const key of ['API_TOKEN', 'apiKey', 'OPENAI_API_KEY', 'x-api-key', 'AWS_SECRET_ACCESS_KEY', 'password', 'PASSWD', 'clientSecret', 'SECRET_KEY_BASE', 'accessToken', 'GITHUB_TOKEN', 'token', 'Authorization', 'Proxy-Authorization', 'Set-Cookie', 'privateKey', 'credentials', 'passphrase']) {
       expect(isSensitiveKey(key), key).toBe(true);

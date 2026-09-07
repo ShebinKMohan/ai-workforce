@@ -10,7 +10,9 @@
  * `OPENAI_API_KEY`, but not `idempotencyKey`, `keyPath` or `hotkeys`).
  * Ordinary words that merely contain a sensitive substring (`author`,
  * `authentication`, `monkey`) are never masked, so readiness reports, usage
- * figures and git metadata stay readable.
+ * figures and git metadata stay readable. A short named exception list
+ * (`NEVER_SENSITIVE`) covers identifiers that read like credentials but are
+ * process identities the evidence depends on.
  *
  * Free text is scrubbed for bearer tokens, `KEY=value` / `KEY: value` pairs
  * whose key is sensitive by the same rule, credentials embedded in URLs and
@@ -25,6 +27,17 @@ export const REDACTED = '[REDACTED]';
 const SENSITIVE_ANYWHERE = new Set(['password', 'passwd', 'pwd', 'passphrase', 'secret', 'secrets', 'credential', 'credentials', 'authorization', 'bearer', 'cookie', 'cookies', 'apikey']);
 /** Words that make a key sensitive only as its final word. */
 const SENSITIVE_TRAILING = new Set(['token']);
+/**
+ * Named exceptions to the rules above: identifiers that read like credentials
+ * but are process identities the evidence depends on.
+ *
+ * `spawnToken` names one process instance. It is half of an event's
+ * idempotency key and it is embedded verbatim in every `rawRef`, so masking
+ * the field while the same value stays legible in the reference beside it
+ * bought no privacy and only made the projection harder to read. Keep this
+ * list at exactly the values that have been shown to be non-credential.
+ */
+const NEVER_SENSITIVE = new Set(['spawn token']);
 /** Words that make a trailing `key` sensitive (`api key`, `private key`, ...). */
 const KEY_QUALIFIERS = new Set(['api', 'access', 'private', 'secret', 'signing', 'encryption', 'ssh', 'service', 'license', 'master', 'security', 'session', 'client', 'consumer', 'app', 'auth', 'deploy', 'account', 'gpg', 'pgp']);
 
@@ -41,6 +54,7 @@ export function keyWords(key: string): string[] {
 export function isSensitiveKey(key: string): boolean {
   const words = keyWords(key);
   if (words.length === 0) return false;
+  if (NEVER_SENSITIVE.has(words.join(' '))) return false;
   if (words.some((word) => SENSITIVE_ANYWHERE.has(word))) return true;
   const last = words[words.length - 1]!;
   if (SENSITIVE_TRAILING.has(last)) return true;
