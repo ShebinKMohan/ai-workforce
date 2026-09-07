@@ -12,10 +12,6 @@
       "executable": "/Users/shebin_mohan_k/.local/bin/claude",
       "model": "sonnet",
       "effort": "medium"
-    },
-    "fake-local": {
-      "adapter": "fake",
-      "executable": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/fixtures/fake-runtime/fake-runtime.mjs"
     }
   },
   "defaults": {
@@ -33,30 +29,14 @@
       "id": "engineer-codex",
       "runtime": "codex-local",
       "instructions": "Inspect the relevant code, fix the underlying issue, and submit evidence against the task criteria.",
-      "capabilities": [
-        "coding",
-        "testing"
-      ],
+      "capabilities": ["coding", "testing"],
       "policy": "local-development"
     },
     {
       "id": "engineer-claude",
       "runtime": "claude-local",
       "instructions": "Inspect the relevant code, fix the underlying issue, and submit evidence against the task criteria.",
-      "capabilities": [
-        "coding",
-        "testing"
-      ],
-      "policy": "local-development"
-    },
-    {
-      "id": "engineer-fake",
-      "runtime": "fake-local",
-      "instructions": "Inspect the relevant code, fix the underlying issue, and submit evidence against the task criteria.",
-      "capabilities": [
-        "coding",
-        "testing"
-      ],
+      "capabilities": ["coding", "testing"],
       "policy": "local-development"
     }
   ]

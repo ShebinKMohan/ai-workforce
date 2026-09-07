@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "runtimes": {
+    "codex-local": {
+      "adapter": "codex",
+      "executable": "/opt/homebrew/bin/codex",
+      "model": "gpt-5.6-sol",
+      "effort": "medium"
+    },
+    "claude-local": {
+      "adapter": "claude-code",
+      "executable": "/Users/shebin_mohan_k/.local/bin/claude",
+      "model": "sonnet",
+      "effort": "medium"
+    },
+    "fake-local": {
+      "adapter": "fake",
+      "executable": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/fixtures/fake-runtime/fake-runtime.mjs"
+    }
+  },
+  "defaults": {
+    "workerAgent": "engineer-codex",
+    "maxActiveTurns": 2,
+    "maxActiveWriters": 2,
+    "maxTasksPerRun": 8,
+    "maxDelegationDepth": 2,
+    "maxRepairAttempts": 2,
+    "maxTransientRetries": 2,
+    "runTimeoutMinutes": 30
+  },
+  "agents": [
+    {
+      "id": "engineer-codex",
+      "runtime": "codex-local",
+      "instructions": "Inspect the relevant code, fix the underlying issue, and submit evidence against the task criteria.",
+      "capabilities": [
+        "coding",
+        "testing"
+      ],
+      "policy": "local-development"
+    },
+    {
+      "id": "engineer-claude",
+      "runtime": "claude-local",
+      "instructions": "Inspect the relevant code, fix the underlying issue, and submit evidence against the task criteria.",
+      "capabilities": [
+        "coding",
+        "testing"
+      ],
+      "policy": "local-development"
+    },
+    {
+      "id": "engineer-fake",
+      "runtime": "fake-local",
+      "instructions": "Inspect the relevant code, fix the underlying issue, and submit evidence against the task criteria.",
+      "capabilities": [
+        "coding",
+        "testing"
+      ],
+      "policy": "local-development"
+    }
+  ]
+}
