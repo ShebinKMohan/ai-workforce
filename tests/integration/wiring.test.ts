@@ -11,6 +11,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileS
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FakeAdapter, FAKE_SCENARIO_ENV, type CapabilityName, type RuntimeCapabilities, type SessionHandle } from '../../src/adapters/index.js';
+import { ClaudeCodeAdapter } from '../../src/adapters/claude-code/index.js';
 import { CodexAdapter } from '../../src/adapters/codex/index.js';
 import { FAKE_APP_SERVER, fixturePath as codexFixturePath } from '../adapters/codex/helpers.js';
 import { runCli } from '../../src/cli/index.js';
@@ -92,7 +93,7 @@ function writeCodexAgentsConfig(dir: string, executable: string): string {
 }
 
 describe('run-path adapter registry', () => {
-  it('resolves "codex" to the real Codex adapter, keeps "fake" and still refuses the unbuilt claude-code adapter', () => {
+  it('resolves "codex" and "claude-code" to their real adapters, keeps "fake" and still refuses an unknown one', () => {
     const logsDir = path.join(tempDir('workforce-registry-'), 'logs');
     const context = { runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', logsDir };
 
@@ -105,8 +106,14 @@ describe('run-path adapter registry', () => {
 
     expect(createAdapter({ id: 'fake-local', adapter: 'fake', executable: '/tmp/fake.mjs' }, context)).toBeInstanceOf(FakeAdapter);
 
-    expect(() => createAdapter({ id: 'claude-local', adapter: 'claude-code', executable: 'claude' }, context)).toThrow(AdapterNotRegisteredError);
-    expect(() => createAdapter({ id: 'claude-local', adapter: 'claude-code', executable: 'claude' }, context)).toThrow(/WP05/);
+    // WP05 registered the second real runtime; nothing else in the direct path
+    // changed to accommodate it, which is the point of the shared conformance suite.
+    const claude = createAdapter({ id: 'claude-local', adapter: 'claude-code', executable: 'claude' }, context);
+    expect(claude).toBeInstanceOf(ClaudeCodeAdapter);
+    expect(claude.id).toBe('claude-code');
+    expect(claude.capabilities().capabilities.structured_events.testedVersion).not.toBeNull();
+
+    expect(() => createAdapter({ id: 'other', adapter: 'not-a-runtime', executable: 'x' }, context)).toThrow(AdapterNotRegisteredError);
   });
 
   it('drives the real Codex adapter from "workforce run" and reports its transport failure, not a missing registration', async () => {

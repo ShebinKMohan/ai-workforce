@@ -1,0 +1,35 @@
+{
+  "provenance": "SYNTHETIC. Hand-built from the record shapes recorded verbatim from claude 2.1.260 (see session-auth-failure.real.json) plus the documented Anthropic message content-block shapes. It is NOT a recording: no turn on the recording machine reached the model, so no real tool_use / tool_result record could be captured. Tests that use this file prove the adapter's framing and normalization, not the runtime's behaviour. The process answers the initialize handshake (the fake always does) and then produces nothing; it exits only when its process group is signalled.",
+  "steps": [
+    {
+      "on": "user",
+      "emit": [
+        {
+          "type": "system",
+          "subtype": "init",
+          "cwd": "{{cwd}}",
+          "session_id": "{{sessionId}}",
+          "tools": [
+            "Read",
+            "Glob",
+            "Grep",
+            "Edit",
+            "Write"
+          ],
+          "mcp_servers": [],
+          "model": "claude-opus-5[1m]",
+          "permissionMode": "acceptEdits",
+          "apiKeySource": "none",
+          "claude_code_version": "2.1.260",
+          "output_style": "default",
+          "capabilities": [
+            "interrupt_receipt_v1",
+            "interrupt_cancel_queued_v1",
+            "msg_lifecycle_v1"
+          ],
+          "uuid": "11111111-1111-4111-8111-111111111111"
+        }
+      ]
+    }
+  ]
+}

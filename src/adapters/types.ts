@@ -246,12 +246,22 @@ export interface DeliveryReceipt {
   readonly state: 'queued' | 'submitted_to_active_turn';
   readonly turnId: string | null;
   readonly at: string;
+  /**
+   * Optional: what the adapter actually observed, in the adapter's own words.
+   * `state` stays the contract; this says which of the several ways of being
+   * `queued` happened (held by the adapter, or handed to the runtime's own
+   * queue) so a reader is never left guessing. `StopReceipt` already carries
+   * the same field.
+   */
+  readonly detail?: string;
 }
 
 export interface InterruptionReceipt {
   readonly turnId: string;
   readonly state: 'requested' | 'observed';
   readonly at: string;
+  /** Optional: what the adapter observed, for example which terminal event made this `observed`. */
+  readonly detail?: string;
 }
 
 export interface StopReceipt {

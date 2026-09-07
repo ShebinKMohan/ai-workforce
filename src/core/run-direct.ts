@@ -32,6 +32,7 @@ import { newId, nowIso } from './ids.js';
 import { computeAgentSnapshot } from './snapshot.js';
 import type { ProcessIdentity } from './process.js';
 import {
+  ClaudeCodeAdapter,
   CodexAdapter,
   FakeAdapter,
   FAKE_SCENARIO_ENV,
@@ -142,9 +143,10 @@ export type AdapterFactory = (runtime: RuntimeBindingRef, context: AdapterContex
 /**
  * ===================== ADAPTER REGISTRATION POINT =====================
  * 'fake' is the deterministic test runtime, 'codex' is the WP03 app-server
- * adapter. WP05 registers the Claude Code adapter under 'claude-code'.
- * Every adapter implements the same `RuntimeAdapter` contract, so nothing
- * else in the direct path changes when one is added.
+ * adapter and 'claude-code' is the WP05 CLI adapter. Every adapter implements
+ * the same `RuntimeAdapter` contract, so nothing else in the direct path
+ * changed when the second real runtime was added — which is the point of the
+ * shared conformance suite in tests/adapters/conformance.
  * ======================================================================
  */
 export function createAdapter(runtime: RuntimeBindingRef, context?: AdapterContext): RuntimeAdapter {
@@ -159,7 +161,13 @@ export function createAdapter(runtime: RuntimeBindingRef, context?: AdapterConte
         ...(context !== undefined ? { logsDir: context.logsDir } : {}),
       });
     case 'claude-code':
-      throw new AdapterNotRegisteredError('claude-code', 'WP05');
+      // Same contract, different transport: the Claude Code CLI held open in
+      // programmatic mode. The raw JSONL capture goes into the run's own logs
+      // directory, exactly as the Codex adapter's does.
+      return new ClaudeCodeAdapter({
+        executablePath: runtime.executable,
+        ...(context !== undefined ? { logsDir: context.logsDir } : {}),
+      });
     default:
       throw new AdapterNotRegisteredError(runtime.adapter, 'a future work package');
   }
