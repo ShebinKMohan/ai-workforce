@@ -378,7 +378,8 @@ recording machine's full `PATH` plus known install locations, naming unrelated l
 per-session directories — was replaced by a one-line note giving the count (61 each). Everything else
 in it is verbatim. Absolute paths are kept elsewhere because they are what makes the record
 reproducible: the two runtime executables, this repository, and the throwaway `$ROOT` the runs used
-(a per-session scratch directory that no longer exists).
+(a scratch directory under `$TMPDIR`, outside this repository, deleted after the evidence was copied
+out of it).
 
 ## Files
 
