@@ -16,6 +16,7 @@ import { FAKE_APP_SERVER, fixturePath as codexFixturePath } from '../adapters/co
 import { runCli } from '../../src/cli/index.js';
 import { EXIT_CODES } from '../../src/cli/output.js';
 import { loadAgentConfigFile } from '../../src/core/config.js';
+import { capabilitiesFor, loadVerifiedCapabilityOverrides } from '../../src/discovery/capabilities.js';
 import { AdapterNotRegisteredError, createAdapter, runDirect } from '../../src/core/run-direct.js';
 import { openStateStore } from '../../src/storage/db.js';
 import { createStatePaths } from '../../src/storage/paths.js';
@@ -328,5 +329,31 @@ describe('the real Codex adapter drives the direct run path (no model turn)', ()
     } finally {
       store.close();
     }
+  });
+});
+
+describe('the shipped verified-capabilities file reaches discovery (FR005)', () => {
+  it('parses, raises the codex statuses WP03 established, and stops at the version it was established on', () => {
+    const overrides = loadVerifiedCapabilityOverrides();
+
+    // A malformed file is ignored with a diagnostic, so an empty diagnostics
+    // list is what proves the two packages agree on the schema.
+    expect(overrides.present).toBe(true);
+    expect(overrides.diagnostics).toEqual([]);
+
+    const tested = capabilitiesFor('codex', '0.147.0', { overrides });
+    expect(tested.structured_execution).toMatchObject({ status: 'verified', source: 'override' });
+    expect(tested.sandbox_workspace_write.status).toBe('verified');
+    expect(tested.token_usage_report.status).toBe('verified');
+    expect(tested.structured_execution.note).toContain('real-runtime.test.ts');
+    // Never claimed, so it must not have been raised.
+    expect(tested.mcp_config_injection).toMatchObject({ status: 'supported_unverified', source: 'table' });
+    // Cost stays unsupported: an unavailable price is never reported as zero.
+    expect(tested.cost_report.status).toBe('unsupported');
+
+    // The evidence was gathered on 0.147.0 only; a later build falls back to
+    // the documented-but-unproved table rather than inheriting the claim.
+    const untested = capabilitiesFor('codex', '0.148.0', { overrides });
+    expect(untested.structured_execution).toMatchObject({ status: 'supported_unverified', source: 'table' });
   });
 });

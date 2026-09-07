@@ -113,9 +113,31 @@ writing `docs/verified-capabilities.json`, which discovery loads when present:
 }
 ```
 
-`evidence` is required, so a `verified` claim always names what established it.
-The file is absent today, and a malformed file is reported and ignored rather
-than failing `doctor`.
+`evidence` is required, so a `verified` claim always names what established it. A
+malformed file is reported and ignored rather than failing `doctor`.
+
+The file is present and carries WP03's codex evidence, bound to `0.147.0` alone
+(`maxVersionExclusive: "0.147.1"`), so a later build falls back to the
+documented-but-unproved table instead of inheriting the claim. WP03's adapter
+uses its own capability names, and this file is where they are mapped onto the
+discovery names above:
+
+| Discovery name | Established by (WP03 adapter capability) |
+| --- | --- |
+| `structured_execution` | `structured_events` |
+| `owned_session_identity` | `session_identity` |
+| `observed_cancellation` | `interrupt_turn` and `process_tree_stop` together |
+| `resume_session` | `resume_session` |
+| `active_turn_delivery` | `active_turn_delivery` and `queued_delivery` |
+| `sandbox_workspace_write` | `write_containment` |
+| `model_selection` | `model_selection` |
+| `effort_selection` | `effort_selection` |
+| `token_usage_report` | `usage_reporting` (token counts only) |
+| `cost_report` | `usage_reporting` currency detail — `unsupported` |
+
+`mcp_config_injection` is deliberately absent: WP03 proved nothing about it, so
+it stays `supported_unverified`. `tests/integration/wiring.test.ts` fails if the
+shipped file stops parsing or stops raising these statuses.
 
 `cost_report` is `unsupported` for both adapters: no currency-cost field is
 established here, and an unavailable cost must not be reported as zero.

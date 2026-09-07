@@ -2,6 +2,7 @@
 import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { LoadedOverrides } from '../../src/discovery/capabilities.js';
 import { applyLiveCheck, discoverRuntime, discoverRuntimes, READINESS_LEVELS } from '../../src/discovery/readiness.js';
 import { fakeClaude, fakeCodex, hangingScript, recordingSpawner, tempDir, writeExecutable } from './helpers.js';
 
@@ -18,12 +19,20 @@ function scratch(): string {
 
 const NO_KNOWN_LOCATIONS = { knownLocations: [] as string[], timeoutMs: 5_000 };
 
+/**
+ * These tests probe fake executables that report a real version string. The
+ * repository ships `docs/verified-capabilities.json` with WP03's codex
+ * evidence for 0.147.0, which discovery loads by default — so a test about
+ * what the *probe* alone establishes must say it wants no overrides.
+ */
+const NO_OVERRIDES: { overrides: LoadedOverrides } = { overrides: { file: '(none)', present: false, entries: [], diagnostics: [] } };
+
 describe('passive readiness (FR002)', () => {
   it('reports a supported, logged-in installation as controllable — never as verified_ready', async () => {
     const bin = scratch();
     writeExecutable(bin, 'codex', fakeCodex({ version: '0.147.0', login: 'in' }));
 
-    const report = await discoverRuntime('codex', { pathValue: bin, ...NO_KNOWN_LOCATIONS });
+    const report = await discoverRuntime('codex', { pathValue: bin, ...NO_KNOWN_LOCATIONS, ...NO_OVERRIDES });
 
     expect(report.installed).toBe(true);
     expect(report.version).toBe('0.147.0');
@@ -34,7 +43,17 @@ describe('passive readiness (FR002)', () => {
     expect(report.probeKind).toBe('passive');
     expect(report.executable).toBe(path.join(bin, 'codex'));
     expect(report.realPath).not.toBeNull();
+    // The probe by itself never establishes a capability.
     expect(report.capabilities['structured_execution'].status).toBe('supported_unverified');
+
+    // With the repository's own evidence file loaded, capability statuses do
+    // rise — but readiness still stops at controllable, because a recorded
+    // adapter test is not a live check of this installation.
+    const withEvidence = await discoverRuntime('codex', { pathValue: bin, ...NO_KNOWN_LOCATIONS });
+    expect(withEvidence.capabilities['structured_execution'].status).toBe('verified');
+    expect(withEvidence.capabilities['structured_execution'].source).toBe('override');
+    expect(withEvidence.readiness).toBe('controllable');
+    expect(withEvidence.probeKind).toBe('passive');
   });
 
   it('reports a missing runtime as missing, with no probes and no claimed capability', async () => {

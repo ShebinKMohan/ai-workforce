@@ -1,90 +1,52 @@
 {
-  "schemaVersion": 1,
-  "description": "Runtime capability statuses established by executing controls against installed runtimes. 'verified' means this repository ran the control against the runtime named here; 'supported_unverified' means the interface exists but was not exercised; 'unsupported' means the control is absent or fails closed. Statuses are bound to an exact executable version and platform and must be re-established after an upgrade (FR005, FR008).",
-  "runtimes": [
+  "version": 1,
+  "entries": [
     {
       "adapter": "codex",
-      "executable": "codex",
-      "resolvedPath": "/opt/homebrew/bin/codex",
-      "version": "0.147.0",
-      "versionSource": "codex --version",
-      "os": "darwin",
-      "osRelease": "macOS 26.6.2 (arm64)",
-      "authentication": "logged_in",
-      "authenticationSource": "codex login status",
-      "protocol": "codex app-server, stdio transport (`codex app-server --stdio`)",
-      "protocolSchemaSource": "codex app-server generate-json-schema for this build",
-      "observedAt": "2026-09-07T12:28:00Z",
-      "evidence": "tests/adapters/codex/real-runtime.test.ts (WORKFORCE_REAL_RUNTIMES=1), tests/adapters/codex/adapter.test.ts, tests/adapters/codex/rpc.test.ts, docs/runtime-codex.md",
-      "workPackage": "WP03",
-      "featureIds": ["FR003", "FR058", "FR042"],
+      "minVersion": "0.147.0",
+      "maxVersionExclusive": "0.147.1",
       "capabilities": {
-        "structured_events": {
+        "structured_execution": {
           "status": "verified",
-          "note": "thread/started, turn/started, item/started, item/completed, thread/tokenUsage/updated, error and turn/completed observed on real sessions and normalized into RuntimeEvents; unknown methods and unknown fields are preserved as raw events."
+          "evidence": "WP03 tests/adapters/codex/real-runtime.test.ts (codex-cli 0.147.0, darwin): thread/started, turn/started, item/started, item/completed, thread/tokenUsage/updated, error and turn/completed observed on real sessions and normalized; unknown methods and fields are preserved as raw events"
         },
-        "session_identity": {
+        "owned_session_identity": {
           "status": "verified",
-          "note": "thread/start returns a stable thread id reused by every later request, notification and resume."
+          "evidence": "WP03 tests/adapters/codex/real-runtime.test.ts: thread/start returns a stable thread id reused by every later request, notification and resume"
+        },
+        "observed_cancellation": {
+          "status": "verified",
+          "evidence": "WP03 tests/adapters/codex/real-runtime.test.ts: turn/interrupt ended a running shell loop and the receipt reports 'observed' only after turn/completed with status interrupted; shutdown escalates SIGTERM then SIGKILL against the owned process group and reports the observed group state"
         },
         "resume_session": {
           "status": "verified",
-          "note": "A thread was resumed by id in a second app-server process after the first was terminated, and answered from the earlier turn's history. Resuming a thread that never ran a turn fails with -32600 'no rollout found'."
-        },
-        "interrupt_turn": {
-          "status": "verified",
-          "note": "turn/interrupt ended a running shell loop; the receipt reports 'observed' only after turn/completed with status interrupted. -32600 'no active turn to interrupt' becomes a receipt, not a crash."
+          "evidence": "WP03 tests/adapters/codex/real-runtime.test.ts: a thread was resumed by id in a second app-server process after the first was terminated and answered from the earlier turn's history. Resuming a thread with no completed turn fails with -32600 'no rollout found'"
         },
         "active_turn_delivery": {
           "status": "verified",
-          "note": "turn/steer with expectedTurnId accepted mid-turn; receipt state submitted_to_active_turn."
+          "evidence": "WP03 tests/adapters/codex/real-runtime.test.ts: turn/steer with expectedTurnId accepted mid-turn, receipt state submitted_to_active_turn; a delivery with no active turn is queued and flushed into the next turn/start input"
         },
-        "queued_delivery": {
+        "sandbox_workspace_write": {
           "status": "verified",
-          "note": "A delivery recorded with no active turn is queued by the adapter and flushed into the next turn/start input; a refused steer is re-queued rather than lost."
-        },
-        "process_tree_stop": {
-          "status": "verified",
-          "note": "The app server is spawned as a process-group leader. Shutdown closes stdin, then escalates SIGTERM and SIGKILL against the group, and reports the observed group state. The server's MCP server children live in the same group and are waited for."
-        },
-        "write_containment": {
-          "status": "verified",
-          "note": "workspace-write with explicit writableRoots plus excludeSlashTmp and excludeTmpdirEnvVar. Writes inside the granted root succeed; writes to a sibling workspace, to /tmp and to $TMPDIR are denied with 'Operation not permitted'; network is denied; read-only denies every write while still allowing reads. Checked through command/exec and through a model-driven turn asked to write outside its workspace.",
-          "detail": {
-            "command_exec_path": "verified",
-            "model_driven_turn_path": "verified",
-            "default_workspace_write_is_not_a_boundary": "Codex's workspaceWrite default leaves /tmp and $TMPDIR writable; both exclusions are required and are always set by this adapter."
-          }
+          "evidence": "WP03 tests/adapters/codex/real-runtime.test.ts (FR042 boundary): workspace-write with explicit writableRoots plus excludeSlashTmp and excludeTmpdirEnvVar. Writes inside the granted root succeed; writes to a sibling workspace, /tmp and $TMPDIR are denied with 'Operation not permitted'; network denied. Checked through command/exec and through a model-driven turn. Codex's own workspaceWrite default leaves /tmp and $TMPDIR writable, so both exclusions are always set by this adapter"
         },
         "model_selection": {
           "status": "verified",
-          "note": "model/list reports available ids; -c model=\"<id>\" is reflected in the thread/start response and used by the turn. Reported ids on this machine: gpt-5.6-sol (default), gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.4-mini, gpt-5.3-codex-spark."
+          "evidence": "WP03 tests/adapters/codex/real-runtime.test.ts: model/list reports available ids and -c model=\"<id>\" is reflected in the thread/start response and used by the turn"
         },
         "effort_selection": {
           "status": "verified",
-          "note": "model/list reports supported reasoning efforts per model; -c model_reasoning_effort=\"<value>\" is reflected in the thread/start response. thread/start has no effort parameter in this protocol version. Reported efforts: low, medium, high, xhigh, max, ultra."
+          "evidence": "WP03 tests/adapters/codex/real-runtime.test.ts: model/list reports supported reasoning efforts per model and -c model_reasoning_effort=\"<value>\" is reflected in the thread/start response; thread/start has no effort parameter in this protocol version"
         },
-        "usage_reporting": {
+        "token_usage_report": {
           "status": "verified",
-          "note": "thread/tokenUsage/updated reports input, cached input, output and reasoning token counts per turn (20490 total tokens for the tiny fixture turn).",
-          "detail": {
-            "tokens": "verified",
-            "currency_cost": "unsupported: the app server reports no price. Cost must be labelled unavailable, never zero."
-          }
+          "evidence": "WP03 tests/adapters/codex/real-runtime.test.ts: thread/tokenUsage/updated reports input, cached input, output and reasoning token counts per turn"
         },
-        "coordination_bridge": {
+        "cost_report": {
           "status": "unsupported",
-          "note": "The agent-callable bridge arrives with WP06. MCP servers configured in the user's ~/.codex/config.toml do start with every thread, but they are not a scoped coordinator bridge and this adapter does not use them."
+          "evidence": "WP03 docs/runtime-codex.md: the app server reports no currency-cost field at all; cost must be labelled unavailable, never zero"
         }
-      },
-      "limitations": [
-        "Currency cost is not reported by the app server.",
-        "The user's configured default model may be incompatible with the installed CLI (gpt-6-astra returned HTTP 400 here); pin a model from model/list rather than inheriting the user's default.",
-        "The user's configured MCP servers start with every thread; -c mcp_servers={} did not suppress them in 0.147.0.",
-        "thread/start echoes an empty writableRoots even when the turn policy grants roots; the turn-scoped sandboxPolicy is what is enforced.",
-        "thread/resume requires a persisted rollout, so a thread with no completed turn cannot be resumed.",
-        "thread/shellCommand is documented as running unsandboxed with full access; this adapter never calls it."
-      ]
+      }
     }
   ]
 }
