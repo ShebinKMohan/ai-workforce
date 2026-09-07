@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "runtimes": {
+    "codex-local": { "adapter": "codex", "executable": "codex" },
+    "claude-local": { "adapter": "claude-code", "executable": "claude" }
+  },
+  "defaults": {
+    "workerAgent": "engineer",
+    "plannerAgent": "architect",
+    "reviewerAgent": "reviewer",
+    "maxActiveTurns": 2,
+    "maxActiveWriters": 2,
+    "maxTasksPerRun": 8,
+    "maxDelegationDepth": 2,
+    "maxRepairAttempts": 2,
+    "maxTransientRetries": 2,
+    "runTimeoutMinutes": 30
+  },
+  "agents": [
+    {
+      "id": "engineer",
+      "runtime": "claude-local",
+      "instructions": "Inspect the relevant code, fix the underlying issue, and submit evidence against the task criteria.",
+      "capabilities": ["coding", "testing"],
+      "policy": "local-development"
+    },
+    {
+      "id": "architect",
+      "runtime": "codex-local",
+      "instructions": "Clarify missing intent, define interfaces, and propose only useful bounded subtasks.",
+      "capabilities": ["planning", "architecture"],
+      "policy": "analysis"
+    },
+    {
+      "id": "reviewer",
+      "runtime": "codex-local",
+      "instructions": "Review the actual candidate against its criteria and report concrete unresolved issues with evidence.",
+      "capabilities": ["review"],
+      "policy": "analysis"
+    }
+  ]
+}

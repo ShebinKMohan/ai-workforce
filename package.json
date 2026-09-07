@@ -1,0 +1,33 @@
+{
+  "name": "workforce",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local terminal coordinator that dispatches installed coding runtimes into isolated candidate workspaces and verifies the result.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "workforce": "dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "fixtures/fake-runtime"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "dev": "tsx src/cli/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}
