@@ -2,31 +2,27 @@
 /**
  * workforce CLI: doctor | run | status | resume.
  *
- * WP01 wires argument parsing, configuration validation (exit 2 on invalid
- * input), state-root resolution and read-only status. Discovery, execution
- * and resume arrive with WP02-WP09 and currently report "not implemented".
+ * WP01 wired argument parsing, configuration validation (exit 2 on invalid
+ * input) and state-root resolution. WP04 implements `run` (the R0 direct
+ * path) and `status`; discovery and resume arrive with WP02 and WP09 and
+ * currently report "not implemented".
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { ContractValidationError } from '../core/contracts.js';
 import { loadAgentConfigFile, type LoadedAgentConfig } from '../core/config.js';
 import { computeAgentSnapshot } from '../core/snapshot.js';
-import { openStateStore, StateNotFoundError } from '../storage/db.js';
-import { listArtifacts } from '../storage/artifacts.js';
-import { listEvents, lastEventSequence } from '../storage/events.js';
-import { SchemaTooNewError } from '../storage/migrations.js';
-import { createStatePaths, ensureStateRoot, resolveStateRoot } from '../storage/paths.js';
-import { findRun, listTasks } from '../storage/records.js';
-import { redactValue } from '../telemetry/redaction.js';
+import { resolveStateRoot } from '../storage/paths.js';
+import { commandRun } from './commands/run.js';
+import { commandStatus } from './commands/status.js';
 import { CliError, EXIT_CODES, Reporter, type CommandResult, type ExitCode, type Streams } from './output.js';
 
 export const USAGE = `workforce — coordinate installed coding runtimes on one engineering task
 
 Usage:
   workforce doctor [--agents <file>] [--state-dir <dir>] [--json]
-  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--state-dir <dir>] [--json]
+  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--check "<cmd> [args]"]... [--state-dir <dir>] [--json]
   workforce status <run-id> [--state-dir <dir>] [--json]
   workforce resume <run-id> --agents <file> [--state-dir <dir>] [--json]
 
@@ -35,8 +31,15 @@ Options:
   --agents <file>      agent configuration JSON (schemaVersion 1)
   --task <text>        task request text
   --task-file <file>   read the task request from a file
+  --agent <id>         worker agent to dispatch (default: defaults.workerAgent)
+  --check "<cmd> ..."  acceptance check, repeatable. Executed with an argument
+                       array, never through a shell. Without it the checks come
+                       from .workforce/checks.json at the base revision, or are
+                       detected from the project's own test setup.
   --state-dir <dir>    coordinator state root (default: $WORKFORCE_STATE_DIR or ~/.workforce)
-  --json               machine-readable stdout; diagnostics go to stderr
+  --json               machine-readable stdout; diagnostics go to stderr.
+                       "run --json" emits JSONL: one event object per line, then
+                       the final result object.
   -h, --help           show this help
 
 Exit codes: 0 verified candidate · 2 invalid input/config · 3 user action required · 4 execution/validation failure · 130 interrupted`;
@@ -49,6 +52,8 @@ interface ParsedArgs {
   readonly task?: string;
   readonly taskFile?: string;
   readonly stateDir?: string;
+  readonly agent?: string;
+  readonly checks?: ReadonlyArray<string>;
   readonly json: boolean;
   readonly help: boolean;
 }
@@ -70,6 +75,8 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     ...(values.task !== undefined ? { task: values.task } : {}),
     ...(values['task-file'] !== undefined ? { taskFile: values['task-file'] } : {}),
     ...(values['state-dir'] !== undefined ? { stateDir: values['state-dir'] } : {}),
+    ...(values.agent !== undefined ? { agent: values.agent } : {}),
+    ...(values.check !== undefined ? { checks: values.check } : {}),
     json: values.json === true,
     help: values.help === true,
   };
@@ -81,6 +88,8 @@ const OPTIONS = {
   task: { type: 'string' },
   'task-file': { type: 'string' },
   'state-dir': { type: 'string' },
+  agent: { type: 'string' },
+  check: { type: 'string', multiple: true },
   json: { type: 'boolean', default: false },
   help: { type: 'boolean', short: 'h', default: false },
 } as const;
@@ -117,37 +126,6 @@ function notImplemented(command: string, data: Record<string, unknown>, lines: s
   return { command, exitCode: EXIT_CODES.executionFailure, data: { ...data, status: 'not_implemented', message }, lines: [...lines, message] };
 }
 
-function requireRepo(repo: string | undefined): string {
-  if (repo === undefined) throw new CliError(EXIT_CODES.invalidInput, 'missing_repo', '--repo <path> is required');
-  const absolute = path.resolve(repo);
-  if (!existsSync(absolute) || !statSync(absolute).isDirectory()) {
-    throw new CliError(EXIT_CODES.invalidInput, 'invalid_repo', `--repo ${absolute} is not a directory`);
-  }
-  return absolute;
-}
-
-function requireTaskText(args: ParsedArgs): { text: string; source: string } {
-  if (args.task !== undefined && args.taskFile !== undefined) {
-    throw new CliError(EXIT_CODES.invalidInput, 'ambiguous_task', 'pass either --task or --task-file, not both');
-  }
-  if (args.task !== undefined) {
-    if (args.task.trim().length === 0) throw new CliError(EXIT_CODES.invalidInput, 'empty_task', '--task text is empty');
-    return { text: args.task, source: 'argument' };
-  }
-  if (args.taskFile !== undefined) {
-    const file = path.resolve(args.taskFile);
-    let text: string;
-    try {
-      text = readFileSync(file, 'utf8');
-    } catch (error) {
-      throw new CliError(EXIT_CODES.invalidInput, 'unreadable_task_file', `cannot read --task-file ${file}: ${(error as Error).message}`);
-    }
-    if (text.trim().length === 0) throw new CliError(EXIT_CODES.invalidInput, 'empty_task', `--task-file ${file} is empty`);
-    return { text, source: file };
-  }
-  throw new CliError(EXIT_CODES.invalidInput, 'missing_task', 'one of --task <text> or --task-file <file> is required');
-}
-
 function requireRunId(args: ParsedArgs, command: string): string {
   const runId = args.positionals[0];
   if (runId === undefined || runId.length === 0) throw new CliError(EXIT_CODES.invalidInput, 'missing_run_id', `${command} requires a <run-id> argument`);
@@ -171,62 +149,6 @@ function commandDoctor(args: ParsedArgs): CommandResult {
   return notImplemented('doctor', data, lines, 'WP02 discovery');
 }
 
-function commandRun(args: ParsedArgs): CommandResult {
-  const repo = requireRepo(args.repo);
-  if (args.agents === undefined) throw new CliError(EXIT_CODES.invalidInput, 'missing_agents', '--agents <file> is required');
-  const loaded = loadConfigOrFail(args.agents);
-  const task = requireTaskText(args);
-  const paths = createStatePaths(resolveStateRoot(args.stateDir));
-  ensureStateRoot(paths);
-  const worker = loaded.config.defaults.workerAgent;
-  const data = {
-    stateRoot: paths.root,
-    repo,
-    config: configSummary(loaded),
-    workerAgent: worker,
-    task: { source: task.source, characters: task.text.length },
-  };
-  const lines = [`state root: ${paths.root}`, `repo: ${repo}`, `agent configuration: ${loaded.path} (valid)`, `worker agent: ${worker}`, `task: ${task.text.length} characters from ${task.source}`];
-  return notImplemented('run', data, lines, 'WP03/WP04 execution');
-}
-
-function commandStatus(args: ParsedArgs): CommandResult {
-  const runId = requireRunId(args, 'status');
-  const paths = createStatePaths(resolveStateRoot(args.stateDir));
-  let store;
-  try {
-    store = openStateStore(paths, { mode: 'read-only' });
-  } catch (error) {
-    if (error instanceof StateNotFoundError || error instanceof SchemaTooNewError) {
-      throw new CliError(EXIT_CODES.invalidInput, 'state_unavailable', error.message);
-    }
-    throw error;
-  }
-  try {
-    const run = findRun(store.db, runId);
-    if (run === null) throw new CliError(EXIT_CODES.invalidInput, 'unknown_run', `run ${runId} not found under ${paths.root}`);
-    const tasks = listTasks(store.db, runId).map((task) => ({ id: task.id, objective: task.objective, state: task.state, waitReason: task.wait_reason, generation: task.current_generation }));
-    const last = lastEventSequence(store.db, runId);
-    const events = listEvents(store.db, runId, { afterSequence: Math.max(0, last - 10) }).map((event) => ({ sequence: event.sequence, type: event.type, timestamp: event.timestamp, taskId: event.taskId }));
-    const artifacts = listArtifacts(store.db, runId).map((artifact) => ({ id: artifact.id, type: artifact.type, path: artifact.relativePath, sha256: artifact.sha256 }));
-    const request = redactValue(JSON.parse(run.request_json) as Record<string, unknown>);
-    const data = { stateRoot: paths.root, run: { id: run.id, state: run.state, repoPath: run.repo_path, baseRevision: run.base_revision, policy: run.policy, createdAt: run.created_at, updatedAt: run.updated_at, request }, tasks, events, artifacts, eventCount: last };
-    const lines = [
-      `run ${run.id}: ${run.state}`,
-      `repo: ${run.repo_path} (base ${run.base_revision ?? 'unknown'})`,
-      `tasks: ${tasks.length === 0 ? '(none)' : ''}`,
-      ...tasks.map((task) => `  ${task.id} [${task.state}${task.waitReason ? `: ${task.waitReason}` : ''}] gen ${task.generation} — ${task.objective}`),
-      `events: ${last} recorded; last ${events.length}:`,
-      ...events.map((event) => `  #${event.sequence} ${event.timestamp} ${event.type}`),
-      `artifacts: ${artifacts.length === 0 ? '(none)' : ''}`,
-      ...artifacts.map((artifact) => `  ${artifact.type} ${artifact.path} sha256 ${artifact.sha256.slice(0, 12)}`),
-    ];
-    return { command: 'status', exitCode: EXIT_CODES.verifiedCandidate, data, lines };
-  } finally {
-    store.close();
-  }
-}
-
 function commandResume(args: ParsedArgs): CommandResult {
   const runId = requireRunId(args, 'resume');
   const stateRoot = resolveStateRoot(args.stateDir);
@@ -240,7 +162,7 @@ function commandResume(args: ParsedArgs): CommandResult {
   return notImplemented('resume', data, lines, 'WP09 recovery');
 }
 
-export function runCli(argv: ReadonlyArray<string>, streams: Streams = process): ExitCode {
+export async function runCli(argv: ReadonlyArray<string>, streams: Streams = process, signal?: AbortSignal): Promise<ExitCode> {
   let json = argv.includes('--json');
   let reporter = new Reporter(json, streams);
   let command = 'workforce';
@@ -258,7 +180,7 @@ export function runCli(argv: ReadonlyArray<string>, streams: Streams = process):
       case 'doctor':
         return reporter.result(commandDoctor(args));
       case 'run':
-        return reporter.result(commandRun(args));
+        return reporter.result(await commandRun(args, { reporter, streams, ...(signal !== undefined ? { signal } : {}) }));
       case 'status':
         return reporter.result(commandStatus(args));
       case 'resume':
@@ -273,12 +195,22 @@ export function runCli(argv: ReadonlyArray<string>, streams: Streams = process):
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
+  // Ctrl+C aborts the active command, which persists its interruption intent
+  // and stops the processes it owns. A second Ctrl+C forces termination and
+  // leaves an honestly uncertain state behind.
+  const interruption = new AbortController();
+  let signals = 0;
   process.on('SIGINT', () => {
-    process.stderr.write('\ninterrupted\n');
-    process.exit(EXIT_CODES.interrupted);
+    signals += 1;
+    if (signals >= 2) {
+      process.stderr.write('\nforced termination requested; owned processes and state may be left in an uncertain state\n');
+      process.exit(EXIT_CODES.interrupted);
+    }
+    process.stderr.write('\ninterrupting: stopping owned processes and persisting what exists\n');
+    interruption.abort();
   });
-  process.exitCode = runCli(process.argv.slice(2));
+  process.exitCode = await runCli(process.argv.slice(2), process, interruption.signal);
 }
 
 function isInvokedDirectly(): boolean {
@@ -291,4 +223,4 @@ function isInvokedDirectly(): boolean {
   }
 }
 
-if (isInvokedDirectly()) main();
+if (isInvokedDirectly()) void main();

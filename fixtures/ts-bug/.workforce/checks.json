@@ -1,0 +1,12 @@
+{
+  "checksVersion": 1,
+  "checks": [
+    {
+      "criterionId": "node-tests-pass",
+      "description": "node --test reproduces the reported bug and must pass on the candidate",
+      "command": "node",
+      "args": ["--test", "test/"],
+      "timeoutMs": 120000
+    }
+  ]
+}
