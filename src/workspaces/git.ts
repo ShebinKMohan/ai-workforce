@@ -171,3 +171,35 @@ export async function branchExists(repoRoot: string, branch: string): Promise<bo
 export async function resolveRevision(repoRoot: string, revision: string): Promise<string | null> {
   return await gitTextOrNull(['rev-parse', '--verify', '--quiet', `${revision}^{commit}`], { cwd: repoRoot });
 }
+
+// ---------------------------------------------------------------------------
+// Repository-scoped serialization
+// ---------------------------------------------------------------------------
+
+/**
+ * One repository's mutating workspace operations, serialized.
+ *
+ * `git worktree add|remove|prune` all take the repository's administrative
+ * locks, and two of them racing against the same repository fail with
+ * "cannot lock ref" or leave a half-registered worktree behind. Serializing
+ * only these short operations is what lets the planned path run several
+ * workers at the same time: the workers themselves, and the checks they are
+ * verified by, hold no repository lock and stay concurrent.
+ */
+const repositoryQueues = new Map<string, Promise<unknown>>();
+
+export function withRepositoryLock<T>(repoRoot: string, operation: () => Promise<T>): Promise<T> {
+  const key = path.resolve(repoRoot);
+  const previous = repositoryQueues.get(key) ?? Promise.resolve();
+  const next = previous.then(operation, operation);
+  // The queue never holds a rejected promise: a failed operation must not
+  // reject every later one waiting behind it.
+  repositoryQueues.set(
+    key,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return next;
+}

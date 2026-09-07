@@ -175,3 +175,171 @@ describe('the planned path', () => {
     expect(runRow.state).toBe('failed');
   }, 120_000);
 });
+
+describe('the planned path refuses a plan it cannot execute', () => {
+  async function setup() {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-planned-bad-'), 'state');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-planned-bad-config-'));
+    const loaded = loadAgentConfigFile(configPath);
+    const paths = createStatePaths(stateDir);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    registerCleanup(() => store.close());
+    const scenario = writeScenario(addFileScenario('docs/x.md', '# X\n'));
+    return {
+      base: {
+        repoPath: fixture.path,
+        config: loaded.config,
+        configRaw: loaded.raw,
+        configPath: loaded.path,
+        requestText: 'Do several things.',
+        requestSource: 'test',
+        checkFlags: ['node --version'],
+        paths,
+        db: store.db,
+        adapterFactory: () => new FakeAdapter({ scenarioPath: scenario }),
+      },
+    };
+  }
+
+  it('refuses a dependency cycle instead of silently dropping the cycled tasks', async () => {
+    const { base } = await setup();
+    await expect(
+      runPlanned({
+        ...base,
+        tasks: [
+          { key: 't1', objective: 'One.', dependencies: ['t2'] },
+          { key: 't2', objective: 'Two.', dependencies: ['t1'] },
+          { key: 't3', objective: 'Three.' },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'dependency_cycle' });
+  });
+
+  it('refuses a self-dependency', async () => {
+    const { base } = await setup();
+    await expect(
+      runPlanned({
+        ...base,
+        tasks: [
+          { key: 't1', objective: 'One.' },
+          { key: 't2', objective: 'Two.', dependencies: ['t2'] },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'self_dependency' });
+  });
+});
+
+describe('the planned repair loop', () => {
+  it('runs repairs as new generations instead of dying on the attempts unique index', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-planned-repair-'), 'state');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-planned-repair-config-'));
+    const loaded = loadAgentConfigFile(configPath);
+    const paths = createStatePaths(stateDir);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    registerCleanup(() => store.close());
+    const scenario = writeScenario(addFileScenario('docs/repair.md', '# Repair\n'));
+
+    const result = await runPlanned({
+      repoPath: fixture.path,
+      config: loaded.config,
+      configRaw: loaded.raw,
+      configPath: loaded.path,
+      requestText: 'Do two things that cannot pass.',
+      requestSource: 'test',
+      // A check that always fails, so every attempt goes through repair.
+      checkFlags: ['git rev-parse --verify no-such-ref-here'],
+      tasks: [
+        { key: 't1', objective: 'One.' },
+        { key: 't2', objective: 'Two.' },
+      ],
+      paths,
+      db: store.db,
+      adapterFactory: () => new FakeAdapter({ scenarioPath: scenario }),
+    });
+
+    // The run finished and wrote its manifest rather than dying with a raw
+    // SQLite error part-way through.
+    expect(result.accepted).toBe(false);
+    expect(result.outcome).toBe('failed');
+    expect(existsSync(result.manifestPath)).toBe(true);
+    // maxRepairAttempts is 2 in the fake config: the original plus two repairs.
+    expect(result.tasks[0]?.attempts.length).toBe(3);
+    expect(result.tasks[0]?.repairsUsed).toBe(2);
+
+    const generations = store.db
+      .prepare('SELECT task_id, generation FROM attempts WHERE run_id = ? ORDER BY task_id, generation')
+      .all(result.runId) as Array<{ task_id: string; generation: number }>;
+    const byTask = new Map<string, number[]>();
+    for (const row of generations) byTask.set(row.task_id, [...(byTask.get(row.task_id) ?? []), row.generation]);
+    for (const [, values] of byTask) expect(values).toEqual([1, 2, 3]);
+
+    const runRow = store.db.prepare('SELECT state FROM runs WHERE id = ?').get(result.runId) as { state: string };
+    expect(runRow.state).toBe('failed');
+  });
+
+  it('runs the tasks of one batch at the same time', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-planned-conc-'), 'state');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-planned-conc-config-'));
+    const loaded = loadAgentConfigFile(configPath);
+    const paths = createStatePaths(stateDir);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    registerCleanup(() => store.close());
+
+    let live = 0;
+    let maxLive = 0;
+    const scenarios = [writeScenario(addFileScenario('docs/one.md', '# One\n')), writeScenario(addFileScenario('docs/two.md', '# Two\n'))];
+    let made = 0;
+
+    const result = await runPlanned({
+      repoPath: fixture.path,
+      config: loaded.config,
+      configRaw: loaded.raw,
+      configPath: loaded.path,
+      requestText: 'Two independent deliverables.',
+      requestSource: 'test',
+      checkFlags: ['node --version'],
+      tasks: [
+        { key: 't1', objective: 'One.' },
+        { key: 't2', objective: 'Two.' },
+      ],
+      paths,
+      db: store.db,
+      adapterFactory: () => {
+        const adapter = new FakeAdapter({ scenarioPath: scenarios[Math.min(made, 1)]! });
+        made += 1;
+        // Count how many workers are between "turn started" and "turn ended"
+        // at the same instant. Serialized execution can never exceed one.
+        const events = adapter.events.bind(adapter);
+        Object.defineProperty(adapter, 'events', {
+          value: (turn: Parameters<typeof events>[0]) => {
+            const inner = events(turn);
+            return {
+              async *[Symbol.asyncIterator]() {
+                live += 1;
+                maxLive = Math.max(maxLive, live);
+                try {
+                  // Give the peer a chance to reach its own turn before this
+                  // one drains, so the overlap is observable rather than a
+                  // race this test happens to win.
+                  await new Promise((resolve) => setTimeout(resolve, 400));
+                  for await (const event of inner) yield event;
+                } finally {
+                  live -= 1;
+                }
+              },
+            };
+          },
+        });
+        return adapter;
+      },
+    });
+
+    expect(result.tasks).toHaveLength(2);
+    // maxActiveTurns is 2 in the fake config, so both tasks belong to one
+    // batch and both must be in flight at once.
+    expect(maxLive).toBeGreaterThan(1);
+  });
+});

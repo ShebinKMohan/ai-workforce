@@ -33,7 +33,7 @@ import { nowIso } from '../core/ids.js';
 import { sha256Hex } from '../core/snapshot.js';
 import { matchProcessIdentity, type ProcessIdentity } from '../core/process.js';
 import { isWithin } from '../storage/paths.js';
-import { COORDINATOR_IDENTITY, branchExists, git, gitOrThrow, gitText, gitTextOrNull, isSafeRefSegment, resolveRevision } from './git.js';
+import { COORDINATOR_IDENTITY, branchExists, git, gitOrThrow, gitText, gitTextOrNull, isSafeRefSegment, resolveRevision, withRepositoryLock } from './git.js';
 import type { DirtySummary } from './project.js';
 
 export const CANDIDATE_BRANCH_PREFIX = 'workforce';
@@ -97,6 +97,13 @@ export function candidateBranchName(runId: string, taskId: string, attemptId: st
  * existing branch or a non-empty directory.
  */
 export async function createCandidateWorkspace(input: CreateCandidateInput): Promise<CandidateWorkspace> {
+  // Serialized per repository: `git worktree add` takes the repository's
+  // administrative locks, so two workers starting at the same instant would
+  // race. Only the setup is serialized; the turn that follows is not.
+  return await withRepositoryLock(realpathSync(input.projectRoot), () => createCandidateWorkspaceUnlocked(input));
+}
+
+async function createCandidateWorkspaceUnlocked(input: CreateCandidateInput): Promise<CandidateWorkspace> {
   const projectRoot = realpathSync(input.projectRoot);
   const branch = candidateBranchName(input.runId, input.taskId, input.attemptId, input.branchPrefix ?? CANDIDATE_BRANCH_PREFIX);
 
@@ -383,6 +390,10 @@ export interface RemoveCandidateResult {
  * applied.
  */
 export async function removeCandidateWorkspace(workspace: CandidateWorkspace, input: RemoveCandidateInput = {}): Promise<RemoveCandidateResult> {
+  return await withRepositoryLock(workspace.projectRoot, () => removeCandidateWorkspaceUnlocked(workspace, input));
+}
+
+async function removeCandidateWorkspaceUnlocked(workspace: CandidateWorkspace, input: RemoveCandidateInput = {}): Promise<RemoveCandidateResult> {
   const branchStillThere = await branchExists(workspace.projectRoot, workspace.branch);
 
   if (input.disposition === undefined) {

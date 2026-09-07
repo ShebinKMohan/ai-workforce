@@ -29,6 +29,9 @@ import {
   type RunStream,
 } from '../../core/run-direct.js';
 import { runPlanned, type PlannedTaskInput, type RunPlannedResult } from '../../core/run-planned.js';
+import { runWithFallback } from '../../recovery/continue.js';
+import { describeFallback } from '../../recovery/fallback.js';
+import { z } from 'zod';
 import { decideRoute, extractDeliverables, type RouteDecision } from '../../routing/index.js';
 import { limitsFromDefaults } from '../../core/contracts.js';
 import { LockHeldError, LockLostError } from '../../storage/lock.js';
@@ -57,6 +60,12 @@ export interface RunCommandArgs {
   readonly allowUnconfinedWrites?: boolean;
   /** `--path direct|planned`: override what the router decided. */
   readonly path?: string;
+  /**
+   * `--plan <file>`: a JSON plan naming the tasks and the dependencies between
+   * them. This is the only way to express a task graph: the request-derived
+   * decomposition deliberately invents no dependencies.
+   */
+  readonly plan?: string;
   readonly json: boolean;
 }
 
@@ -181,10 +190,12 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   if (args.path !== undefined && args.path !== 'direct' && args.path !== 'planned') {
     throw new CliError(EXIT_CODES.invalidInput, 'invalid_path', `--path must be "direct" or "planned", not "${args.path}"`);
   }
+  // A plan file is an explicit instruction, so it decides the path.
+  const planFile = args.plan === undefined ? null : readPlanFile(args.plan);
   const route = decideRoute({
     request: {
       text: task.text,
-      ...(args.path === 'direct' || args.path === 'planned' ? { forcePath: args.path } : {}),
+      ...(planFile !== null ? { forcePath: 'planned' as const } : args.path === 'direct' || args.path === 'planned' ? { forcePath: args.path } : {}),
     },
     project: { repoPath: repo },
     agents: loaded.config.agents.map((agent) => ({ id: agent.id, capabilities: [...agent.capabilities], policy: agent.policy })),
@@ -196,15 +207,15 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   });
   deps.reporter.info(`route: ${route.path} — ${route.reason}`);
 
-  const plannedTasks = route.path === 'planned' ? decomposeRequest(task.text) : [];
-  if (route.path === 'planned' && plannedTasks.length < 2) {
+  const plannedTasks = planFile !== null ? planFile : route.path === 'planned' ? decomposeRequest(task.text) : [];
+  if (route.path === 'planned' && planFile === null && plannedTasks.length < 2) {
     // The router wanted a plan but the request does not yield one that can be
     // built without a planner runtime. Say so and take the proven path rather
     // than inventing a decomposition.
     deps.reporter.info('note: no plan with more than one task could be derived from the request without a planner runtime; running the direct path');
   }
 
-  if (route.path === 'planned' && plannedTasks.length >= 2) {
+  if (planFile !== null || (route.path === 'planned' && plannedTasks.length >= 2)) {
     let planned: RunPlannedResult;
     try {
       planned = await runPlanned({
@@ -235,8 +246,9 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   }
 
   let result: RunDirectResult;
+  let fallbackNote: string | null = null;
   try {
-    result = await runDirect({
+    const continued = await runWithFallback({
       repoPath: repo,
       config: loaded.config,
       configRaw: loaded.raw,
@@ -254,6 +266,12 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
       ...(deps.adapterFactory !== undefined ? { adapterFactory: deps.adapterFactory } : {}),
       ...(deps.sessionEnv !== undefined ? { sessionEnv: deps.sessionEnv } : {}),
     });
+    result = continued.result;
+    if (continued.fallback !== null) {
+      fallbackNote = describeFallback(continued.fallback);
+      deps.reporter.info(fallbackNote);
+      if (continued.note !== null) deps.reporter.info(`  ${continued.note}`);
+    }
   } catch (error) {
     throw toCliError(error);
   } finally {
@@ -285,6 +303,7 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   };
 
   data['route'] = { path: 'direct', reason: route.reason, signals: route.signals };
+  if (fallbackNote !== null) data['fallback'] = fallbackNote;
   data['coordination'] = result.coordination;
 
   const lines: string[] = [
@@ -310,6 +329,59 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
  * when a request does not enumerate its deliverables, it yields nothing and
  * the run takes the direct path.
  */
+const PlanFileSchema = z.strictObject({
+  tasks: z
+    .array(
+      z.strictObject({
+        key: z.string().min(1).max(64),
+        objective: z.string().min(1),
+        dependencies: z.array(z.string().min(1)).default([]),
+        agentId: z.string().min(1).optional(),
+        writer: z.boolean().optional(),
+      }),
+    )
+    .min(1),
+});
+
+/**
+ * Read `--plan <file>`: the explicit task graph.
+ *
+ * The request-derived decomposition never invents dependencies, so this is
+ * how a caller says "t2 needs t1 first". Validated here, before the lock is
+ * taken, so a malformed plan exits 2 with no state written.
+ */
+export function readPlanFile(file: string): PlannedTaskInput[] {
+  const absolute = path.resolve(file);
+  let raw: string;
+  try {
+    raw = readFileSync(absolute, 'utf8');
+  } catch (error) {
+    throw new CliError(EXIT_CODES.invalidInput, 'unreadable_plan_file', `cannot read --plan ${absolute}: ${(error as Error).message}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new CliError(EXIT_CODES.invalidInput, 'invalid_plan_file', `--plan ${absolute} is not valid JSON: ${(error as Error).message}`);
+  }
+  const result = PlanFileSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new CliError(
+      EXIT_CODES.invalidInput,
+      'invalid_plan_file',
+      `--plan ${absolute} is not a valid plan`,
+      result.error.issues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`),
+    );
+  }
+  return result.data.tasks.map((task) => ({
+    key: task.key,
+    objective: task.objective,
+    ...(task.dependencies.length > 0 ? { dependencies: task.dependencies } : {}),
+    ...(task.agentId !== undefined ? { agentId: task.agentId } : {}),
+    ...(task.writer !== undefined ? { writer: task.writer } : {}),
+  }));
+}
+
 export function decomposeRequest(text: string): PlannedTaskInput[] {
   const deliverables = extractDeliverables(text);
   if (deliverables.length < 2) return [];
@@ -379,6 +451,8 @@ function toCliError(error: unknown): CliError {
       error.code === 'empty_plan' ||
       error.code === 'duplicate_task_key' ||
       error.code === 'unknown_dependency' ||
+      error.code === 'self_dependency' ||
+      error.code === 'dependency_cycle' ||
       error.code === 'task_budget_exceeded';
     return new CliError(invalid ? EXIT_CODES.invalidInput : EXIT_CODES.executionFailure, error.code, error.message);
   }

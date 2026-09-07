@@ -45,6 +45,7 @@ import {
   type TurnHandle,
 } from '../adapters/index.js';
 import { writeArtifact, type ArtifactRecord } from '../storage/artifacts.js';
+import { acceptanceSurface as computeAcceptanceSurface, findSurfaceChanges as computeSurfaceChanges, surfacePaths as listSurfacePaths, type SurfaceContext } from '../verification/surface.js';
 import { ensureRunDir, isWithin, type StatePaths } from '../storage/paths.js';
 import { markDispatched, recordIntent, recordReceipt } from '../storage/operations.js';
 import {
@@ -70,6 +71,7 @@ import {
 } from '../workspaces/candidate.js';
 import { git } from '../workspaces/git.js';
 import { describeDirty, inspectProject, registerProject, type ProjectInspection } from '../workspaces/project.js';
+import { classifyFailure, type FailureClassification } from '../recovery/classify.js';
 import {
   decideAcceptance,
   persistCheckReceipts,
@@ -549,122 +551,15 @@ async function detectChecks(repoRoot: string, baseRevision: string): Promise<Res
 // Acceptance fixture surface
 // ---------------------------------------------------------------------------
 
-/**
- * Paths that look like an acceptance fixture whatever the check command is.
- * A criterion executes them, so the candidate rewriting them changes what the
- * criterion means.
- */
-const FIXTURE_PATH_PATTERNS: ReadonlyArray<RegExp> = [
-  /(^|\/)(tests?|spec|specs|__tests__)\//,
-  /\.(test|spec)\.[cm]?[jt]sx?$/,
-  /(^|\/)(test_[^/]*\.py|[^/]*_test\.py|conftest\.py)$/,
-];
+// The surface itself lives in `verification/surface.ts` so that the combined
+// acceptance decision in `integration/combine.ts` applies exactly the same
+// rule. Re-exported here because callers and tests know it by this path.
+export { acceptanceSurface, findSurfaceChanges, surfacePaths, type AcceptanceSurface, type SurfaceFindings } from '../verification/surface.js';
 
-/** Package managers that read `package.json` to decide what the check actually runs. */
-const PACKAGE_MANAGER_COMMANDS = new Set(['npm', 'npx', 'yarn', 'pnpm']);
-
-export interface AcceptanceSurface {
-  /** Criterion id (or `*` for every criterion) to the base paths its evidence executes. */
-  readonly byCriterion: ReadonlyMap<string, ReadonlyArray<string>>;
-  /** Base paths that define acceptance without being executed by it. */
-  readonly definitionPaths: ReadonlyArray<string>;
-}
-
-function normalizeRelative(value: string): string | null {
-  const cleaned = value.replace(/^\.\//, '').replace(/\/+$/, '');
-  if (cleaned.length === 0 || cleaned === '.' || cleaned.startsWith('/') || cleaned.startsWith('..') || cleaned.includes('\0')) return null;
-  return cleaned;
-}
-
-function existsInTree(baseFiles: ReadonlyArray<string>, candidate: string): boolean {
-  return baseFiles.some((file) => file === candidate || file.startsWith(`${candidate}/`));
-}
-
-/**
- * Work out which base files each criterion's evidence actually executes.
- *
- * The check *definition* is already pinned to the base revision, but the code
- * it runs comes from the candidate. This is how the run finds out whether the
- * worker rewrote that code (plan section 9: acceptance fixtures stay outside
- * worker write access, and a task that legitimately changes repository tests
- * still has to be assessed against the original criteria).
- */
-export function acceptanceSurface(checks: ReadonlyArray<CheckSpec>, baseFiles: ReadonlyArray<string>): AcceptanceSurface {
-  const byCriterion = new Map<string, ReadonlyArray<string>>();
-
-  const shared = baseFiles.filter((file) => FIXTURE_PATH_PATTERNS.some((pattern) => pattern.test(file)));
-  if (shared.length > 0) byCriterion.set('*', [...new Set(shared)].sort());
-
-  for (const check of checks) {
-    const paths = new Set<string>();
-    for (const token of [...(check.args ?? []), ...(check.cwd !== undefined ? [check.cwd] : [])]) {
-      if (token.startsWith('-')) continue;
-      const relative = normalizeRelative(token);
-      if (relative === null) continue;
-      if (existsInTree(baseFiles, relative)) paths.add(relative);
-    }
-    if (PACKAGE_MANAGER_COMMANDS.has(check.command) && baseFiles.includes('package.json')) paths.add('package.json');
-    if (paths.size > 0) byCriterion.set(check.criterionId, [...paths].sort());
-  }
-
-  const definitionPaths = baseFiles.includes('.workforce/checks.json') ? ['.workforce/checks.json'] : [];
-  return { byCriterion, definitionPaths };
-}
-
-function matchesSurfacePath(changedPath: string, surfacePath: string): boolean {
-  return changedPath === surfacePath || changedPath.startsWith(`${surfacePath}/`);
-}
-
-export interface SurfaceFindings {
-  /** Criteria whose executed fixtures the candidate modified or deleted. */
-  readonly mutations: ReadonlyArray<FixtureMutation>;
-  /** Files the candidate added inside an acceptance surface: recorded, not blocking. */
-  readonly additions: ReadonlyArray<string>;
-  /** Acceptance definitions the candidate changed. They cannot affect this run, which read them from the base. */
-  readonly definitionChanges: ReadonlyArray<string>;
-}
-
-/**
- * Compare the candidate diff against the acceptance surface.
- *
- * Modifying or deleting a file a criterion executes compromises that
- * criterion's evidence. *Adding* a file does not: writing a new test to
- * protect the fix is exactly what a worker should be able to do, so it is
- * recorded and left alone.
- */
-export function findSurfaceChanges(surface: AcceptanceSurface, changes: ReadonlyArray<{ status: string; path: string }>): SurfaceFindings {
-  const mutations: FixtureMutation[] = [];
-  const additions: string[] = [];
-
-  for (const [criterionId, paths] of surface.byCriterion) {
-    const changed = changes
-      .filter((change) => !change.status.startsWith('A') && paths.some((surfacePath) => matchesSurfacePath(change.path, surfacePath)))
-      .map((change) => `${change.status} ${change.path}`);
-    if (changed.length > 0) mutations.push({ criterionId, changedPaths: [...new Set(changed)].sort() });
-  }
-
-  for (const change of changes) {
-    if (!change.status.startsWith('A')) continue;
-    for (const paths of surface.byCriterion.values()) {
-      if (paths.some((surfacePath) => matchesSurfacePath(change.path, surfacePath))) {
-        additions.push(change.path);
-        break;
-      }
-    }
-  }
-
-  const definitionChanges = changes
-    .filter((change) => surface.definitionPaths.some((definitionPath) => matchesSurfacePath(change.path, definitionPath)))
-    .map((change) => `${change.status} ${change.path}`);
-
-  return { mutations, additions: [...new Set(additions)].sort(), definitionChanges: [...new Set(definitionChanges)].sort() };
-}
-
-/** Every surface path, for the contract's forbidden list and the worker prompt. */
-function surfacePaths(surface: AcceptanceSurface): string[] {
-  const all = new Set<string>(surface.definitionPaths);
-  for (const paths of surface.byCriterion.values()) for (const value of paths) all.add(value);
-  return [...all].sort();
+/** `package.json` at the base revision, for surface resolution. Null when there is none. */
+export async function baseSurfaceContext(repoRoot: string, baseRevision: string, baseFiles: ReadonlyArray<string>): Promise<SurfaceContext> {
+  if (!baseFiles.includes('package.json')) return {};
+  return { packageManifest: await showAtRevision(repoRoot, baseRevision, 'package.json') };
 }
 
 // ---------------------------------------------------------------------------
@@ -682,6 +577,14 @@ export interface PromptInput {
   readonly briefing?: string;
   /** Messages waiting for this task, delivered at the safe boundary before the turn. */
   readonly inbox?: ReadonlyArray<string>;
+  /** Who this worker is and who it can talk to, when it is one task of a run. */
+  readonly coordination?: {
+    readonly taskId: string;
+    readonly key?: string;
+    readonly peers: ReadonlyArray<{ readonly key: string; readonly taskId: string; readonly objective: string }>;
+    /** False when no bridge started; the worker is told plainly rather than left to guess. */
+    readonly toolsAvailable: boolean;
+  };
 }
 
 /**
@@ -705,6 +608,23 @@ export function composeTaskPrompt(input: PromptInput): string {
   }
   if (input.contextRefs.length > 0) {
     lines.push(`Context references supplied with the request: ${input.contextRefs.join(', ')}.`);
+  }
+  if (input.coordination !== undefined) {
+    const coordination = input.coordination;
+    lines.push('');
+    lines.push('--- coordination ---');
+    lines.push(`Your task id is ${coordination.taskId}${coordination.key !== undefined ? ` (plan key "${coordination.key}")` : ''}. The coordinator stamps this identity itself; you cannot send as anyone else.`);
+    if (coordination.peers.length > 0) {
+      lines.push('Other tasks in this run, and the ids you must use to address them:');
+      for (const peer of coordination.peers) lines.push(`- ${peer.taskId} — "${peer.key}": ${peer.objective}`);
+      lines.push(
+        coordination.toolsAvailable
+          ? 'To ask a peer something, call send_message with `to` set to that task id, then read_inbox for the answer. Peers work at the same time as you, so ask early and keep working while you wait.'
+          : 'The coordination tools are not available in this run, so these peers cannot be contacted; do what you can within your own task.',
+      );
+    } else if (coordination.toolsAvailable) {
+      lines.push('You are the only task in this run; send_message without `to` reaches the coordinator.');
+    }
   }
   if (input.briefing !== undefined && input.briefing.trim().length > 0) {
     lines.push('');
@@ -822,6 +742,14 @@ export interface RunTaskSlot {
   readonly objective: string;
   /** Context from completed dependencies, appended to the prompt. */
   readonly briefing?: string;
+  /** Stable plan key of this task, for the prompt's coordination section. */
+  readonly key?: string;
+  /**
+   * The other tasks of this run, so a worker can actually address one.
+   * `send_message` needs a peer's TASK ID; without this the worker has no way
+   * to learn one and the peer channel cannot be used at all.
+   */
+  readonly peers?: ReadonlyArray<{ readonly key: string; readonly taskId: string; readonly objective: string }>;
 }
 
 export type RunOutcome = 'accepted' | 'failed' | 'interrupted';
@@ -878,6 +806,12 @@ export interface RunDirectResult {
   readonly stopReceipt: StopReceipt | null;
   /** Was this worker session attached to the coordination bridge, and what it exchanged. */
   readonly coordination: CoordinationAttachment;
+  /** The task contract this attempt worked to, so a handoff can carry it verbatim. */
+  readonly contract: TaskContract;
+  /** How the failure classifies, when the attempt did not reach acceptance. Null when it did. */
+  readonly failure: FailureClassification | null;
+  /** The runtime and adapter that ran this attempt, for a fallback's exclusion list. */
+  readonly runtime: { readonly runtimeId: string; readonly adapter: string };
 }
 
 export interface CoordinationAttachment {
@@ -996,8 +930,8 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // base, but their fixtures live in the repository, so the run has to know
   // which files a candidate must not rewrite.
   const baseFiles = await listFilesAtRevision(projectRoot, baseRevision);
-  const surface = acceptanceSurface(resolvedChecks.checks, baseFiles);
-  const fixturePaths = surfacePaths(surface);
+  const surface = computeAcceptanceSurface(resolvedChecks.checks, baseFiles, await baseSurfaceContext(projectRoot, baseRevision, baseFiles));
+  const fixturePaths = listSurfacePaths(surface);
   if (fixturePaths.length > 0) {
     stream.line(`acceptance fixtures (the worker must not rewrite these; new test files are fine): ${fixturePaths.join(', ')}`);
   }
@@ -1304,6 +1238,16 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       contract,
       ...(slot?.briefing !== undefined ? { briefing: slot.briefing } : {}),
       ...(inbox.length > 0 ? { inbox: inbox.map((message) => message.text) } : {}),
+      ...(slot === undefined
+        ? {}
+        : {
+            coordination: {
+              taskId,
+              ...(slot.key !== undefined ? { key: slot.key } : {}),
+              peers: slot.peers ?? [],
+              toolsAvailable: bridge !== null,
+            },
+          }),
     });
     for (const message of inbox) {
       try {
@@ -1520,7 +1464,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // definitions are pinned to the base revision, but their fixtures are in the
   // repository, so this is the difference between "the tests pass" and "the
   // worker replaced the tests".
-  const surfaceFindings = candidateSnapshot === null ? { mutations: [], additions: [], definitionChanges: [] } : findSurfaceChanges(surface, candidateSnapshot.changes);
+  const surfaceFindings = candidateSnapshot === null ? { mutations: [], additions: [], definitionChanges: [] } : computeSurfaceChanges(surface, candidateSnapshot.changes);
   for (const mutation of surfaceFindings.mutations) {
     unresolved.push(
       `the candidate changed files that criterion "${mutation.criterionId}" executes (${mutation.changedPaths.join(', ')}); the check result cannot establish the criterion the base revision defined`,
@@ -1850,11 +1794,37 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   );
   stream.event({ type: `run.${outcome}`, runId, accepted: acceptance.accepted, candidateRevision: candidateSnapshot?.candidateRevision ?? null });
 
+  // Classify the failure in the run path, not only in a report. A run that
+  // stopped on an expired credential or an exhausted quota is a different
+  // thing from one whose code failed, and only the classification lets a
+  // coordinator decide whether handing the work to another runtime is honest.
+  const failure: FailureClassification | null = acceptance.accepted
+    ? null
+    : classifyFailure({
+        source: 'runtime',
+        adapter: adapter.id,
+        ...(evidence?.turnFailure !== undefined && evidence.turnFailure !== null ? { message: evidence.turnFailure } : {}),
+        ...(turnConclusion === 'runtime_exited' ? { message: `the runtime process ended before the turn completed (${describeExit(runtimeEvents)})` } : {}),
+      });
+  if (failure !== null) {
+    appendEvent(db, {
+      runId,
+      taskId,
+      attemptId,
+      type: 'runtime.failure_classified',
+      payload: { failureClass: failure.failureClass, retryable: failure.retryable, signal: failure.signal, userAction: failure.userAction },
+    });
+    stream.event({ type: 'runtime.failure_classified', runId, taskId, failureClass: failure.failureClass, retryable: failure.retryable });
+  }
+
   return {
     runId,
     taskId,
     attemptId,
     outcome,
+    contract,
+    failure,
+    runtime: { runtimeId: binding.runtime.id, adapter: adapter.id },
     taskState: outcome === 'accepted' ? 'accepted' : outcome === 'interrupted' ? 'cancelled' : 'failed',
     attemptState: interrupted ? 'interrupted' : turnConclusion === 'runtime_exited' || turnConclusion === 'turn_failed' ? 'failed' : 'completed',
     runState: outcome === 'accepted' ? 'ready_for_review' : outcome === 'interrupted' ? 'interrupted' : 'failed',

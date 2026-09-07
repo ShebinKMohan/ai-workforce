@@ -79,6 +79,31 @@ describe('coordination bridge (MCP over stdio)', () => {
     expect(listMessages(state.store.db, runId)).toHaveLength(1);
   });
 
+  it('AT08: a transport retry of one request id is one message, not two', async () => {
+    // The realistic shape of an MCP client retrying a call it thought timed
+    // out: the identical frame, same request id, a moment later.
+    const { worker } = await startWorker();
+    const frame = JSON.stringify({
+      jsonrpc: '2.0',
+      id: 77,
+      method: 'tools/call',
+      params: { name: 'send_message', arguments: { body: 'timed out, retrying' } },
+    });
+    worker.writeRaw(frame);
+    worker.writeRaw(frame);
+    // A round trip on a different id proves both frames were processed.
+    await worker.request('ping');
+    expect(listMessages(state.store.db, runId)).toHaveLength(1);
+  });
+
+  it('AT08: an identical submission with no idempotency key is one message', async () => {
+    const { worker } = await startWorker();
+    const first = await worker.callTool('send_message', { body: 'exactly the same body' });
+    const second = await worker.callTool('send_message', { body: 'exactly the same body' });
+    expect(second.structured['messageId']).toBe(first.structured['messageId']);
+    expect(listMessages(state.store.db, runId)).toHaveLength(1);
+  });
+
   it('stamps the sender from the session token, so a worker cannot forge another identity', async () => {
     const peer = seedTask(state.store.db, runId);
     const { worker } = await startWorker();

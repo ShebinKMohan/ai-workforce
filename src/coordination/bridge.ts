@@ -306,6 +306,25 @@ export function runBridge(options: BridgeOptions): Promise<void> {
 
   let queue: Promise<void> = Promise.resolve();
 
+  /**
+   * Answers already produced for a JSON-RPC request id.
+   *
+   * An MCP client that times out and re-sends the SAME request id is retrying
+   * one call, not making a second one. Without this the retry would be
+   * forwarded again and recorded again, so a transport retry would become two
+   * peer messages (AT08 clause 2). Bounded, because a worker controls the ids.
+   */
+  const answered = new Map<string, Promise<Record<string, unknown>>>();
+  const MAX_REMEMBERED_CALLS = 512;
+  const rememberCall = (key: string, answer: Promise<Record<string, unknown>>): void => {
+    answered.set(key, answer);
+    while (answered.size > MAX_REMEMBERED_CALLS) {
+      const oldest = answered.keys().next();
+      if (oldest.done === true) break;
+      answered.delete(oldest.value);
+    }
+  };
+
   const handle = async (message: RpcMessage): Promise<void> => {
     const id: RpcId = message.id ?? null;
     const isNotification = message.id === undefined;
@@ -355,10 +374,32 @@ export function runBridge(options: BridgeOptions): Promise<void> {
       return;
     }
 
-    const response = await callCoordinator(socketPath, token, name as BridgeToolName, params.data.arguments, callTimeoutMs);
+    // A repeat of THIS frame is one call, not two. The coordinator dedupes
+    // durably as well (an omitted idempotency key is derived from the
+    // message's own content), so a retry that outlives this process is still
+    // one logical message; this cache is what stops the second forward.
+    const callKey = id === null ? null : `${typeof id}:${String(id)}`;
+    if (callKey !== null) {
+      const previous = answered.get(callKey);
+      if (previous !== undefined) {
+        const replayed = await previous;
+        if (!isNotification) write(rpcResult(id, toolResult({ ...replayed, replayedRequestId: true }, replayed['error'] !== undefined)));
+        return;
+      }
+    }
+
+    const pending = callCoordinator(socketPath, token, name as BridgeToolName, params.data.arguments, callTimeoutMs).then((response) =>
+      response.ok ? response.result : { error: response.error.code, message: response.error.message },
+    );
+    if (callKey !== null) rememberCall(callKey, pending);
+
+    const payload = await pending;
+    // Only a real answer is replayed. A timeout or a refusal is forgotten, so
+    // a client that retries after one actually reaches the coordinator again —
+    // safely, because the derived idempotency key makes that one message.
+    if (callKey !== null && payload['error'] !== undefined) answered.delete(callKey);
     if (isNotification) return;
-    if (response.ok) write(rpcResult(id, toolResult(response.result, false)));
-    else write(rpcResult(id, toolResult({ error: response.error.code, message: response.error.message }, true)));
+    write(rpcResult(id, toolResult(payload, payload['error'] !== undefined)));
   };
 
   return new Promise((resolve) => {

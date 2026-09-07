@@ -26,7 +26,8 @@ import path from 'node:path';
 import { nowIso, randomToken } from '../core/ids.js';
 import { sha256Hex } from '../core/snapshot.js';
 import { COORDINATOR_IDENTITY, git, gitOrThrow, gitText, resolveRevision } from '../workspaces/git.js';
-import { runChecks as defaultRunChecks, type CheckReceipt, type CheckSpec, type RunChecksInput } from '../verification/checks.js';
+import { EVIDENCE_PROVENANCE, runChecks as defaultRunChecks, type CheckReceipt, type CheckSpec, type FixtureMutation, type RunChecksInput } from '../verification/checks.js';
+import { acceptanceSurface, findSurfaceChanges } from '../verification/surface.js';
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -306,7 +307,19 @@ export function planCombination(artifacts: ReadonlyArray<ApprovedArtifact>, opti
       continue;
     }
     const actualHash = sha256Hex(Buffer.from(text, 'utf8'));
-    if (artifact.patchHash !== '' && actualHash !== artifact.patchHash) {
+    if (artifact.patchHash === '') {
+      // An artifact with no recorded hash cannot be checked against the file
+      // on disk, so combining it would mean trusting whatever is there now.
+      conflicts.push({
+        kind: 'patch_hash_mismatch',
+        name: `patch_hash_missing:${artifact.artifactId}`,
+        file: null,
+        artifacts: [artifact.artifactId],
+        detail: `artifact "${artifact.artifactId}" recorded no patch hash, so the content at ${artifact.patchPath} cannot be verified as the approved content`,
+      });
+      continue;
+    }
+    if (actualHash !== artifact.patchHash) {
       conflicts.push({
         kind: 'patch_hash_mismatch',
         name: `patch_hash_mismatch:${artifact.artifactId}`,
@@ -411,6 +424,14 @@ export interface EvaluateCombinedInput {
   readonly requiredCriteria: ReadonlyArray<{ readonly id: string; readonly required?: boolean }>;
   /** Every receipt available, from any revision. Only combined-revision ones count. */
   readonly receipts: ReadonlyArray<CheckReceipt>;
+  /**
+   * Acceptance fixtures the combination modified or deleted. A criterion whose
+   * own fixtures the combination rewrote cannot be established by a pass, for
+   * the same reason it cannot on a single branch.
+   */
+  readonly fixtureMutations?: ReadonlyArray<FixtureMutation>;
+  /** Reasons acceptance must be refused whatever the receipts say. */
+  readonly blockers?: ReadonlyArray<string>;
 }
 
 /**
@@ -422,8 +443,21 @@ export interface EvaluateCombinedInput {
  * not evidence about the combination.
  */
 export function evaluateCombinedAcceptance(input: EvaluateCombinedInput): CombinedAcceptance {
-  const applicable = input.receipts.filter((receipt) => receipt.candidate.revision === input.combinedRevision);
-  const ignored = input.receipts.filter((receipt) => receipt.candidate.revision !== input.combinedRevision).map((receipt) => receipt.id);
+  // Two filters, not one. A receipt has to name the combined revision AND be
+  // one the verifier produced: a receipt a worker handed in describes nothing
+  // this coordinator executed, so it cannot establish anything (FR050).
+  const atRevision = input.receipts.filter((receipt) => receipt.candidate.revision === input.combinedRevision);
+  const applicable = atRevision.filter((receipt) => receipt.evidenceProvenance === EVIDENCE_PROVENANCE);
+  const claimed = atRevision.filter((receipt) => receipt.evidenceProvenance !== EVIDENCE_PROVENANCE).map((receipt) => receipt.id);
+  const ignored = [
+    ...input.receipts.filter((receipt) => receipt.candidate.revision !== input.combinedRevision).map((receipt) => receipt.id),
+    ...claimed,
+  ];
+  const mutations = input.fixtureMutations ?? [];
+  const mutatedFor = (criterionId: string): ReadonlyArray<string> => {
+    const paths = mutations.filter((entry) => entry.criterionId === criterionId || entry.criterionId === '*').flatMap((entry) => entry.changedPaths);
+    return [...new Set(paths)].sort();
+  };
   const verdicts: CriterionVerdict[] = [];
   const unverified: string[] = [];
 
@@ -432,7 +466,8 @@ export function evaluateCombinedAcceptance(input: EvaluateCombinedInput): Combin
     const receipt = applicable.find((candidate) => candidate.criterionId === criterion.id) ?? null;
     if (receipt === null) {
       unverified.push(criterion.id);
-      const branchReceipt = input.receipts.find((candidate) => candidate.criterionId === criterion.id) ?? null;
+      const claimedHere = atRevision.find((candidate) => candidate.criterionId === criterion.id && candidate.evidenceProvenance !== EVIDENCE_PROVENANCE) ?? null;
+      const branchReceipt = claimedHere ?? input.receipts.find((candidate) => candidate.criterionId === criterion.id) ?? null;
       verdicts.push({
         criterionId: criterion.id,
         required,
@@ -442,11 +477,14 @@ export function evaluateCombinedAcceptance(input: EvaluateCombinedInput): Combin
         reason:
           branchReceipt === null
             ? `no check was executed against the combined revision ${input.combinedRevision} for "${criterion.id}"`
-            : `"${criterion.id}" has a receipt from ${branchReceipt.candidate.revision} (outcome "${branchReceipt.outcome}") but nothing was executed against the combined revision ${input.combinedRevision}; a pass on an individual branch does not establish the combination`,
+            : claimedHere !== null
+              ? `"${criterion.id}" has a receipt naming the combined revision ${input.combinedRevision}, but its provenance is "${claimedHere.evidenceProvenance}" rather than "${EVIDENCE_PROVENANCE}"; a result the verifier did not execute establishes nothing`
+              : `"${criterion.id}" has a receipt from ${branchReceipt.candidate.revision} (outcome "${branchReceipt.outcome}") but nothing was executed against the combined revision ${input.combinedRevision}; a pass on an individual branch does not establish the combination`,
       });
       continue;
     }
-    const satisfied = receipt.outcome === 'passed';
+    const mutated = mutatedFor(criterion.id);
+    const satisfied = receipt.outcome === 'passed' && mutated.length === 0;
     verdicts.push({
       criterionId: criterion.id,
       required,
@@ -455,17 +493,20 @@ export function evaluateCombinedAcceptance(input: EvaluateCombinedInput): Combin
       outcome: receipt.outcome,
       reason: satisfied
         ? `"${criterion.id}" passed against the combined revision ${input.combinedRevision}`
-        : `"${criterion.id}" reported "${receipt.outcome}" against the combined revision ${input.combinedRevision}`,
+        : mutated.length > 0
+          ? `"${criterion.id}" reported "${receipt.outcome}" against the combined revision ${input.combinedRevision}, but the combination changed the files it executes (${mutated.join(', ')}), so the result does not establish the criterion the base revision defined`
+          : `"${criterion.id}" reported "${receipt.outcome}" against the combined revision ${input.combinedRevision}`,
     });
   }
 
   const failedRequired = verdicts.filter((verdict) => verdict.required && !verdict.satisfied);
-  const accepted = input.requiredCriteria.length > 0 && failedRequired.length === 0;
+  const blockers = input.blockers ?? [];
+  const accepted = input.requiredCriteria.length > 0 && failedRequired.length === 0 && blockers.length === 0;
   const reason = accepted
     ? `every required criterion was executed against the combined revision ${input.combinedRevision} and passed`
     : input.requiredCriteria.length === 0
       ? 'no criteria were supplied, so the combined candidate establishes nothing'
-      : `the combined candidate is not established: ${failedRequired.map((verdict) => verdict.reason).join('; ')}`;
+      : `the combined candidate is not established: ${[...failedRequired.map((verdict) => verdict.reason), ...blockers].join('; ')}`;
 
   return { accepted, combinedRevision: input.combinedRevision, verdicts, unverifiedCriteria: unverified, ignoredReceiptIds: ignored, reason };
 }
@@ -634,11 +675,24 @@ async function combineOnce(input: CombineInput): Promise<CombineResult> {
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
     });
 
+    // The same fixture rule the direct path applies, applied to the
+    // combination: a combined candidate that rewrote the acceptance suite has
+    // not passed the criteria the base defined, whatever the checks report.
+    const surfaceFindings = await measureCombinedSurface(workspacePath, baseRevision, combinedRevision, input.checks);
+
     const branchReceipts = ordered.flatMap((artifact) => artifact.branchReceipts ?? []);
     const acceptance = evaluateCombinedAcceptance({
       combinedRevision,
       requiredCriteria: input.checks.map((check) => ({ id: check.criterionId, required: check.required ?? true })),
       receipts: [...branchReceipts, ...receipts],
+      fixtureMutations: surfaceFindings.mutations,
+      ...(surfaceFindings.definitionChanges.length > 0
+        ? {
+            blockers: [
+              `the combination changed the acceptance definition (${surfaceFindings.definitionChanges.join(', ')}); this run read its criteria from the base revision, so the change cannot have been assessed here`,
+            ],
+          }
+        : {}),
     });
 
     if (input.keepWorkspace !== true) await disposeWorkspace(projectRoot, integrationRoot, workspacePath, branch, false);
@@ -674,4 +728,53 @@ async function disposeWorkspace(projectRoot: string, integrationRoot: string, wo
 function firstRejectedFile(stderr: string): string | null {
   const match = /error: patch failed: ([^:]+):/.exec(stderr) ?? /error: ([^:]+): patch does not apply/.exec(stderr);
   return match === null ? null : match[1]!.trim();
+}
+
+/**
+ * What the combined tree changed, compared with the acceptance surface of the
+ * base revision.
+ *
+ * Read from the integration worktree, which has both revisions: the surface
+ * comes from the base tree (what the criteria meant when they were pinned) and
+ * the changes from `base..combined`.
+ */
+async function measureCombinedSurface(
+  workspacePath: string,
+  baseRevision: string,
+  combinedRevision: string,
+  checks: ReadonlyArray<CheckSpec>,
+): Promise<{ mutations: ReadonlyArray<FixtureMutation>; definitionChanges: ReadonlyArray<string> }> {
+  const listing = await git(['ls-tree', '-r', '--name-only', '-z', baseRevision], { cwd: workspacePath, maxOutputBytes: 8 * 1024 * 1024 });
+  if (!listing.ok) return { mutations: [], definitionChanges: [] };
+  const baseFiles = listing.stdout.split('\0').filter((name) => name.length > 0);
+
+  let packageManifest: string | null = null;
+  if (baseFiles.includes('package.json')) {
+    const shown = await git(['show', `${baseRevision}:package.json`], { cwd: workspacePath, maxOutputBytes: 1024 * 1024 });
+    packageManifest = shown.ok ? shown.stdout : null;
+  }
+
+  const diff = await git(['diff', '--name-status', '-z', `${baseRevision}..${combinedRevision}`], { cwd: workspacePath, maxOutputBytes: 8 * 1024 * 1024 });
+  if (!diff.ok) return { mutations: [], definitionChanges: [] };
+  const fields = diff.stdout.split('\0').filter((field) => field.length > 0);
+  const changes: Array<{ status: string; path: string }> = [];
+  for (let i = 0; i < fields.length; i += 1) {
+    const status = fields[i]!;
+    if (status.startsWith('R') || status.startsWith('C')) {
+      // Rename/copy carries two paths: the old one is a modification of the surface.
+      const from = fields[i + 1];
+      const to = fields[i + 2];
+      if (from !== undefined) changes.push({ status, path: from });
+      if (to !== undefined) changes.push({ status: 'A', path: to });
+      i += 2;
+      continue;
+    }
+    const file = fields[i + 1];
+    if (file !== undefined) changes.push({ status, path: file });
+    i += 1;
+  }
+
+  const surface = acceptanceSurface(checks, baseFiles, { packageManifest });
+  const findings = findSurfaceChanges(surface, changes);
+  return { mutations: findings.mutations, definitionChanges: findings.definitionChanges };
 }

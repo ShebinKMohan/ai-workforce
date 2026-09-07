@@ -27,7 +27,7 @@ export const USAGE = `workforce — coordinate installed coding runtimes on one 
 
 Usage:
   workforce doctor [--connect] [--codex-path <file>] [--claude-path <file>] [--agents <file>] [--state-dir <dir>] [--json]
-  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--path direct|planned] [--check "<cmd> [args]"]... [--allow-unconfined-writes] [--state-dir <dir>] [--workspace-root <dir>] [--json]
+  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--path direct|planned] [--plan <file>] [--check "<cmd> [args]"]... [--allow-unconfined-writes] [--state-dir <dir>] [--workspace-root <dir>] [--json]
   workforce status <run-id> [--state-dir <dir>] [--json]
   workforce resume <run-id> [--agents <file>] [--state-dir <dir>] [--json]
 
@@ -37,6 +37,8 @@ Options:
   --task <text>        task request text
   --task-file <file>   read the task request from a file
   --agent <id>         worker agent to dispatch (default: defaults.workerAgent)
+  --plan <file>        JSON plan: {"tasks":[{"key","objective","dependencies":[]}]}.
+                       The only way to express a task graph; forces the planned path.
   --path direct|planned
                        override the route. The default is decided from the
                        request: one bounded task takes the direct path, an
@@ -84,6 +86,7 @@ interface ParsedArgs {
   readonly workspaceRoot?: string;
   readonly agent?: string;
   readonly path?: string;
+  readonly plan?: string;
   readonly checks?: ReadonlyArray<string>;
   readonly allowUnconfinedWrites: boolean;
   readonly json: boolean;
@@ -113,6 +116,7 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     ...(values['workspace-root'] !== undefined ? { workspaceRoot: values['workspace-root'] } : {}),
     ...(values.agent !== undefined ? { agent: values.agent } : {}),
     ...(values.path !== undefined ? { path: values.path } : {}),
+    ...(values.plan !== undefined ? { plan: values.plan } : {}),
     ...(values.check !== undefined ? { checks: values.check } : {}),
     allowUnconfinedWrites: values['allow-unconfined-writes'] === true,
     json: values.json === true,
@@ -132,6 +136,7 @@ const OPTIONS = {
   'workspace-root': { type: 'string' },
   agent: { type: 'string' },
   path: { type: 'string' },
+  plan: { type: 'string' },
   check: { type: 'string', multiple: true },
   'allow-unconfined-writes': { type: 'boolean', default: false },
   json: { type: 'boolean', default: false },
