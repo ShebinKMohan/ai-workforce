@@ -241,17 +241,37 @@ export type RuntimeEvent = z.infer<typeof RuntimeEventSchema>;
 // Receipts (plan section 6: queued vs submitted, requested vs observed)
 // ---------------------------------------------------------------------------
 
+/**
+ * Who is holding a delivered message, for a receipt that is not
+ * `submitted_to_active_turn`.
+ *
+ * `adapter`: this adapter holds the message and will flush it into the next
+ * turn it starts on this session. `runtime`: the runtime acknowledged the
+ * message and holds it in its own queue; the adapter will not send it again.
+ *
+ * A `queued` receipt must always name one of the two. "Written to the runtime
+ * but never acknowledged, and nobody holds it" is not a legal outcome: the
+ * adapter either re-queues the message (`adapter`) or fails the delivery
+ * (plan section 8: submission is at least once with idempotent ingestion).
+ */
+export type DeliveryHolder = 'adapter' | 'runtime';
+
 export interface DeliveryReceipt {
   readonly messageId: string;
   readonly state: 'queued' | 'submitted_to_active_turn';
   readonly turnId: string | null;
   readonly at: string;
   /**
+   * Which of the several ways of being `queued` happened, as a value rather
+   * than as prose: a coordinator reading receipts from two adapters must not
+   * have to parse `detail` to learn whether anyone will deliver the message.
+   * `submitted_to_active_turn` always means `runtime`.
+   */
+  readonly holder?: DeliveryHolder;
+  /**
    * Optional: what the adapter actually observed, in the adapter's own words.
-   * `state` stays the contract; this says which of the several ways of being
-   * `queued` happened (held by the adapter, or handed to the runtime's own
-   * queue) so a reader is never left guessing. `StopReceipt` already carries
-   * the same field.
+   * `state` and `holder` stay the contract; this explains them.
+   * `StopReceipt` already carries the same field.
    */
   readonly detail?: string;
 }
@@ -271,6 +291,23 @@ export interface StopReceipt {
   readonly signal: NodeJS.Signals | null;
   readonly at: string;
   readonly detail?: string;
+}
+
+/**
+ * Usage an adapter observed for the most recent completed turn (FR060).
+ *
+ * This is the *contract* shape, so the coordinator never has to duck-type one
+ * adapter's private accessor: `costStatus` is `measured` only when the number
+ * was actually reported for a turn that reached the provider, and
+ * `unavailable` otherwise — never a zero standing in for "unknown" (AT14).
+ */
+export interface TurnUsageReport {
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly costUsd: number | null;
+  readonly costStatus: 'measured' | 'unavailable';
+  /** Why the numbers are what they are, in the adapter's own words. */
+  readonly detail: string;
 }
 
 export interface ObservedRuntimeState {
@@ -309,6 +346,14 @@ export interface RuntimeAdapter {
   interrupt(turn: TurnHandle): Promise<InterruptionReceipt>;
   stopOwnedProcesses(session: SessionHandle): Promise<StopReceipt>;
   reconcile(session: SessionHandle): Promise<ObservedRuntimeState>;
+  /**
+   * Usage the runtime reported for this session's last completed turn, in the
+   * shared shape. Optional: an adapter whose runtime reports nothing omits it,
+   * and the coordinator then records usage as unavailable. Implement this
+   * rather than a private accessor — the coordinator reads only this method,
+   * so an adapter-shaped one is invisible to the manifest.
+   */
+  lastTurnUsage?(session: SessionHandle): TurnUsageReport | null;
 }
 
 export class AdapterError extends Error {

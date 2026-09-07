@@ -19,7 +19,7 @@
  * its reason, never quietly dropped: a skipped check is not a passing check.
  */
 import { describe, expect, it } from 'vitest';
-import type { AdapterId } from '../../../src/core/contracts.js';
+import type { AdapterId, Policy } from '../../../src/core/contracts.js';
 import { RUNTIME_EVENT_KINDS, RuntimeEventSchema, type RuntimeAdapter, type RuntimeEvent, type SessionHandle } from '../../../src/adapters/types.js';
 
 export interface ConformanceSession {
@@ -49,6 +49,21 @@ export interface ConformanceTarget {
   /** Open a session whose stream carries unknown record types and malformed lines. */
   openNoisy?: (() => Promise<ConformanceSession>) | undefined;
   readonly noisySkipReason?: string | undefined;
+  /**
+   * True when this target's own event stream shows that the runtime received a
+   * message queued before the turn. The suite queues a message, runs a turn and
+   * asks; a receipt alone never proves a delivery was redeemed.
+   */
+  observeQueuedDelivery?: ((events: ReadonlyArray<RuntimeEvent>, messageId: string) => boolean) | undefined;
+  readonly deliveryObservationSkipReason?: string | undefined;
+  /**
+   * Policies every adapter must answer the same way. `opens` means openSession
+   * returns a session; `refuses` means it throws. Declared per target so a
+   * divergence is a failing test rather than a difference nobody notices.
+   */
+  readonly policySupport?: Readonly<Record<Policy, 'opens' | 'refuses'>> | undefined;
+  /** Open a session under an arbitrary policy, for the policy-contract check. */
+  openWithPolicy?: ((policy: Policy) => Promise<ConformanceSession>) | undefined;
 }
 
 async function drain(adapter: RuntimeAdapter, session: ConformanceSession, prompt: string): Promise<RuntimeEvent[]> {
@@ -197,6 +212,10 @@ export function runConformanceSuite(target: ConformanceTarget): void {
     it('normalizes into the documented event kinds, monotonically, with raw references', async () => {
       const session = await target.openQuick();
       try {
+        // Some adapters announce the session as soon as it is open, others on
+        // the first record of the first turn; both are events this adapter
+        // emitted, and one of the two must have happened.
+        const beforeTurn = await session.adapter.reconcile(session.handle);
         const events = await drain(session.adapter, session, target.prompt);
         expect(events.length).toBeGreaterThan(0);
         for (const event of events) {
@@ -222,6 +241,48 @@ export function runConformanceSuite(target: ConformanceTarget): void {
         const terminalIndex = events.findIndex(isTerminal);
         expect(terminalIndex, 'the stream reached a terminal event').toBeGreaterThanOrEqual(0);
         expect(terminalIndex).toBe(events.length - 1);
+
+        // A session and a turn actually announce themselves. Without this an
+        // adapter emitting only `raw` events plus a terminal would pass every
+        // other check in this file.
+        expect(
+          events.some((e) => e.kind === 'session_started') || beforeTurn.lastEventSequence > 0,
+          'the adapter announces the session it opened, before or with the first turn',
+        ).toBe(true);
+        expect(events.some((e) => e.kind === 'turn_started'), 'the adapter announces the turn it started').toBe(true);
+      } finally {
+        await session.close();
+      }
+    });
+
+    it('speaks one payload vocabulary, not one per provider', async () => {
+      const session = await target.openQuick();
+      try {
+        const events = await drain(session.adapter, session, target.prompt);
+        // These are the fields the shared consumers read — the terminal
+        // renderer in src/core/run-direct.ts and the evidence summary in
+        // src/telemetry/events.ts. An adapter that names them differently is
+        // not wrong in isolation; it is wrong here, because the same run then
+        // prints "tool unknown -> failed" for a tool that succeeded.
+        for (const event of events.filter((e) => e.kind === 'tool_result')) {
+          expect(Object.keys(event.payload), 'tool_result names its tool').toContain('tool');
+          expect(Object.keys(event.payload), 'tool_result reports an outcome').toContain('status');
+          expect(['ok', 'failed', 'declined', 'error'], `tool_result status ${String(event.payload['status'])}`).toContain(String(event.payload['status']));
+        }
+        for (const event of events.filter((e) => e.kind === 'file_change')) {
+          const payload = event.payload;
+          expect(Object.keys(payload), 'file_change says whether the write was applied').toContain('applied');
+          expect([true, false, null], 'applied is a tri-state, never a guess').toContain(payload['applied']);
+          expect(Object.keys(payload), 'file_change reports the grant it was measured against').toContain('withinAllowedPaths');
+          expect([true, false, null]).toContain(payload['withinAllowedPaths']);
+          // A change that is neither applied nor denied must say it is a request.
+          if (payload['applied'] !== true && payload['denied'] !== true) {
+            expect(['requested', 'started', undefined], 'an unapplied change names its phase').toContain(payload['phase']);
+          }
+        }
+        for (const event of events.filter((e) => e.kind === 'tool_call')) {
+          expect(Object.keys(event.payload), 'tool_call names its tool').toContain('tool');
+        }
       } finally {
         await session.close();
       }
@@ -270,7 +331,7 @@ export function runConformanceSuite(target: ConformanceTarget): void {
     // Receipts
     // -----------------------------------------------------------------------
 
-    it('a delivery with no active turn is queued, not claimed as submitted', async () => {
+    it('a delivery with no active turn is queued, names its holder, and is actually redeemed', async () => {
       const session = await target.openQuick();
       try {
         const receipt = await session.adapter.deliver(session.handle, { messageId: 'conformance-1', body: 'a peer message' });
@@ -278,6 +339,19 @@ export function runConformanceSuite(target: ConformanceTarget): void {
         expect(receipt.state).toBe('queued');
         expect(receipt.turnId).toBeNull();
         expect(Date.parse(receipt.at)).not.toBeNaN();
+        // A queued message must be somebody's: an adapter that will flush it,
+        // or a runtime that acknowledged it. "Queued" with no holder is a
+        // message nobody will deliver.
+        expect(['adapter', 'runtime'], 'a queued receipt names who holds the message').toContain(receipt.holder);
+
+        // And the receipt is redeemed: the next turn actually carries it. This
+        // is the property a state check alone cannot establish.
+        const events = await drain(session.adapter, session, target.prompt);
+        if (target.observeQueuedDelivery === undefined) {
+          expect(events.length, `delivery redemption not observable for this target — ${target.deliveryObservationSkipReason ?? 'no observation hook'}`).toBeGreaterThan(0);
+        } else {
+          expect(target.observeQueuedDelivery(events, 'conformance-1'), 'the runtime shows it received the queued message on the next turn').toBe(true);
+        }
       } finally {
         await session.close();
       }
@@ -286,16 +360,23 @@ export function runConformanceSuite(target: ConformanceTarget): void {
     if (target.openSlow === undefined) {
       it.skip(`delivery into an active turn: skipped — ${target.slowSkipReason ?? 'no long-running turn available'}`, () => undefined);
     } else {
-      it('a delivery during an active turn names the turn it was submitted to, or says it was only queued', async () => {
+      it('claims submission into a running turn only where that capability is verified', async () => {
         const session = await target.openSlow!();
         try {
           const turn = await session.adapter.startTurn(session.handle, { prompt: target.slowPrompt ?? target.prompt });
           const receipt = await session.adapter.deliver(session.handle, { messageId: 'conformance-2', body: 'a peer message' });
+          const capability = session.adapter.capabilities().capabilities.active_turn_delivery.status;
           if (receipt.state === 'submitted_to_active_turn') {
             expect(receipt.turnId, 'a submitted receipt names the turn').toBe(turn.turnId);
+            expect(receipt.holder ?? 'runtime', 'a submitted message is with the runtime').toBe('runtime');
+            // The contract's strongest delivery receipt is a claim about the
+            // runtime's behaviour, so it may only be issued by an adapter that
+            // established that behaviour against the runtime.
+            expect(capability, 'submitted_to_active_turn requires a verified active_turn_delivery capability').toBe('verified');
           } else {
             expect(receipt.state).toBe('queued');
             expect(receipt.turnId, 'a queued receipt names no turn').toBeNull();
+            expect(['adapter', 'runtime'], 'a queued receipt names who holds the message').toContain(receipt.holder);
           }
           await session.adapter.interrupt(turn);
         } finally {
@@ -324,6 +405,60 @@ export function runConformanceSuite(target: ConformanceTarget): void {
         }
       });
     }
+
+    // -----------------------------------------------------------------------
+    // Execution profiles
+    // -----------------------------------------------------------------------
+
+    if (target.policySupport === undefined || target.openWithPolicy === undefined) {
+      it.skip('answers openSession the same way for every policy: skipped — the target declares no policy support table', () => undefined);
+    } else {
+      for (const [policy, expected] of Object.entries(target.policySupport) as Array<[Policy, 'opens' | 'refuses']>) {
+        it(`${expected === 'opens' ? 'opens' : 'refuses'} a session under the "${policy}" profile`, async () => {
+          if (expected === 'refuses') {
+            // Refusing is a contract, not an implementation detail: an adapter
+            // that quietly opens a session under a profile it cannot honour is
+            // the failure plan section 8 forbids.
+            await expect(target.openWithPolicy!(policy)).rejects.toThrow();
+            return;
+          }
+          const session = await target.openWithPolicy!(policy);
+          try {
+            expect(session.handle.sessionId.length).toBeGreaterThan(0);
+          } finally {
+            await session.close();
+          }
+        });
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Usage (FR060)
+    // -----------------------------------------------------------------------
+
+    it('reports usage in the shared shape, or not at all — never a zero standing in for unknown', async () => {
+      const session = await target.openQuick();
+      try {
+        await drain(session.adapter, session, target.prompt);
+        const status = session.adapter.capabilities().capabilities.usage_reporting.status;
+        const usage = session.adapter.lastTurnUsage?.(session.handle) ?? null;
+        if (status === 'unsupported') {
+          // Nothing to report is fine; reporting something anyway is not.
+          expect(usage === null || usage.costStatus === 'unavailable').toBe(true);
+          return;
+        }
+        // An adapter whose runtime reports usage must expose it through the
+        // shared method, because that is the only one the coordinator reads.
+        expect(typeof session.adapter.lastTurnUsage, 'an adapter that reports usage implements lastTurnUsage').toBe('function');
+        if (usage === null) return;
+        expect(['measured', 'unavailable']).toContain(usage.costStatus);
+        if (usage.costStatus === 'unavailable') expect(usage.costUsd, 'an unavailable cost is null, never zero').toBeNull();
+        expect(typeof usage.detail).toBe('string');
+        expect(usage.detail.length).toBeGreaterThan(0);
+      } finally {
+        await session.close();
+      }
+    });
 
     // -----------------------------------------------------------------------
     // Stopping and reconciliation

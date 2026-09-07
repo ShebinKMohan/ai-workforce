@@ -4,8 +4,14 @@ Scope: WP02 — discovery (FR001, FR002, FR005, FR006, FR013).
 Recorded: 7 September 2026 on the development machine described below.
 
 This file records what discovery actually observed. Everything here is a
-measurement or a documented interface, never a claim that an adapter works: no
-runtime session has been opened yet, so no capability is `verified`.
+measurement or a documented interface, never a claim that an adapter works.
+
+**Read the WP05 update at the end before quoting any authentication line from
+this file.** The WP02 record below was written before any runtime session had
+been opened; WP03 and WP05 then opened real sessions, raised several statuses to
+`verified` in `docs/verified-capabilities.json`, and — the correction that
+matters most here — established that `claude auth status` reporting
+`loggedIn: true` is **not** evidence of a usable credential.
 
 ## Host and tested versions
 
@@ -221,6 +227,8 @@ claude-code — Claude Code
   real path:     /Users/shebin_mohan_k/.local/share/claude/versions/2.1.260
   version:       2.1.260 (adapter minimum 2.1.0)
   authentication: logged_in — `claude auth status` reported loggedIn=true
+                  (WP05 correction: this describes a stored profile, not a
+                   usable credential — see the update at the end of this file)
   capabilities:
     structured_execution     supported_unverified — `--print --output-format stream-json` emits structured events and a result record
     owned_session_identity   supported_unverified — sessions carry an id that `--resume` accepts
@@ -313,10 +321,81 @@ policy becomes, plus what it cannot enforce:
     unsupported permissions.executeRepositoryHooks: the analysis profile forbids running repository hooks with host privileges; ...
 ```
 
+## Update — WP05: what the runtime says about itself
+
+WP05 opened real Claude Code sessions and found the two facts a readiness report
+must not leave unsaid. Both are now in the product, not only in the adapter.
+
+### 1. A login-status command is not evidence of a usable credential
+
+On the recording machine `claude auth status` reported
+`{"loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "max"}` while
+the runtime itself reported `account.tokenSource: "none"` and **every turn
+failed** with *"Failed to authenticate: OAuth session expired and could not be
+refreshed"* (docs/runtime-claude-code.md section 9).
+
+So the passive line above is corrected: `claude auth status` describes a stored
+profile. Passive discovery now says exactly that and adds a diagnostic naming
+the disagreement, and `verified_ready` remains unreachable passively.
+
+### 2. `workforce doctor --connect` — the explicit connection check
+
+Plan section 6 rule 6 allows an explicit connection check to establish live
+readiness. `--connect` asks each runtime through its own control channel: the
+Codex app-server handshake, and Claude Code's `initialize` control request.
+Both start a process; **neither starts a model turn**, so the check is free. It
+is the only way to reach `verified_ready`, and where the runtime and its status
+command disagree, the runtime's answer is the one recorded.
+
+Executed on this machine, 7 September 2026:
+
+```console
+$ workforce doctor --connect
+workforce doctor — discovery plus an explicit connection check (a process is started; no model turn is)
+
+RUNTIME      VERSION  READINESS       AUTH        EXECUTABLE
+codex        0.147.0  verified_ready  logged_in   /opt/homebrew/bin/codex
+claude-code  2.1.260  controllable    logged_out  /Users/…/.local/bin/claude
+
+codex — Codex CLI
+  readiness:     verified_ready
+  authentication: logged_in — `codex login status` reports an active login, confirmed by the connection check
+  write boundary: a tested containment boundary is reported for writing profiles
+  note: verified ready by live check: codex connection check against /opt/homebrew/bin/codex (0.147.0): the runtime answered its own control handshake
+
+claude-code — Claude Code
+  readiness:     controllable (after an explicit connection check)
+  authentication: logged_out — `claude auth status` exited 1; login state is not established, but the connection check asked the runtime and it reports logged_out; the runtime's own answer is the one recorded
+  write boundary: NONE — sandbox_workspace_write is unsupported, so writing profiles (local-development) are refused for this runtime unless a run passes --allow-unconfined-writes
+  note: connection check: the runtime reports account.tokenSource "none": it holds no usable credential, whatever `claude auth status` says. Run `claude auth login` before dispatching a turn
+```
+
+### 3. The write boundary is reported per runtime, and it gates writing profiles
+
+`sandbox_workspace_write` is `unsupported` for claude-code 2.1.260: it has no OS
+sandbox (executed proof in docs/runtime-claude-code.md section 5). That does not
+make the runtime uncontrollable — read-only work is unaffected — so it is
+reported separately from `missingControls`:
+
+| Report field | Meaning |
+| --- | --- |
+| `missingWriteBoundary` | boundaries a writing profile needs and this runtime does not offer |
+| `writingModeAvailable` | false when a writing profile cannot be dispatched without an explicit acknowledgement |
+| `config.agents[].writeBoundaryBlocked` | true for a configured agent whose `local-development` binding `workforce run` would refuse |
+
+`workforce run` refuses such a binding with exit 2 and
+`write_boundary_unsupported` (plan section 8: "If an adapter cannot enforce a
+required profile, fail that mode"; section 9: "fail setup for an unsupported
+required boundary"). `--allow-unconfined-writes` proceeds, prints the missing
+boundary and records it in the run manifest, so an unconfined run's evidence can
+never be mistaken for a contained one.
+
 ## Limitations recorded at WP02
 
-- No runtime session has been opened. Every capability is `supported_unverified`
-  or `unsupported`; nothing is `verified`, and no runtime is `verified_ready`.
+- No runtime session had been opened *at WP02*: every capability was
+  `supported_unverified` or `unsupported`. WP03 and WP05 have since raised the
+  entries listed in `docs/verified-capabilities.json`, and `--connect` can now
+  reach `verified_ready` (see the WP05 update above).
 - Codex effort values (`minimal`…`xhigh`) come from the documented
   `model_reasoning_effort` setting, not from a `--help` enumeration on 0.147.0;
   they are validated as a fixed set and never mapped.

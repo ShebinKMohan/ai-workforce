@@ -3,13 +3,25 @@
  * FR005, FR006, FR013).
  *
  * Doctor is informational: it exits 0 even when no runtime is installed, so a
- * script can read the report and decide. Only invalid arguments exit 2. It runs
- * `--version` and the documented login-status command and nothing else, so it
- * can never start a paid model turn.
+ * script can read the report and decide. Only invalid arguments exit 2. By
+ * default it runs `--version` and the documented login-status command and
+ * nothing else, so it can never start a paid model turn.
+ *
+ * `--connect` adds the explicit connection check plan section 6 rule 6 allows:
+ * the adapter opens the runtime's own control channel and asks it what it is
+ * (Codex's `model/list` handshake, Claude Code's `initialize` control request).
+ * Both start a process and neither starts a model turn, so the check is free —
+ * and it is the only way to reach `verified_ready`. It matters most for
+ * authentication: on the recording machine `claude auth status` reported
+ * `loggedIn: true` while the runtime itself reported `account.tokenSource:
+ * "none"` and every turn failed. The status command describes a stored profile;
+ * only the runtime can say whether it holds a usable credential.
  */
 import path from 'node:path';
 import { computeAgentSnapshot } from '../../core/snapshot.js';
 import type { LoadedAgentConfig } from '../../core/config.js';
+import { ClaudeCodeAdapter, CodexAdapter, type RuntimeReadiness } from '../../adapters/index.js';
+import { applyLiveCheck, readinessFrom } from '../../discovery/readiness.js';
 import { loadVerifiedCapabilityOverrides, DISCOVERY_CAPABILITY_NAMES, type LoadedOverrides } from '../../discovery/capabilities.js';
 import { discoverRuntime, discoverRuntimes, type RuntimeReadinessReport } from '../../discovery/readiness.js';
 import { DISCOVERABLE_ADAPTERS, type DiscoverableAdapter } from '../../discovery/runtimes.js';
@@ -24,11 +36,18 @@ export interface DoctorArgs {
   readonly claudePath?: string | undefined;
   /** Already-validated agent configuration, when `--agents` was passed. */
   readonly config?: LoadedAgentConfig | undefined;
+  /**
+   * `--connect`: run each installed runtime's own control handshake. Starts a
+   * process, starts no model turn, and is the only path to `verified_ready`.
+   */
+  readonly connect?: boolean | undefined;
 }
 
 /** Test seams: discovery is driven through these so a test can supply fake executables. */
 export interface DoctorDeps {
   readonly spawner?: ProbeSpawner;
+  /** Test seam for `--connect`; production builds the real adapter and asks the runtime itself. */
+  readonly liveProbe?: (adapter: DiscoverableAdapter, executable: string) => Promise<RuntimeReadiness>;
   readonly pathValue?: string;
   readonly homeDir?: string;
   readonly knownLocations?: ReadonlyArray<string>;
@@ -70,6 +89,8 @@ function reportJson(report: RuntimeReadinessReport): Record<string, unknown> {
     probeKind: report.probeKind,
     authDetail: report.authDetail,
     missingControls: report.missingControls,
+    missingWriteBoundary: report.missingWriteBoundary,
+    writingModeAvailable: report.writingModeAvailable,
     installations: report.installations.map((i) => ({ path: i.path, realPath: i.realPath, source: i.source, origins: i.origins, selected: i.selected })),
     searchedLocations: report.searchedLocations,
     probes: report.probes.map((p) => ({ purpose: p.purpose, argv: [p.executable, ...p.argv], exitCode: p.exitCode, timedOut: p.timedOut, durationMs: p.durationMs, timeoutMs: p.timeoutMs, spawnError: p.spawnError })),
@@ -81,11 +102,22 @@ function reportLines(report: RuntimeReadinessReport): string[] {
   const lines: string[] = [];
   lines.push('');
   lines.push(`${report.adapter} — ${report.displayName}`);
-  lines.push(`  readiness:     ${report.readiness}${report.readiness === 'verified_ready' ? '' : ' (passive discovery; verified_ready needs a live check)'}`);
+  lines.push(
+    `  readiness:     ${report.readiness}${
+      report.readiness === 'verified_ready' ? '' : report.probeKind === 'live' ? ' (after an explicit connection check)' : ' (passive discovery; verified_ready needs a live check)'
+    }`,
+  );
   lines.push(`  executable:    ${report.executable ?? '(not found)'}`);
   if (report.realPath !== null && report.realPath !== report.executable) lines.push(`  real path:     ${report.realPath}`);
   lines.push(`  version:       ${report.version ?? '(unknown)'} (adapter minimum ${report.minimumSupportedVersion})`);
   lines.push(`  authentication:${report.auth === 'logged_in' ? ' logged_in' : ` ${report.auth}`} — ${report.authDetail}`);
+  lines.push(
+    `  write boundary: ${
+      report.missingWriteBoundary.length === 0
+        ? 'a tested containment boundary is reported for writing profiles'
+        : `NONE — ${report.missingWriteBoundary.join(', ')} is unsupported, so writing profiles (local-development) are refused for this runtime unless a run passes --allow-unconfined-writes`
+    }`,
+  );
   if (report.installations.length > 1) {
     lines.push(`  installations: ${report.installations.length} found`);
     for (const installation of report.installations) {
@@ -235,16 +267,79 @@ function configLines(
             permissions: { profile: agent.policy },
           });
     lines.push(`  agent ${agent.id}: runtime ${agent.runtime} (${runtime.adapter} via ${runtime.executable}), policy ${agent.policy}`);
+    // The agent-shaped version of the same fact: this is the binding a run
+    // would dispatch, and the write boundary is a property of the pair.
+    if (agent.policy === 'local-development' && report !== undefined && report.missingWriteBoundary.length > 0) {
+      lines.push(
+        `    BLOCKED: policy "local-development" lets this agent change files, but ${runtime.adapter} reports no tested write boundary (${report.missingWriteBoundary.join(', ')}). ` +
+          '`workforce run` refuses this binding unless it is given --allow-unconfined-writes',
+      );
+    }
     if (validation !== null) {
       const profile = validation.accepted.find((a) => a.setting === 'permissions.profile');
       if (profile !== undefined) lines.push(`    policy controls: ${profile.controls.map((c) => c.argv.join(' ')).join(' ')}`);
       for (const rejected of validation.rejected) lines.push(`    rejected ${rejected.setting}: ${rejected.reason}`);
       for (const item of validation.unsupported) lines.push(`    unsupported ${item.setting}: ${item.reason}`);
     }
-    return { id: agent.id, runtime: agent.runtime, adapter: runtime.adapter, policy: agent.policy, snapshotHash: computeAgentSnapshot(config.config, agent.id).hash, settings: validation };
+    return {
+      id: agent.id,
+      runtime: agent.runtime,
+      adapter: runtime.adapter,
+      policy: agent.policy,
+      snapshotHash: computeAgentSnapshot(config.config, agent.id).hash,
+      settings: validation,
+      writeBoundaryBlocked: agent.policy === 'local-development' && report !== undefined && report.missingWriteBoundary.length > 0,
+    };
   });
 
   return { lines, data: { path: config.path, schemaVersion: config.config.schemaVersion, runtimes, agents, defaults: config.config.defaults } };
+}
+
+/**
+ * Ask the runtime itself. Neither adapter's live probe starts a model turn:
+ * Codex speaks the app-server handshake, Claude Code sends one `initialize`
+ * control request.
+ */
+async function defaultLiveProbe(adapter: DiscoverableAdapter, executable: string): Promise<RuntimeReadiness> {
+  const instance = adapter === 'codex' ? new CodexAdapter({ executablePath: executable }) : new ClaudeCodeAdapter({ executablePath: executable });
+  return instance.probe(executable, { live: true });
+}
+
+/**
+ * Merge an explicit connection check into a passive report.
+ *
+ * The runtime's own answer wins over the status command's: `claude auth status`
+ * describes a stored profile, and the runtime describes the credential it can
+ * actually use. Where they disagree the report follows the runtime and says why.
+ */
+async function withLiveCheck(report: RuntimeReadinessReport, deps: DoctorDeps): Promise<RuntimeReadinessReport> {
+  if (report.executable === null) return report;
+  const probe = deps.liveProbe ?? defaultLiveProbe;
+  let live: RuntimeReadiness;
+  try {
+    live = await probe(report.adapter, report.executable);
+  } catch (error) {
+    return { ...report, probeKind: 'live', diagnostics: [...report.diagnostics, `the connection check could not be run: ${(error as Error).message}`] };
+  }
+  const runtimeAuth = live.authentication === 'not_required' ? report.auth : live.authentication;
+  const disagrees = runtimeAuth !== report.auth;
+  const controllable = report.controllable && live.controllable;
+  const merged: RuntimeReadinessReport = {
+    ...report,
+    controllable,
+    // The level has to follow the facts the check established, or the table
+    // would still show the login state the status command guessed.
+    readiness: readinessFrom(report.installed, report.adapterSupported, controllable, runtimeAuth),
+    auth: runtimeAuth,
+    authDetail: disagrees
+      ? `${report.authDetail}, but the connection check asked the runtime and it reports ${runtimeAuth}; the runtime's own answer is the one recorded`
+      : `${report.authDetail}, confirmed by the connection check`,
+    diagnostics: [...report.diagnostics, ...live.diagnostics.map((diagnostic) => `connection check: ${diagnostic}`)],
+  };
+  return applyLiveCheck(merged, {
+    ok: live.controllable,
+    evidence: `${report.adapter} connection check against ${report.executable}${live.version === null ? '' : ` (${live.version})`}: the runtime answered its own control handshake`,
+  });
 }
 
 export async function commandDoctor(args: DoctorArgs, deps: DoctorDeps = {}): Promise<CommandResult> {
@@ -268,11 +363,16 @@ export async function commandDoctor(args: DoctorArgs, deps: DoctorDeps = {}): Pr
     ...(deps.now !== undefined ? { now: deps.now } : {}),
   });
 
+  const connect = args.connect === true;
+  const checked = connect ? await Promise.all(reports.map((report) => withLiveCheck(report, deps))) : reports;
+
   const byAdapter = new Map<DiscoverableAdapter, RuntimeReadinessReport>();
-  for (const report of reports) byAdapter.set(report.adapter, report);
+  for (const report of checked) byAdapter.set(report.adapter, report);
 
   const lines: string[] = [
-    'workforce doctor — passive runtime discovery (no model turn is started)',
+    connect
+      ? 'workforce doctor — discovery plus an explicit connection check (a process is started; no model turn is)'
+      : 'workforce doctor — passive runtime discovery (no model turn is started; --connect asks each runtime itself)',
     `state root: ${stateRoot}`,
     '',
     ...table([
@@ -283,13 +383,14 @@ export async function commandDoctor(args: DoctorArgs, deps: DoctorDeps = {}): Pr
       }),
     ]),
   ];
-  for (const report of reports) lines.push(...reportLines(report));
+  for (const report of checked) lines.push(...reportLines(report));
 
   const data: Record<string, unknown> = {
     stateRoot,
-    passive: true,
+    passive: !connect,
+    connectionChecked: connect,
     verifiedCapabilitiesFile: { path: overrides.file, present: overrides.present },
-    runtimes: reports.map(reportJson),
+    runtimes: checked.map(reportJson),
   };
 
   if (args.config !== undefined) {

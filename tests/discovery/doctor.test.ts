@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli } from '../../src/cli/index.js';
+import { commandDoctor } from '../../src/cli/commands/doctor.js';
 import { EXIT_CODES } from '../../src/cli/output.js';
 import { fakeClaude, fakeCodex, tempDir, writeExecutable } from './helpers.js';
 
@@ -98,6 +99,98 @@ describe('workforce doctor reports what it found', () => {
     // Every argument either runtime was invoked with, as the executables themselves recorded it.
     const invocations = readFileSync(argvLog, 'utf8').trim().split('\n');
     expect(invocations.sort()).toEqual(['--version', '--version', 'auth status', 'login status'].sort());
+  });
+
+  it('says which runtime has no write boundary, and which agent that blocks', async () => {
+    // The fact a run manifest must never be able to hide: claude-code 2.1.260
+    // has no OS sandbox, so an agent bound to it under "local-development"
+    // cannot be dispatched without an explicit acknowledgement.
+    const bin = scratch();
+    const codex = writeExecutable(bin, 'codex', fakeCodex({ version: '0.147.0' }));
+    const claude = writeExecutable(bin, 'claude', fakeClaude({ version: '2.1.260' }));
+
+    const result = await invoke(['doctor', '--codex-path', codex, '--claude-path', claude, '--agents', EXAMPLE_AGENTS, '--state-dir', path.join(scratch(), 'state'), '--json']);
+    const doc = jsonDocument(result);
+    const [codexReport, claudeReport] = runtimes(doc) as unknown as Array<RuntimeJson & { missingWriteBoundary: string[]; writingModeAvailable: boolean }>;
+
+    expect(codexReport!.missingWriteBoundary).toEqual([]);
+    expect(codexReport!.writingModeAvailable).toBe(true);
+    // Verified against the installed build: no OS sandbox at all.
+    expect(claudeReport!.missingWriteBoundary).toEqual(['sandbox_workspace_write']);
+    expect(claudeReport!.writingModeAvailable).toBe(false);
+
+    const config = doc['config'] as { agents: Array<{ id: string; policy: string; writeBoundaryBlocked: boolean }> };
+    // fixtures/agents/example.json binds the default worker to claude-code
+    // under local-development, which is exactly the binding this must catch.
+    expect(config.agents.find((agent) => agent.id === 'engineer')).toMatchObject({ policy: 'local-development', writeBoundaryBlocked: true });
+    expect(config.agents.find((agent) => agent.id === 'architect')).toMatchObject({ policy: 'analysis', writeBoundaryBlocked: false });
+
+    const human = await invoke(['doctor', '--codex-path', codex, '--claude-path', claude, '--agents', EXAMPLE_AGENTS, '--state-dir', path.join(scratch(), 'state')]);
+    expect(human.stdout).toContain('write boundary: NONE');
+    expect(human.stdout).toContain('BLOCKED: policy "local-development"');
+  });
+
+  it('says that a login-status command is not evidence of a usable credential', async () => {
+    const bin = scratch();
+    const claude = writeExecutable(bin, 'claude', fakeClaude({ version: '2.1.260', auth: 'json-in' }));
+    const result = await invoke(['doctor', '--claude-path', claude, '--state-dir', path.join(scratch(), 'state'), '--json']);
+
+    const claudeReport = runtimes(jsonDocument(result)).find((report) => report.adapter === 'claude-code') as unknown as RuntimeJson & {
+      authDetail: string;
+      diagnostics: string[];
+    };
+    expect(claudeReport.auth).toBe('logged_in');
+    expect(claudeReport.authDetail).toContain('stored profile');
+    // The disagreement WP05 found on the recording machine, stated where a
+    // user reads it rather than only in the adapter.
+    expect(claudeReport.diagnostics.join(' ')).toContain('account.tokenSource');
+    expect(claudeReport.diagnostics.join(' ')).toContain('--connect');
+    expect(claudeReport.readiness).not.toBe('verified_ready');
+  });
+
+  it('--connect believes the runtime over the status command and can reach verified_ready', async () => {
+    const bin = scratch();
+    const codex = writeExecutable(bin, 'codex', fakeCodex({ version: '0.147.0' }));
+    const claude = writeExecutable(bin, 'claude', fakeClaude({ version: '2.1.260', auth: 'json-in' }));
+    const stateDir = path.join(scratch(), 'state');
+
+    // The runtime disagrees with its own status command: this is the state the
+    // recording machine was actually in (auth status said loggedIn=true while
+    // the runtime held no usable credential).
+    const disagreeing = await commandDoctor(
+      { codexPath: codex, claudePath: claude, stateDir, connect: true },
+      {
+        liveProbe: async (adapter, executable) => ({
+          adapter,
+          executablePath: executable,
+          installed: true,
+          version: adapter === 'codex' ? '0.147.0' : '2.1.260',
+          adapterSupported: true,
+          controllable: true,
+          authentication: adapter === 'claude-code' ? ('logged_out' as const) : ('logged_in' as const),
+          ready: adapter === 'claude-code' ? ('not_ready' as const) : ('verified_ready' as const),
+          probeKind: 'live' as const,
+          diagnostics: adapter === 'claude-code' ? ['the runtime reports account.tokenSource "none": it holds no usable credential'] : [],
+          observedAt: new Date().toISOString(),
+        }),
+      },
+    );
+
+    const data = disagreeing.data as { connectionChecked: boolean; passive: boolean; runtimes: Array<{ adapter: string; auth: string; readiness: string; authDetail: string; probeKind: string; diagnostics: string[] }> };
+    expect(data.connectionChecked).toBe(true);
+    expect(data.passive).toBe(false);
+
+    const claudeReport = data.runtimes.find((report) => report.adapter === 'claude-code')!;
+    expect(claudeReport.auth).toBe('logged_out');
+    expect(claudeReport.authDetail).toContain("the runtime's own answer is the one recorded");
+    expect(claudeReport.diagnostics.join(' ')).toContain('connection check: the runtime reports account.tokenSource');
+    expect(claudeReport.readiness).not.toBe('verified_ready');
+
+    // And a runtime the check agrees with does become verified_ready — the
+    // state passive discovery is not allowed to reach.
+    const codexReport = data.runtimes.find((report) => report.adapter === 'codex')!;
+    expect(codexReport.probeKind).toBe('live');
+    expect(codexReport.readiness).toBe('verified_ready');
   });
 
   it('exits 0 when a runtime is missing and says so instead of failing', async () => {

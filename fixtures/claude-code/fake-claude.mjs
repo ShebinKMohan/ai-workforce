@@ -38,7 +38,8 @@
  *
  * Every other object is written verbatim as one JSON line.
  */
-import { readFileSync, appendFileSync } from 'node:fs';
+import { readFileSync, appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
 const argv = process.argv.slice(2);
 
@@ -139,6 +140,12 @@ function emitRecords(records, trigger) {
     if (typeof record.__exit === 'number') {
       endProcess(record.__exit);
       return;
+    }
+    if (record.__write !== undefined && record.__write !== null) {
+      const target = path.resolve(process.cwd(), record.__write.path ?? 'fake-claude-write.txt');
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, record.__write.content ?? '');
+      continue;
     }
     writeLine(JSON.stringify(record));
   }

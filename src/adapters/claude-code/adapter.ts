@@ -68,6 +68,7 @@ import {
   type StopReceipt,
   type TurnHandle,
   type TurnInput,
+  type TurnUsageReport,
 } from '../types.js';
 import {
   AssistantRecordSchema,
@@ -86,6 +87,7 @@ import {
   isDeltaRecord,
   mapPolicy,
   parseClaudeVersion,
+  type ClaudeErrorClass,
   type ContentBlock,
   type PolicyMapping,
 } from './protocol.js';
@@ -202,6 +204,26 @@ interface ClaudeSession {
   turnCounter: number;
   activeTurnId: string | null;
   readonly turnStartIndex: Map<string, number>;
+  /**
+   * Runtime turns whose `system/init` record has arrived but whose `result`
+   * record has not. The runtime may schedule a message delivered mid-turn as a
+   * turn of its own, so "one adapter turn" is not "one runtime turn": a result
+   * only ends the adapter's turn when it leaves none outstanding.
+   */
+  openRuntimeTurns: number;
+  /**
+   * Turns the runtime says it still has queued, from the `queued_turn_count`
+   * field of the last `result` record and from `still_queued` in an interrupt
+   * response. Each of those turns produces a `result` of its own that belongs
+   * to no adapter turn.
+   */
+  runtimeQueuedTurns: number;
+  /** `system/init` records seen since the current adapter turn started; more than one means the runtime began an extra turn. */
+  runtimeTurnsInCurrentTurn: number;
+  /** Tool name per `tool_use` id, so a `tool_result` can name the tool it answers. */
+  readonly toolCalls: Map<string, string>;
+  /** File-mutating `tool_use` calls awaiting their `tool_result`: the request, not yet an applied change. */
+  readonly pendingFileChanges: Map<string, { readonly tool: string; readonly path: string | null; readonly resolvedPath: string | null; readonly withinAllowedPaths: boolean | null; readonly rawRef: string }>;
   /** Turns for which an interrupt control request was accepted; their `result` normalizes to `turn_interrupted`. */
   readonly interruptRequested: Set<string>;
   /** Deliveries held by the adapter because no live turn could take them; flushed into the next `startTurn`. */
@@ -288,7 +310,7 @@ export const CLAUDE_CODE_CAPABILITIES: Readonly<Record<CapabilityName, Capabilit
   ),
   active_turn_delivery: report(
     'supported_unverified',
-    'a user message written to the live process\'s stdin is acknowledged by the runtime (`--replay-user-messages` echoes it with isReplay=true) — verified. Whether the runtime injects it into the *running* turn or schedules it as the next one could not be observed here, and the runtime\'s own fields (`queued_turn_count`, `still_queued`) describe a queue. The receipt therefore says submitted_to_active_turn only when the echo arrives while a turn is still active, and queued otherwise',
+    'a user message written to the live process\'s stdin is acknowledged by the runtime (`--replay-user-messages` echoes it with isReplay=true) — verified. Whether the runtime injects it into the *running* turn or schedules it as the next one could not be observed here, and the runtime\'s own fields (`queued_turn_count`, `still_queued`) describe a queue. While this status is not `verified`, the adapter never issues the contract\'s strongest receipt on that evidence: an acknowledged mid-turn delivery is reported as `queued` with holder `runtime`, and `submitted_to_active_turn` is emitted only once this entry says `verified`',
   ),
   queued_delivery: report(
     'verified',
@@ -704,6 +726,11 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
       turnCounter: 0,
       activeTurnId: null,
       turnStartIndex: new Map(),
+      openRuntimeTurns: 0,
+      runtimeQueuedTurns: 0,
+      runtimeTurnsInCurrentTurn: 0,
+      toolCalls: new Map(),
+      pendingFileChanges: new Map(),
       interruptRequested: new Set(),
       queued: [],
       effective,
@@ -779,6 +806,26 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
   /** Usage the runtime reported for the most recent completed turn; `costStatus` says whether the number may be believed. */
   lastUsage(handle: SessionHandle): ClaudeTurnUsage | null {
     return this.#sessions.get(handle.sessionId)?.lastUsage ?? null;
+  }
+
+  /**
+   * The same numbers in the shared contract shape (`RuntimeAdapter.lastTurnUsage`).
+   *
+   * The coordinator reads this and nothing else, so an adapter-shaped accessor
+   * alone would leave the run manifest saying "no usage was reported" about a
+   * turn whose usage the adapter measured. Unlike Codex, this runtime does
+   * report `total_cost_usd`, and it reaches the manifest through here.
+   */
+  lastTurnUsage(handle: SessionHandle): TurnUsageReport | null {
+    const usage = this.lastUsage(handle);
+    if (usage === null) return null;
+    return {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      costUsd: usage.costUsd,
+      costStatus: usage.costStatus,
+      detail: usage.costDetail,
+    };
   }
 
   /** Deliveries the adapter is holding because no live turn could take them. */
@@ -894,6 +941,13 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     if (init.session_id !== undefined && init.session_id !== session.sessionId) {
       session.diagnostics.push(`the runtime reported session id "${init.session_id}" for a session opened as "${session.sessionId}"`);
     }
+    // One `init` record per *runtime* turn. Count it: the runtime may run a
+    // turn this adapter did not start (a message delivered mid-turn that it
+    // scheduled as its own turn), and its `result` must not be allowed to
+    // terminate whichever adapter turn happens to be active.
+    session.openRuntimeTurns += 1;
+    session.runtimeTurnsInCurrentTurn += 1;
+
     // The runtime emits one `init` record per turn, not one per process. The
     // first one is also this process's session start.
     if (!session.sessionStartedEmitted) {
@@ -920,7 +974,30 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
         rawRef,
       );
     }
-    this.#push(session, 'turn_started', session.activeTurnId, { permissionMode: init.permissionMode ?? null, model: init.model ?? null, tools: init.tools ?? null }, rawRef);
+    if (session.openRuntimeTurns > 1) {
+      // The signal that a second runtime turn began while one was still open.
+      // Recorded rather than smoothed over: it is why the next `result` may not
+      // be read as this adapter turn's terminal record.
+      this.#push(
+        session,
+        'raw',
+        session.activeTurnId,
+        {
+          reason: 'extra_runtime_turn_started',
+          adapterTurnId: session.activeTurnId,
+          openRuntimeTurns: session.openRuntimeTurns,
+          note: 'the runtime started another turn of its own (one system/init record per runtime turn) while this adapter turn was still open; a result record only ends the adapter turn once no runtime turn is left outstanding',
+        },
+        `${rawRef}#extra-init`,
+      );
+    }
+    this.#push(
+      session,
+      'turn_started',
+      session.activeTurnId,
+      { permissionMode: init.permissionMode ?? null, model: init.model ?? null, tools: init.tools ?? null, openRuntimeTurns: session.openRuntimeTurns, runtimeTurnsInCurrentTurn: session.runtimeTurnsInCurrentTurn },
+      rawRef,
+    );
   }
 
   #normalizeAssistant(session: ClaudeSession, value: Record<string, unknown>, rawRef: string): void {
@@ -993,8 +1070,9 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
       case 'tool_use': {
         const tool = block.name ?? 'unknown';
         const input = block.input;
-        this.#push(session, 'tool_call', turnId, { tool, toolUseId: block.id ?? null, parentToolUseId, input: summarizeUnknown(input) }, rawRef);
-        if (FILE_MUTATING_TOOLS.includes(tool)) this.#pushFileChange(session, turnId, tool, input, `${rawRef}#file`);
+        if (block.id != null) session.toolCalls.set(block.id, tool);
+        this.#push(session, 'tool_call', turnId, { tool, toolUseId: block.id ?? null, parentToolUseId, status: 'started', input: summarizeUnknown(input) }, rawRef);
+        if (FILE_MUTATING_TOOLS.includes(tool)) this.#pushFileChange(session, turnId, tool, block.id ?? null, input, `${rawRef}#file`);
         if (tool === 'Bash') {
           const command = typeof (input as { command?: unknown })?.command === 'string' ? ((input as { command: string }).command) : null;
           this.#push(session, 'command_exec', turnId, { tool, toolUseId: block.id ?? null, command: command === null ? null : truncate(command), cwd: session.cwd, phase: 'started' }, `${rawRef}#exec`);
@@ -1011,26 +1089,69 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     }
   }
 
-  #pushFileChange(session: ClaudeSession, turnId: string | null, tool: string, input: unknown, rawRef: string): void {
+  /**
+   * The model's *request* to change a file.
+   *
+   * `applied` is `null`, not `false`: at this point the outcome is unknown, and
+   * `false` would be indistinguishable from a write the runtime refused. The
+   * matching `tool_result` supplies the answer through `#completeFileChange`,
+   * and the request is remembered until it arrives so the two can be
+   * correlated by `tool_use` id. A request whose result never arrives stays
+   * `applied: null` — unconfirmed, which the coordinator treats as an escape
+   * it cannot rule out rather than as a change it can dismiss.
+   */
+  #pushFileChange(session: ClaudeSession, turnId: string | null, tool: string, toolUseId: string | null, input: unknown, rawRef: string): void {
     const filePath = typeof (input as { file_path?: unknown })?.file_path === 'string' ? (input as { file_path: string }).file_path : null;
-    if (filePath === null) {
-      this.#push(session, 'file_change', turnId, { tool, path: null, resolvedPath: null, withinAllowedPaths: null, applied: false, note: 'the tool call carried no file_path' }, rawRef);
-      return;
-    }
-    const resolved = canonicalPath(path.isAbsolute(filePath) ? filePath : path.join(session.cwd, filePath));
+    const resolved = filePath === null ? null : canonicalPath(path.isAbsolute(filePath) ? filePath : path.join(session.cwd, filePath));
+    const withinAllowedPaths = resolved === null ? null : session.allowedWritePaths.some((root) => isWithin(root, resolved));
+    if (toolUseId !== null) session.pendingFileChanges.set(toolUseId, { tool, path: filePath, resolvedPath: resolved, withinAllowedPaths, rawRef });
     this.#push(
       session,
       'file_change',
       turnId,
       {
         tool,
+        toolUseId,
         path: filePath,
         resolvedPath: resolved,
-        withinAllowedPaths: session.allowedWritePaths.some((root) => isWithin(root, resolved)),
-        // The record is the model's *request*; the matching tool_result says
-        // whether it was applied. Nothing here asserts the file changed.
-        applied: false,
+        withinAllowedPaths,
+        applied: null,
+        denied: false,
         phase: 'requested',
+        ...(filePath === null ? { note: 'the tool call carried no file_path' } : {}),
+      },
+      rawRef,
+    );
+  }
+
+  /**
+   * The answer to a file-mutating tool call: the second `file_change` for the
+   * same path, carrying whether the write actually happened.
+   *
+   * This is the distinction the containment argument turns on for a runtime
+   * with no OS sandbox (docs/runtime-claude-code.md section 5.5): a write
+   * outside the grant that the runtime *denied* is the tool boundary working,
+   * and a write it *applied* is an escape. Without correlating the result back
+   * to the request the two are the same event.
+   */
+  #completeFileChange(session: ClaudeSession, turnId: string | null, toolUseId: string, isError: boolean, content: unknown, rawRef: string): void {
+    const pending = session.pendingFileChanges.get(toolUseId);
+    if (pending === undefined) return;
+    session.pendingFileChanges.delete(toolUseId);
+    this.#push(
+      session,
+      'file_change',
+      turnId,
+      {
+        tool: pending.tool,
+        toolUseId,
+        path: pending.path,
+        resolvedPath: pending.resolvedPath,
+        withinAllowedPaths: pending.withinAllowedPaths,
+        applied: !isError,
+        denied: isError,
+        phase: 'completed',
+        ...(isError ? { detail: truncate(typeof content === 'string' ? content : JSON.stringify(content ?? null)) } : {}),
       },
       rawRef,
     );
@@ -1058,58 +1179,146 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     blocks.forEach((block, index) => {
       if (block.type !== 'tool_result') return;
       emitted = true;
+      const ref = blocks.length === 1 ? rawRef : `${rawRef}#${index}`;
+      const toolUseId = block.tool_use_id ?? null;
+      const isError = block.is_error === true;
+      // `tool`/`status`/`ok` are the shared vocabulary every consumer reads
+      // (src/core/run-direct.ts renderRuntimeEvent, src/telemetry/events.ts).
+      // The runtime names the tool only on the *call*, so the id is correlated
+      // back to it here rather than leaving the reader with "tool unknown".
+      const tool = toolUseId === null ? null : (session.toolCalls.get(toolUseId) ?? null);
       this.#push(
         session,
         'tool_result',
         turnId,
         {
-          toolUseId: block.tool_use_id ?? null,
-          isError: block.is_error ?? false,
+          tool,
+          toolUseId,
+          status: isError ? 'failed' : 'ok',
+          ok: !isError,
+          isError,
           content: summarizeUnknown(block.content),
         },
-        blocks.length === 1 ? rawRef : `${rawRef}#${index}`,
+        ref,
       );
+      if (toolUseId !== null) {
+        this.#completeFileChange(session, turnId, toolUseId, isError, block.content, `${ref}#file`);
+        session.toolCalls.delete(toolUseId);
+      }
     });
     if (!emitted) this.#push(session, 'raw', turnId, { reason: 'user_record', record: summarizeUnknown(value) }, rawRef);
   }
 
+  /**
+   * A `result` record: the end of one *runtime* turn.
+   *
+   * Two rules, both of them about not attributing evidence to the wrong turn:
+   *
+   *  - a record whose body this adapter cannot parse still ends a turn. The
+   *    alternative — demoting it to `raw` — leaves `activeTurnId` set, so the
+   *    turn's event stream never returns and the run hangs to its deadline
+   *    over one unexpected `null`. Plan section 9 asks for raw output plus a
+   *    protocol diagnostic instead, which is what this emits;
+   *  - a record only ends the *adapter's* turn when no other runtime turn can
+   *    own it. The runtime may schedule a message delivered mid-turn as a turn
+   *    of its own, and that turn's result must not terminate the next adapter
+   *    turn's stream with another turn's usage, cost and result text. Two
+   *    signals say when that is happening, and neither is guesswork: an
+   *    unmatched `system/init` (a second runtime turn began while one was
+   *    open), and the runtime's own `queued_turn_count` on the previous result
+   *    (turns it says it still has to run). A result claimed by either is kept
+   *    as a `raw` event with the mismatch recorded, and the adapter's turn
+   *    stays open for its own result.
+   */
   #normalizeResult(session: ClaudeSession, value: Record<string, unknown>, rawRef: string): void {
     const parsed = ResultRecordSchema.safeParse(value);
-    if (!parsed.success) {
-      this.#push(session, 'raw', session.activeTurnId, { reason: 'result_record', record: summarizeUnknown(value) }, rawRef);
+    const result = parsed.success ? parsed.data : null;
+    const protocolError = parsed.success ? null : parsed.error.message;
+    const turnId = session.activeTurnId;
+
+    // A result closes one open runtime turn. A result with none open (a resume
+    // failure answers before any init) closes the adapter's turn on its own.
+    session.openRuntimeTurns = Math.max(0, session.openRuntimeTurns - 1);
+    const anotherRuntimeTurnIsOpen = session.openRuntimeTurns > 0;
+    const runtimeStillHasQueuedTurns = session.runtimeQueuedTurns > 0;
+    const endsAdapterTurn = !anotherRuntimeTurnIsOpen && !runtimeStillHasQueuedTurns;
+    if (!endsAdapterTurn && session.runtimeQueuedTurns > 0) session.runtimeQueuedTurns -= 1;
+    // The runtime's own statement of its queue depth wins over the count above.
+    if (result !== null && typeof result.queued_turn_count === 'number') session.runtimeQueuedTurns = Math.max(0, result.queued_turn_count);
+
+    if (result === null) {
+      this.#push(
+        session,
+        'error',
+        turnId,
+        {
+          fatal: false,
+          reason: 'malformed_result_record',
+          message: `the runtime's result record did not match the expected shape: ${protocolError ?? 'unknown validation error'}`,
+          errorClass: 'unknown' satisfies ClaudeErrorClass,
+          record: summarizeUnknown(value),
+        },
+        `${rawRef}#protocol`,
+      );
+    }
+
+    const usage = readUsage(result ?? {});
+    if (endsAdapterTurn) session.lastUsage = usage;
+
+    if (!endsAdapterTurn) {
+      // Evidence of a turn this adapter did not start. Keep it verbatim and
+      // leave the adapter's turn open; the record belongs to nothing here.
+      this.#push(
+        session,
+        'raw',
+        null,
+        {
+          reason: 'unattributed_result_record',
+          adapterTurnId: turnId,
+          openRuntimeTurns: session.openRuntimeTurns,
+          runtimeQueuedTurns: session.runtimeQueuedTurns,
+          cause: anotherRuntimeTurnIsOpen ? 'another runtime turn was still open' : 'the runtime reported turns of its own still queued',
+          note: 'this result belongs to a runtime turn this adapter did not start (a message delivered mid-turn that the runtime scheduled as its own turn); it is kept as evidence and does not terminate the active adapter turn, whose own result is still to come',
+          record: summarizeUnknown(value),
+        },
+        `${rawRef}#unattributed`,
+      );
       return;
     }
-    const result = parsed.data;
-    const turnId = session.activeTurnId;
-    const usage = readUsage(result);
-    session.lastUsage = usage;
 
     const interruptedByUs = turnId !== null && session.interruptRequested.has(turnId);
-    const terminal = (result.terminal_reason ?? '').toLowerCase();
+    const terminal = (result?.terminal_reason ?? '').toLowerCase();
     const interruptedByRuntime = terminal.includes('interrupt') || terminal.includes('cancel') || terminal.includes('abort');
     const kind: RuntimeEventKind = interruptedByUs || interruptedByRuntime ? 'turn_interrupted' : 'turn_completed';
 
     if (turnId !== null) session.interruptRequested.delete(turnId);
     session.activeTurnId = null;
+    const runtimeTurns = session.runtimeTurnsInCurrentTurn;
+    session.runtimeTurnsInCurrentTurn = 0;
 
     this.#push(
       session,
       kind,
       turnId,
       {
-        subtype: result.subtype,
-        isError: result.is_error ?? false,
-        terminalReason: result.terminal_reason ?? null,
-        numTurns: result.num_turns ?? null,
-        durationMs: result.duration_ms ?? null,
-        durationApiMs: result.duration_api_ms ?? null,
-        queuedTurnCount: result.queued_turn_count ?? null,
-        permissionDenials: summarizeUnknown(result.permission_denials ?? []),
-        resultText: result.result === undefined ? null : truncate(result.result),
-        errors: summarizeUnknown(result.errors ?? []),
-        errorClass: result.is_error === true ? classifyClaudeError({ subtype: result.subtype, terminalReason: result.terminal_reason, message: result.result }) : null,
+        subtype: result?.subtype ?? null,
+        isError: result === null ? true : result.is_error === true,
+        terminalReason: result === null ? 'malformed_result_record' : (result.terminal_reason ?? null),
+        numTurns: result?.num_turns ?? null,
+        durationMs: result?.duration_ms ?? null,
+        durationApiMs: result?.duration_api_ms ?? null,
+        queuedTurnCount: result?.queued_turn_count ?? null,
+        permissionDenials: summarizeUnknown(result?.permission_denials ?? []),
+        resultText: result?.result == null ? null : truncate(result.result),
+        errors: summarizeUnknown(result?.errors ?? []),
+        errorClass: result === null ? 'unknown' : result.is_error === true ? classifyClaudeError({ subtype: result.subtype, terminalReason: result.terminal_reason, message: result.result }) : null,
         usage: { ...usage },
         interruptRequestedByCoordinator: interruptedByUs,
+        // How many runtime turns ran under this one adapter turn. More than one
+        // means the runtime scheduled work of its own; the extra results are
+        // `raw` events, not this turn's evidence.
+        runtimeTurnsObserved: runtimeTurns,
+        ...(result === null ? { protocolError, record: summarizeUnknown(value) } : {}),
         // A finished turn is a runtime claim, never an acceptance (FR050).
         evidence: 'runtime_reported',
       },
@@ -1166,6 +1375,7 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     session.turnCounter += 1;
     const turnId = `turn-${session.turnCounter}`;
     const startIndex = session.buffer.length;
+    session.runtimeTurnsInCurrentTurn = 0;
     try {
       session.transport.sendUserMessage(session.sessionId, text);
     } catch (error) {
@@ -1200,21 +1410,51 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
   /**
    * Deliver a coordinator message.
    *
-   * With no live turn the message is held by this adapter and flushed into the
-   * next `startTurn`; the receipt says `queued`. With a live turn the message
-   * is written to the runtime's stdin and the receipt says
-   * `submitted_to_active_turn` only when the runtime acknowledges it (its
-   * `--replay-user-messages` echo) while that turn is still active. If the
-   * write succeeded but no acknowledgement arrived in time, the message is
-   * *not* re-queued here — it is already with the runtime — and the receipt
-   * says `queued` with a detail explaining that the runtime holds it.
+   * Every receipt names a holder, because a receipt that names none is a
+   * message nobody will deliver:
+   *
+   *  - no live turn → the adapter holds it and flushes it into the next
+   *    `startTurn`; `queued`, holder `adapter`;
+   *  - a live turn, and the runtime echoed the frame back
+   *    (`--replay-user-messages`) while that turn was still active → the
+   *    runtime holds it; holder `runtime`. The *state* is only
+   *    `submitted_to_active_turn` when `active_turn_delivery` is `verified`
+   *    for this runtime — the echo proves ingestion, not injection into the
+   *    running turn, and this build's own `queued_turn_count` / `still_queued`
+   *    fields describe a queue;
+   *  - a live turn, but the write failed or no acknowledgement arrived → the
+   *    adapter takes the message back and flushes it into the next turn;
+   *    `queued`, holder `adapter`. Delivery is at-least-once with idempotent
+   *    ingestion (plan section 8), so a re-send the runtime had already
+   *    received is suppressed by its message id, whereas a message held by
+   *    nobody is simply lost;
+   *  - a session whose process is gone → an error, not a receipt. `startTurn`
+   *    on such a session always throws, so "queued for the next turn" would be
+   *    a promise the adapter cannot keep.
+   *
    */
   async deliver(handle: SessionHandle, input: DeliveryInput): Promise<DeliveryReceipt> {
     const session = this.#session(handle);
+    if (session.closed) {
+      // The same refusal `startTurn` gives. A receipt promising the next turn
+      // would name a turn this session can never have.
+      throw new AdapterError(
+        CLAUDE_CODE_ADAPTER,
+        'session_closed',
+        `session ${session.sessionId} has no live claude process, so message ${input.messageId} cannot be delivered or held for a later turn; open a new session for it`,
+      );
+    }
     const activeTurn = session.activeTurnId;
-    if (activeTurn === null || session.closed) {
+    if (activeTurn === null) {
       session.queued.push(input);
-      return { messageId: input.messageId, state: 'queued', turnId: null, at: nowIso(), detail: 'no turn was active; the adapter holds this message and flushes it into the next turn' };
+      return {
+        messageId: input.messageId,
+        state: 'queued',
+        turnId: null,
+        holder: 'adapter',
+        at: nowIso(),
+        detail: 'no turn was active; the adapter holds this message and flushes it into the next turn',
+      };
     }
 
     const marker = `[coordinator message ${input.messageId}${input.correlationId ? ` re ${input.correlationId}` : ''}]`;
@@ -1225,7 +1465,14 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     } catch (error) {
       session.queued.push(input);
       this.#push(session, 'raw', activeTurn, { reason: 'delivery_write_failed', messageId: input.messageId, message: (error as Error).message }, this.#rawRef(session, `deliver-${input.messageId}`));
-      return { messageId: input.messageId, state: 'queued', turnId: null, at: nowIso(), detail: `the runtime would not accept input (${(error as Error).message}); the adapter holds this message for the next turn` };
+      return {
+        messageId: input.messageId,
+        state: 'queued',
+        turnId: null,
+        holder: 'adapter',
+        at: nowIso(),
+        detail: `the runtime would not accept input (${(error as Error).message}); the adapter holds this message for the next turn`,
+      };
     }
 
     const acknowledged = await this.#waitForEvent(
@@ -1235,17 +1482,50 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
       this.#options.deliveryAckTimeoutMs,
     );
     if (acknowledged !== null && session.activeTurnId === activeTurn) {
-      return { messageId: input.messageId, state: 'submitted_to_active_turn', turnId: activeTurn, at: nowIso(), detail: 'written to the live runtime during an active turn and echoed back by --replay-user-messages' };
+      // The runtime has it. Whether it joins the running turn is the open
+      // question `active_turn_delivery` records, so the stronger state is
+      // claimed only once that capability is verified against a real turn.
+      const verified = CLAUDE_CODE_CAPABILITIES.active_turn_delivery.status === 'verified';
+      return verified
+        ? {
+            messageId: input.messageId,
+            state: 'submitted_to_active_turn',
+            turnId: activeTurn,
+            holder: 'runtime',
+            at: nowIso(),
+            detail: 'written to the live runtime during an active turn and echoed back by --replay-user-messages',
+          }
+        : {
+            messageId: input.messageId,
+            state: 'queued',
+            turnId: null,
+            holder: 'runtime',
+            at: nowIso(),
+            detail: `the runtime acknowledged this message during ${activeTurn} (--replay-user-messages echoed it back) and holds it; whether it joins that running turn or is scheduled as the next one is not established for claude ${TESTED_CLAUDE_VERSION} (active_turn_delivery is supported_unverified), so submission into the active turn is not claimed`,
+          };
     }
+
+    // Nobody acknowledged it, so the adapter takes it back rather than leaving
+    // it with a runtime that may never have read it. A duplicate is suppressed
+    // by the message id in the marker; a lost message is not recoverable.
+    if (session.closed) {
+      throw new AdapterError(
+        CLAUDE_CODE_ADAPTER,
+        'session_closed',
+        `message ${input.messageId} was written to the claude process but the process ended before acknowledging it; the message is not held by the runtime or by the adapter and must be delivered in a new session`,
+      );
+    }
+    session.queued.unshift(input);
     return {
       messageId: input.messageId,
       state: 'queued',
       turnId: null,
+      holder: 'adapter',
       at: nowIso(),
       detail:
         acknowledged === null
-          ? `the message was written to the runtime but not acknowledged within ${this.#options.deliveryAckTimeoutMs}ms; the runtime holds it and the adapter does not resend it`
-          : 'the turn ended before the runtime acknowledged the message; the runtime holds it for its next turn',
+          ? `the message was written to the runtime but not acknowledged within ${this.#options.deliveryAckTimeoutMs}ms; the adapter holds it and flushes it into the next turn (the message id suppresses a duplicate if the runtime did receive it)`
+          : 'the turn ended before the runtime acknowledged the message; the adapter holds it and flushes it into the next turn',
     };
   }
 
@@ -1265,6 +1545,11 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     try {
       const response = await session.transport.interrupt(this.#options.interruptTimeoutMs);
       const stillQueued = (response as { still_queued?: unknown } | null)?.still_queued;
+      // The runtime's own statement of what it still has queued. The installed
+      // build advertises `interrupt_cancel_queued_v1`, so an interrupt that
+      // answers with an empty list has cancelled the queue, and no further
+      // result records are owed to turns this adapter did not start.
+      session.runtimeQueuedTurns = Array.isArray(stillQueued) ? stillQueued.length : 0;
       this.#push(session, 'raw', turn.turnId, { reason: 'interrupt_acknowledged', stillQueued: summarizeUnknown(stillQueued ?? []) }, this.#rawRef(session, `interrupt-${turn.turnId}`));
     } catch (error) {
       if (error instanceof ClaudeTransportError && error.reason === 'closed') {
@@ -1446,7 +1731,12 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
  * reporting that as a measured zero cost would be a lie (AT14: "unavailable
  * cost is not reported as zero").
  */
-export function readUsage(result: { readonly usage?: unknown; readonly total_cost_usd?: number | undefined; readonly duration_ms?: number | undefined; readonly duration_api_ms?: number | undefined }): ClaudeTurnUsage {
+export function readUsage(result: {
+  readonly usage?: unknown;
+  readonly total_cost_usd?: number | null | undefined;
+  readonly duration_ms?: number | null | undefined;
+  readonly duration_api_ms?: number | null | undefined;
+}): ClaudeTurnUsage {
   const usage = (result.usage ?? {}) as Record<string, unknown>;
   const num = (key: string): number | null => (typeof usage[key] === 'number' ? (usage[key] as number) : null);
   const inputTokens = num('input_tokens');

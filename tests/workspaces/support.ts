@@ -270,6 +270,46 @@ export function writeFakeAgentsConfig(dir: string, options: { model?: string; ef
   return file;
 }
 
+/**
+ * An agent bound to the Claude Code adapter under a writing profile — the
+ * binding fixtures/agents/example.json ships as its default worker, and the one
+ * the run path has to gate on the missing write boundary.
+ */
+export function writeClaudeAgentsConfig(dir: string, options: { readonly policy?: 'analysis' | 'local-development'; readonly executable?: string } = {}): string {
+  const file = path.join(dir, 'agents.json');
+  writeFileSync(
+    file,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        runtimes: { 'claude-local': { adapter: 'claude-code', executable: options.executable ?? 'claude' } },
+        defaults: {
+          workerAgent: 'engineer',
+          maxActiveTurns: 2,
+          maxActiveWriters: 2,
+          maxTasksPerRun: 8,
+          maxDelegationDepth: 2,
+          maxRepairAttempts: 2,
+          maxTransientRetries: 2,
+          runTimeoutMinutes: 30,
+        },
+        agents: [
+          {
+            id: 'engineer',
+            runtime: 'claude-local',
+            instructions: 'Inspect the relevant code, fix the underlying issue, and submit evidence against the task criteria.',
+            capabilities: ['coding', 'testing'],
+            policy: options.policy ?? 'local-development',
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  return file;
+}
+
 // ---------------------------------------------------------------------------
 // "The user's checkout is unchanged" assertions
 // ---------------------------------------------------------------------------

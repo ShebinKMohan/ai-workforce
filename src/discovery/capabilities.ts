@@ -43,6 +43,19 @@ export type DiscoveryCapabilityName = (typeof DISCOVERY_CAPABILITY_NAMES)[number
  */
 export const REQUIRED_CONTROL_CAPABILITIES: ReadonlyArray<DiscoveryCapabilityName> = ['structured_execution', 'owned_session_identity', 'observed_cancellation'];
 
+/**
+ * Capabilities a *writing* execution mode requires on top of those three.
+ *
+ * Plan section 6: R0 requires "a minimum tested containment boundary before
+ * writes"; section 8: an adapter that cannot enforce a required profile must
+ * fail that mode. A runtime missing this is still perfectly controllable for
+ * read-only work, so it is reported separately from `missingControls` rather
+ * than making the runtime uncontrollable — but a writing profile on it is
+ * refused by the run path (FR005: "required unsupported controls block that
+ * execution mode").
+ */
+export const REQUIRED_WRITING_CAPABILITIES: ReadonlyArray<DiscoveryCapabilityName> = ['sandbox_workspace_write'];
+
 export interface CapabilityEntry {
   readonly status: CapabilityStatus;
   /** Where the status came from: the built-in table, the version gate, or a verified-capabilities override. */
@@ -239,4 +252,9 @@ export function isControllable(table: CapabilityTable): boolean {
 /** Required control capabilities this version does not offer; these block execution modes that need them. */
 export function missingControlCapabilities(table: CapabilityTable): ReadonlyArray<DiscoveryCapabilityName> {
   return REQUIRED_CONTROL_CAPABILITIES.filter((name) => table[name].status === 'unsupported');
+}
+
+/** Boundaries a writing profile needs and this version does not offer; these block writing modes only. */
+export function missingWriteBoundaryCapabilities(table: CapabilityTable): ReadonlyArray<DiscoveryCapabilityName> {
+  return REQUIRED_WRITING_CAPABILITIES.filter((name) => table[name].status === 'unsupported');
 }

@@ -170,7 +170,13 @@ describe('codex adapter: session and turn lifecycle', () => {
     expect(String(failedCommand.payload['output'])).toContain('Operation not permitted');
 
     const evidence = summarizeTurnEvidence(events);
-    expect(evidence.fileChangesOutsideAllowedPaths).toContain('/tmp/outside-the-workspace/escape.txt');
+    // The sandbox refused the write, and that is the difference the evidence
+    // has to carry: a refused write outside the grant is the boundary working,
+    // not an escape. Reporting it as one would make a contained runtime
+    // indistinguishable from an uncontained one.
+    expect(evidence.deniedFileChangesOutsideAllowedPaths).toContain('/tmp/outside-the-workspace/escape.txt');
+    expect(evidence.fileChangesOutsideAllowedPaths).toEqual([]);
+    expect(evidence.unconfirmedFileChangesOutsideAllowedPaths).toEqual([]);
   });
 
   it('reports a "done" claim with no file change as an assistant message, never as an accepted result', async () => {

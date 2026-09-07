@@ -57,92 +57,105 @@ export function isDeltaRecord(type: string): boolean {
 export const SystemInitSchema = z.looseObject({
   type: z.literal('system'),
   subtype: z.string(),
-  session_id: z.string().optional(),
-  cwd: z.string().optional(),
-  tools: z.array(z.string()).optional(),
-  mcp_servers: z.array(z.looseObject({ name: z.string(), status: z.string().optional() })).optional(),
-  model: z.string().optional(),
-  permissionMode: z.string().optional(),
-  apiKeySource: z.string().optional(),
-  claude_code_version: z.string().optional(),
-  output_style: z.string().optional(),
-  capabilities: z.array(z.string()).optional(),
-  agents: z.array(z.string()).optional(),
-  uuid: z.string().optional(),
+  session_id: z.string().nullish(),
+  cwd: z.string().nullish(),
+  tools: z.array(z.string()).nullish(),
+  mcp_servers: z.array(z.looseObject({ name: z.string(), status: z.string().nullish() })).nullish(),
+  model: z.string().nullish(),
+  permissionMode: z.string().nullish(),
+  apiKeySource: z.string().nullish(),
+  claude_code_version: z.string().nullish(),
+  output_style: z.string().nullish(),
+  capabilities: z.array(z.string()).nullish(),
+  agents: z.array(z.string()).nullish(),
+  uuid: z.string().nullish(),
 });
 export type SystemInit = z.infer<typeof SystemInitSchema>;
 
 /** One block of an assistant message. `input` is unknown: tool schemas are the tools' business, not ours. */
 export const ContentBlockSchema = z.looseObject({
   type: z.string(),
-  text: z.string().optional(),
-  name: z.string().optional(),
-  id: z.string().optional(),
+  text: z.string().nullish(),
+  name: z.string().nullish(),
+  id: z.string().nullish(),
   input: z.unknown().optional(),
-  tool_use_id: z.string().optional(),
+  tool_use_id: z.string().nullish(),
   content: z.unknown().optional(),
-  is_error: z.boolean().optional(),
+  is_error: z.boolean().nullish(),
 });
 export type ContentBlock = z.infer<typeof ContentBlockSchema>;
 
 export const MessageSchema = z.looseObject({
-  role: z.string().optional(),
-  id: z.string().optional(),
-  model: z.string().optional(),
+  role: z.string().nullish(),
+  id: z.string().nullish(),
+  model: z.string().nullish(),
   stop_reason: z.unknown().optional(),
-  content: z.union([z.string(), z.array(ContentBlockSchema)]).optional(),
+  content: z.union([z.string(), z.array(ContentBlockSchema)]).nullish(),
   usage: z.unknown().optional(),
 });
 
 export const AssistantRecordSchema = z.looseObject({
   type: z.literal('assistant'),
   message: MessageSchema,
-  session_id: z.string().optional(),
-  parent_tool_use_id: z.string().nullable().optional(),
-  uuid: z.string().optional(),
-  timestamp: z.string().optional(),
+  session_id: z.string().nullish(),
+  parent_tool_use_id: z.string().nullish(),
+  uuid: z.string().nullish(),
+  timestamp: z.string().nullish(),
   /** Present on synthetic API-error messages, e.g. `authentication_failed`. */
-  error: z.string().optional(),
-  is_api_error_message: z.boolean().optional(),
+  error: z.string().nullish(),
+  is_api_error_message: z.boolean().nullish(),
 });
 export type AssistantRecord = z.infer<typeof AssistantRecordSchema>;
 
 export const UserRecordSchema = z.looseObject({
   type: z.literal('user'),
   message: MessageSchema,
-  session_id: z.string().optional(),
-  parent_tool_use_id: z.string().nullable().optional(),
-  uuid: z.string().optional(),
+  session_id: z.string().nullish(),
+  parent_tool_use_id: z.string().nullish(),
+  uuid: z.string().nullish(),
   /** Set by `--replay-user-messages`: the CLI acknowledging a message we wrote to its stdin. */
-  isReplay: z.boolean().optional(),
+  isReplay: z.boolean().nullish(),
 });
 export type UserRecord = z.infer<typeof UserRecordSchema>;
 
 export const UsageSchema = z.looseObject({
-  input_tokens: z.number().optional(),
-  output_tokens: z.number().optional(),
-  cache_creation_input_tokens: z.number().optional(),
-  cache_read_input_tokens: z.number().optional(),
+  input_tokens: z.number().nullish(),
+  output_tokens: z.number().nullish(),
+  cache_creation_input_tokens: z.number().nullish(),
+  cache_read_input_tokens: z.number().nullish(),
 });
 
+/**
+ * The terminal record of a turn.
+ *
+ * Every known field is `nullish`, not `optional`. A field a CLI emits as JSON
+ * `null` when it has no value is an ordinary evolution of a CLI versioned
+ * independently of us, and `z.number().optional()` rejects `null` — which
+ * would demote the one record that ends a turn to an unparsed blob and leave
+ * the turn open until the run deadline. The adapter additionally treats *any*
+ * record whose `type` is `result` as terminal even when this schema rejects it
+ * (plan section 9: "Malformed structured result — retain raw output; … fail
+ * with protocol diagnostics"), so this is defence in depth rather than the
+ * only guard.
+ */
 export const ResultRecordSchema = z.looseObject({
   type: z.literal('result'),
   subtype: z.string(),
-  session_id: z.string().optional(),
-  is_error: z.boolean().optional(),
-  result: z.string().optional(),
-  errors: z.array(z.unknown()).optional(),
-  num_turns: z.number().optional(),
-  duration_ms: z.number().optional(),
-  duration_api_ms: z.number().optional(),
-  total_cost_usd: z.number().optional(),
-  usage: UsageSchema.optional(),
+  session_id: z.string().nullish(),
+  is_error: z.boolean().nullish(),
+  result: z.string().nullish(),
+  errors: z.array(z.unknown()).nullish(),
+  num_turns: z.number().nullish(),
+  duration_ms: z.number().nullish(),
+  duration_api_ms: z.number().nullish(),
+  total_cost_usd: z.number().nullish(),
+  usage: UsageSchema.nullish(),
   modelUsage: z.unknown().optional(),
-  permission_denials: z.array(z.unknown()).optional(),
-  terminal_reason: z.string().optional(),
-  queued_turn_count: z.number().optional(),
+  permission_denials: z.array(z.unknown()).nullish(),
+  terminal_reason: z.string().nullish(),
+  queued_turn_count: z.number().nullish(),
   stop_reason: z.unknown().optional(),
-  uuid: z.string().optional(),
+  uuid: z.string().nullish(),
 });
 export type ResultRecord = z.infer<typeof ResultRecordSchema>;
 
@@ -444,7 +457,12 @@ export type ClaudeErrorClass = 'authentication' | 'usage_limit' | 'provider_tran
  * Anything unrecognised stays `unknown` rather than being guessed into a
  * retryable class.
  */
-export function classifyClaudeError(input: { readonly error?: string | undefined; readonly subtype?: string | undefined; readonly terminalReason?: string | undefined; readonly message?: string | undefined }): ClaudeErrorClass {
+export function classifyClaudeError(input: {
+  readonly error?: string | null | undefined;
+  readonly subtype?: string | null | undefined;
+  readonly terminalReason?: string | null | undefined;
+  readonly message?: string | null | undefined;
+}): ClaudeErrorClass {
   const error = input.error ?? '';
   if (error === 'authentication_failed') return 'authentication';
   if (error === 'rate_limit_error' || error === 'usage_limit_reached') return 'usage_limit';

@@ -194,6 +194,41 @@ This is the plan's rule applied literally: *"If an adapter cannot enforce a
 required profile, fail that mode or use a supported isolated environment. Do not
 silently broaden a profile because a check fails."*
 
+### And `local-development` itself is gated, not merely annotated
+
+The same rule bites one level up. `write_containment` is `unsupported` for this
+runtime, so a `local-development` run on it has **no enforced write boundary at
+all** — and the run path refuses it:
+
+```console
+$ workforce run --repo <repo> --agents <agents.json> --task '…'
+error: agent "engineer" runs the "local-development" profile, which lets the worker change files,
+but the claude-code adapter reports write_containment "unsupported" for 2.1.260 on darwin: …
+Plan section 8 requires an adapter that cannot enforce a required profile to fail that mode rather
+than silently broaden it. Bind this agent to a runtime with a verified write boundary, give it the
+read-only "analysis" profile, or pass --allow-unconfined-writes …
+exit=2
+```
+
+`--allow-unconfined-writes` is the deliberate decision the plan asks for, and it
+is a per-run flag rather than a configuration field so that no file can carry it
+by accident. A run that uses it:
+
+- prints `WARNING: no enforced write boundary — …` before the worker starts;
+- records `evidence.containment` in `artifacts/result.json` — the adapter, the
+  `write_containment` status and the version it was established against,
+  `enforcedWriteBoundary: false`, `unconfinedWritesAcknowledged: true`, and the
+  whole `unenforceable` list the session reported;
+- writes a `containmentNote` that begins **"THIS RUN HAD NO ENFORCED WRITE
+  BOUNDARY"**, instead of the sentence a Codex run gets about its verified
+  `workspaceWrite` sandbox;
+- lists the missing boundary under `unresolved`, so acceptance means "the
+  configured criteria passed", never "the worker's effects were confined".
+
+`workforce doctor` says the same thing before a run is ever attempted
+(`write boundary: NONE — …`, and `BLOCKED: policy "local-development"` against
+the offending agent).
+
 ### What the mapping cannot enforce, on every profile
 
 Recorded on every session in `session_started.payload.unenforceable`:
@@ -218,19 +253,48 @@ record, and `reconcile` returns it before a single turn has run.
 is minted by the adapter (`turn-1`, `turn-2`, …) because the CLI supplies none;
 correlation is unambiguous precisely because only one turn may be active.
 
-**Delivery.** With no active turn the message is held by the adapter and flushed
-into the next turn's user frame — receipt `queued`. With an active turn it is
-written to the runtime's stdin, and the receipt is `submitted_to_active_turn`
-**only** when the runtime echoes it back (`isReplay: true`) while that turn is
-still active. If the write succeeded but no echo arrived, the message is *not*
-re-queued locally (the runtime has it) and the receipt says `queued` with a
-detail saying so — the adapter never resends and never double-delivers.
+**One adapter turn is not one runtime turn.** `startTurn` refuses while a turn is
+active, but that is a rule about *this adapter's* turns. The runtime may run a
+turn of its own — a message delivered mid-turn that it schedules rather than
+injects — and its `result` record must not terminate the next adapter turn's
+stream with another turn's text, usage and cost. Two signals say when that is
+happening, and neither is a guess:
 
-Honest caveat: the echo proves the runtime *ingested* the message during the
-turn. Whether the model sees it inside that turn or in the next one could not be
-observed here, and the runtime's own fields (`queued_turn_count`,
+- an unmatched `system/init`: one arrives per runtime turn, so a second one
+  while a turn is open means the runtime began another;
+- the runtime's own `queued_turn_count` on the previous `result` (and
+  `still_queued` in an interrupt response): turns it says it still has to run.
+
+A `result` claimed by either is emitted as a `raw` event with
+`reason: "unattributed_result_record"`, carrying the record verbatim, and the
+adapter's turn stays open for its own result. `turn_completed` also reports
+`runtimeTurnsObserved`, so a consumer can see when more than one runtime turn
+ran under one adapter turn.
+
+**Delivery.** Every receipt names a *holder*, because a receipt that names none
+is a message nobody will deliver:
+
+| Situation | Receipt | Holder |
+| --- | --- | --- |
+| no active turn | `queued` | `adapter` — flushed into the next turn's user frame |
+| active turn, runtime echoed the frame back while the turn was still active | `queued` | `runtime` — it has the message; the adapter will not resend it |
+| active turn, the write failed or no echo arrived in time | `queued` | `adapter` — taken back and flushed into the next turn |
+| the session's process is gone | **`AdapterError` `session_closed`** | nobody: `startTurn` would throw too, so no next turn can be promised |
+
+The third row is the one that matters for at-least-once submission (plan
+section 8): a message written to a runtime that never acknowledged it is held by
+the adapter, and the message id in the frame's marker suppresses a duplicate if
+the runtime did receive it after all. Losing it is not recoverable; delivering
+it twice is.
+
+Honest caveat, and the reason the second row says `queued` rather than
+`submitted_to_active_turn`: the echo proves the runtime *ingested* the message
+during the turn. Whether the model sees it inside that turn or in the next one
+could not be observed here, and the runtime's own fields (`queued_turn_count`,
 `still_queued`, the advertised `interrupt_cancel_queued_v1`) describe a queue.
-That is why `active_turn_delivery` is `supported_unverified`, not `verified`.
+`active_turn_delivery` is therefore `supported_unverified`, and the adapter
+issues the contract's strongest receipt only when that entry says `verified` —
+the shared conformance suite asserts exactly that rule for every adapter.
 
 **Interruption.** `interrupt` sends the control request, records the
 `still_queued` list it gets back, then waits for a terminal record for that
@@ -337,10 +401,21 @@ this runtime**. What this adapter provides instead is:
 1. a bounded tool surface (verified) with no shell and no network tool;
 2. `--add-dir` scoping for the file tools, which `--help` documents and which
    §5.1 shows is real at the tool level;
-3. every write recorded as a `file_change` event carrying `withinAllowedPaths`,
-   so a write outside the grant is *visible* even when it is not *prevented* —
-   and `runDirect` already vetoes acceptance on an observed out-of-grant write;
-4. an explicit, machine-readable list of what is not enforced, on every session.
+3. every write recorded as **two** `file_change` events — the model's request
+   (`phase: "requested"`, `applied: null`), and the answer correlated back from
+   the matching `tool_result` by `tool_use` id (`phase: "completed"`,
+   `applied: true` or `denied: true`). The distinction is the whole point here:
+   a write outside the grant that the runtime *refused* is the tool boundary
+   working, and one it *applied* is an escape. `runDirect` blocks acceptance on
+   an applied escape **and** on one whose outcome the runtime never reported
+   (an escape that cannot be ruled out), and records a refused one as an
+   unresolved issue rather than as a write that happened;
+4. an explicit, machine-readable list of what is not enforced, on every session
+   — reported in the `session_started` event *and* copied into the run manifest
+   as `evidence.containment.unenforceable`;
+5. a run-path refusal: a writing profile on this runtime is not dispatched at
+   all unless a human passes `--allow-unconfined-writes` for that run (section 3
+   above).
 
 Anything stronger needs an isolated environment around the process (a container
 or VM). That is an R1 gate decision for WP10, not something this adapter can
@@ -358,13 +433,13 @@ Machine-readable copy: `docs/verified-capabilities.json`.
 | `session_identity` | **verified** | the uuid is minted by the adapter and passed as `--session-id`; the runtime echoes it on every record, rejects a non-uuid, and `reconcile` returns it before any turn |
 | `resume_session` | supported_unverified | `--resume <id>` reuses the id in a fresh process (executed); `--fork-session` mints a new one; an unknown id yields `subtype: "error_during_execution"`. **Whether the resumed turn continues the earlier conversation needs a model turn and could not be executed here** (§9) |
 | `interrupt_turn` | supported_unverified | the control round-trip is verified against the installed build (`still_queued` returned; `interrupt_cancel_queued_v1` advertised). Interrupting a *running model turn* was not executable here; the `observed`/`requested` split is covered deterministically by the recorded replay |
-| `active_turn_delivery` | supported_unverified | a message written to the live process's stdin is acknowledged by the runtime (verified). Whether it joins the running turn or the next one was not observable here; the runtime's own fields describe a queue |
+| `active_turn_delivery` | supported_unverified | a message written to the live process's stdin is acknowledged by the runtime (verified). Whether it joins the running turn or the next one was not observable here; the runtime's own fields describe a queue. While this is not `verified` the adapter reports an acknowledged mid-turn delivery as `queued` with holder `runtime`, never as `submitted_to_active_turn` |
 | `queued_delivery` | **verified** | a delivery with no active turn is held by the adapter and flushed into the next turn; the installed runtime echoed the combined frame back |
 | `process_tree_stop` | **verified** | spawned as a process-group leader; stdin close → SIGTERM → SIGKILL. Executed: SIGTERM to the group ended it (exit 143) and left the group empty |
 | `write_containment` | **unsupported** | §5. There is no OS sandbox. What is bounded is the tool surface, not the process |
 | `model_selection` | **verified** | the `initialize` control response lists `default, opus[1m], claude-fable-5-1[1m], sonnet, haiku` with their resolved ids; `--model sonnet` was reflected in the session's `init` record as `claude-sonnet-5` |
 | `effort_selection` | supported_unverified | `--effort` is accepted and the runtime lists `low, medium, high, xhigh, max` per model. An unknown value is silently ignored, so the adapter refuses one. **The runtime never reports the effective effort back**, so what took effect cannot be recorded |
-| `usage_reporting` | supported_unverified | the `result` record carries `usage`, `modelUsage` and `total_cost_usd`. On this machine every turn failed authentication before reaching the provider, so only the zeros of a turn that made no API call were observed |
+| `usage_reporting` | supported_unverified | the `result` record carries `usage`, `modelUsage` and `total_cost_usd`. On this machine every turn failed authentication before reaching the provider, so only the zeros of a turn that made no API call were observed. The numbers reach the run manifest through `RuntimeAdapter.lastTurnUsage`, the shared contract accessor the coordinator reads |
 | `coordination_bridge` | unsupported | arrives with WP06; `--mcp-config` + `--strict-mcp-config` is the intended injection point and is not exercised here |
 
 ### Cost (FR060, AT14)
@@ -425,6 +500,14 @@ window in which two frames can interleave differently between runs.
 | `session-noise.synthetic.json` | synthetic: a bare text line, a malformed JSON line, an unknown record type, an unknown `system` subtype, an unknown content block, unknown fields on known records |
 | `session-hang.synthetic.json` | synthetic: answers the handshake and then produces nothing |
 | `session-no-api-call.synthetic.json` | synthetic: a `result` with `duration_api_ms: 0`, zero tokens and `total_cost_usd: 0` |
+| `session-fix-pagination.synthetic.json` | synthetic: a complete worker turn that writes the ts-bug fix (the `__write` record is the double performing the effect the `Write` tool call describes), with usage and a real `total_cost_usd` |
+| `session-denied-write.synthetic.json` | synthetic: a `Write` outside the grant whose `tool_result` carries `is_error: true` — the boundary refusing it |
+| `session-escape-unconfirmed.synthetic.json` | synthetic: a `Write` outside the grant whose `tool_result` never arrives — an outcome that is neither applied nor refused |
+| `session-queued-turn.synthetic.json` | synthetic: turn 1 reports `queued_turn_count: 1`, then an init/result pair for the turn the runtime scheduled itself arrives before turn 2's own |
+| `session-queued-turn-interleaved.synthetic.json` | synthetic: the same, with the extra runtime turn's init arriving while turn 2's is still open |
+| `session-null-fields-result.synthetic.json` | synthetic: a `result` whose optional fields are JSON `null` rather than absent |
+| `session-unreadable-result.synthetic.json` | synthetic: a `result` whose body the schema cannot read at all |
+| `session-hang-then-answer.synthetic.json` | synthetic: a turn that never echoes a delivered message, so the adapter must take it back |
 
 ```sh
 npm run typecheck
@@ -471,10 +554,24 @@ That is the exact transcript kept as `session-auth-failure.real.json`.
 Two consequences, both recorded rather than worked around:
 
 1. **`claude auth status` reporting `loggedIn: true` is not evidence of a usable
-   credential.** The live probe now believes the runtime over the status
-   command: `tokenSource: "none"` makes readiness `not_ready` with a diagnostic,
-   whatever `auth status` said. That is an FR002 improvement this machine's
-   state made visible.
+   credential.** The live probe believes the runtime over the status command:
+   `tokenSource: "none"` makes readiness `not_ready` with a diagnostic, whatever
+   `auth status` said. That is an FR002 improvement this machine's state made
+   visible, and it is reachable from the product rather than only from the
+   adapter:
+
+   - `workforce doctor` (passive) now says that a `loggedIn: true` describes a
+     stored profile, and adds a diagnostic naming the disagreement observed on
+     this build and pointing at the connection check;
+   - `workforce doctor --connect` runs that live probe for every discovered
+     runtime — the Codex app-server handshake and Claude Code's `initialize`
+     control request. Both start a process, neither starts a model turn, and it
+     is the only path to `verified_ready` (plan section 6 rule 6). Executed on
+     this machine it reported codex `verified_ready` and claude-code
+     `logged_out` with `account.tokenSource "none"`, against an `auth status`
+     that could not establish a login at all.
+
+   `docs/runtime-compatibility.md` carries the corrected record.
 
 2. **Six checks that need a completed model turn are skipped, with the reason in
    the test name**, and every capability that depends on one is
@@ -510,9 +607,16 @@ A skipped check is not a passing check, and none of these are counted as one.
    transport for exactly this reason.
 5. **`init` is per turn, not per process.** A consumer that treats it as a
    session-start marker will see one per turn; the adapter emits
-   `session_started` only for the first.
-6. **Turn ids are the adapter's, not the runtime's.** The CLI supplies none.
-   Correlation is safe only because one turn may be active per session.
+   `session_started` only for the first. The adapter also *counts* them: an
+   unmatched extra `init` is how it detects a runtime turn it did not start.
+6. **Turn ids are the adapter's, not the runtime's.** The CLI supplies none, and
+   no record carries one. Correlation is therefore inferential: one adapter turn
+   is not guaranteed to be one runtime turn, and the adapter keeps a `result`
+   from ending the wrong turn using the two signals in section 4 (an unmatched
+   `init`, and the runtime's own `queued_turn_count` / `still_queued`). Both
+   orderings are covered by fixtures; a runtime that queued a turn *and*
+   reported `queued_turn_count: 0` would still be mis-attributed, so WP06 must
+   not assume the mapping is exact.
 7. **The default model comes from the user's configuration.** On this machine
    `claude-opus-5[1m]`. Pin a model in the agent configuration rather than
    inheriting it; the adapter records the reported model either way.
@@ -525,3 +629,11 @@ A skipped check is not a passing check, and none of these are counted as one.
     `--restricted` is set (it is). Even then the built-in skills list is
     non-empty; they are not tools the model can call without the `Skill` tool,
     which the profiles do not grant.
+11. **A malformed `result` still ends the turn.** A body this adapter's schema
+    cannot read is emitted as `turn_completed` with
+    `terminalReason: "malformed_result_record"`, the raw record and a
+    `protocolError`, plus a non-fatal `error` event (plan section 9: "retain raw
+    output; … fail with protocol diagnostics"). The alternative — demoting it to
+    `raw` — left `activeTurnId` set, so the turn's stream never returned and the
+    run hung to its deadline. Known-field `null`s are accepted as absent values
+    rather than treated as malformed at all.

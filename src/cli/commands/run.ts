@@ -46,6 +46,12 @@ export interface RunCommandArgs {
   readonly workspaceRoot?: string;
   readonly agent?: string;
   readonly checks?: ReadonlyArray<string>;
+  /**
+   * `--allow-unconfined-writes`: proceed with a writing profile on a runtime
+   * that enforces no write boundary. A per-run human decision, never a
+   * configuration default (plan section 8).
+   */
+  readonly allowUnconfinedWrites?: boolean;
   readonly json: boolean;
 }
 
@@ -177,6 +183,7 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
       ...(store.lock !== null ? { ownership: store.lock } : {}),
       ...(args.agent !== undefined ? { agentId: args.agent } : {}),
       ...(args.checks !== undefined ? { checkFlags: args.checks } : {}),
+      ...(args.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
       ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
       ...(deps.adapterFactory !== undefined ? { adapterFactory: deps.adapterFactory } : {}),
       ...(deps.sessionEnv !== undefined ? { sessionEnv: deps.sessionEnv } : {}),
@@ -239,7 +246,13 @@ function toCliError(error: unknown): CliError {
     return new CliError(EXIT_CODES.invalidInput, `invalid_checks:${error.code}`, error.message);
   }
   if (error instanceof RunSetupError) {
-    const invalid = error.code === 'not_a_git_repository' || error.code === 'no_committed_base' || error.code === 'unknown_agent' || error.code === 'unsupported_runtime_setting' || error.code === 'no_acceptance_checks';
+    const invalid =
+      error.code === 'not_a_git_repository' ||
+      error.code === 'no_committed_base' ||
+      error.code === 'unknown_agent' ||
+      error.code === 'unsupported_runtime_setting' ||
+      error.code === 'write_boundary_unsupported' ||
+      error.code === 'no_acceptance_checks';
     return new CliError(invalid ? EXIT_CODES.invalidInput : EXIT_CODES.executionFailure, error.code, error.message);
   }
   if (error instanceof ProjectInspectionError) {

@@ -21,7 +21,7 @@ import { capabilitiesFor, loadVerifiedCapabilityOverrides } from '../../src/disc
 import { AdapterNotRegisteredError, createAdapter, runDirect } from '../../src/core/run-direct.js';
 import { openStateStore } from '../../src/storage/db.js';
 import { createStatePaths } from '../../src/storage/paths.js';
-import { cleanupAll, fixTheBugScenario, registerCleanup, tempDir, useFixture, writeFakeAgentsConfig, writeScenario } from '../workspaces/support.js';
+import { cleanupAll, fixTheBugScenario, registerCleanup, tempDir, useFixture, writeClaudeAgentsConfig, writeFakeAgentsConfig, writeScenario } from '../workspaces/support.js';
 
 const CODEX_TRANSCRIPT = codexFixturePath('session-hello.synthetic.jsonl');
 
@@ -134,6 +134,54 @@ describe('run-path adapter registry', () => {
   });
 });
 
+describe('the CLI refuses an unconfined writing run unless a human accepts one', () => {
+  it('exits 2 with the missing boundary named, and creates no state', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-boundary-state-'), 'state');
+    // The default worker binding fixtures/agents/example.json ships: an agent
+    // on claude-code under local-development.
+    const configPath = writeClaudeAgentsConfig(tempDir('workforce-boundary-config-'));
+
+    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
+
+    expect(result.code).toBe(EXIT_CODES.invalidInput);
+    const document = JSON.parse(result.stdout.trimEnd().split('\n').at(-1) as string) as { error?: { code?: string; message?: string } };
+    expect(document.error?.code).toBe('write_boundary_unsupported');
+    expect(document.error?.message).toContain('write_containment "unsupported"');
+    expect(document.error?.message).toContain('--allow-unconfined-writes');
+    // Refused at setup: the state root exists because the command took its
+    // lock, but no run was recorded and no candidate workspace was created.
+    expect(existsSync(path.join(stateDir, 'runs')) ? readdirSync(path.join(stateDir, 'runs')) : []).toEqual([]);
+    expect(existsSync(path.join(stateDir, 'workspaces')) ? readdirSync(path.join(stateDir, 'workspaces')) : []).toEqual([]);
+  });
+
+  it('accepts the run when --allow-unconfined-writes is passed, and the flag reaches the coordinator', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-boundary-ok-state-'), 'state');
+    const configPath = writeClaudeAgentsConfig(tempDir('workforce-boundary-ok-config-'));
+
+    // The executable is never reached: the point is that the gate no longer
+    // refuses, so the run proceeds to the adapter and fails there instead.
+    const result = await invoke([
+      'run',
+      '--repo',
+      fixture.path,
+      '--agents',
+      configPath,
+      '--task',
+      'Fix the pagination off-by-one.',
+      '--state-dir',
+      stateDir,
+      '--allow-unconfined-writes',
+      '--json',
+    ]);
+
+    const document = JSON.parse(result.stdout.trimEnd().split('\n').at(-1) as string) as { error?: { code?: string } };
+    expect(document.error?.code).not.toBe('write_boundary_unsupported');
+    expect(result.stderr).toContain('WARNING: no enforced write boundary');
+  });
+});
+
 describe('state and workspace roots reach the coordinator', () => {
   it('puts the candidate workspace under --workspace-root and the coordinator state under --state-dir', async () => {
     const fixture = await useFixture('ts-bug');
@@ -236,8 +284,14 @@ class UsageReportingFakeAdapter extends FakeAdapter {
     return { ...base, capabilities };
   }
 
-  lastTokenUsage(_session: SessionHandle): unknown {
-    return this.reported;
+  /**
+   * The shared contract accessor, not an adapter-private one: the run path
+   * reads `RuntimeAdapter.lastTurnUsage` and nothing else, and a stub that
+   * exposes some other name would be reported as "no usage" — the defect this
+   * suite exists to catch.
+   */
+  lastTurnUsage(_session: SessionHandle): never {
+    return this.reported as never;
   }
 }
 
@@ -270,13 +324,36 @@ describe('usage reporting is measured or unavailable, never zero (FR060)', () =>
   }
 
   it('records the token counts a runtime reports and still refuses to invent a cost', async () => {
-    const usage = await runWithUsage({ total: { totalTokens: 135_069, inputTokens: 133_961, outputTokens: 1_108 }, last: { inputTokens: 27_861 } });
+    const usage = await runWithUsage({
+      inputTokens: 133_961,
+      outputTokens: 1_108,
+      costUsd: null,
+      costStatus: 'unavailable',
+      detail: 'token counts reported by the runtime; it reports no currency cost, so cost is unavailable rather than zero',
+    });
 
     expect(usage.status).toBe('measured');
     expect(usage.inputTokens).toBe(133_961);
     expect(usage.outputTokens).toBe(1_108);
     expect(usage.costUsd).toBeNull();
     expect(usage.source).toContain('cost is unavailable rather than zero');
+  });
+
+  it('records a currency cost when the runtime measured one', async () => {
+    // Claude Code's result record does carry total_cost_usd. A run path that
+    // hard-codes cost to null throws away the only price any installed runtime
+    // reports; one that passes through an unmeasured zero would be worse.
+    const usage = await runWithUsage({
+      inputTokens: 1_200,
+      outputTokens: 40,
+      costUsd: 0.0123,
+      costStatus: 'measured',
+      detail: 'total_cost_usd reported by the runtime for a turn that reached the provider',
+    });
+
+    expect(usage.status).toBe('measured');
+    expect(usage.costUsd).toBe(0.0123);
+    expect(usage.source).toContain('reached the provider');
   });
 
   it('reports usage as unavailable when the runtime reports a shape it cannot read', async () => {
@@ -286,6 +363,17 @@ describe('usage reporting is measured or unavailable, never zero (FR060)', () =>
     expect(usage.inputTokens).toBeNull();
     expect(usage.outputTokens).toBeNull();
     expect(usage.costUsd).toBeNull();
+  });
+
+  it('reports usage as unavailable for an adapter that only exposes a private accessor', async () => {
+    // The regression this guards: `run-direct` used to duck-type an
+    // adapter-specific `lastTokenUsage` method. Any adapter that named its
+    // accessor differently was reported as having measured nothing, however
+    // much its own event stream carried.
+    const usage = await runWithUsage(undefined);
+
+    expect(usage.status).toBe('unavailable');
+    expect(usage.source).toContain('no usage was reported for this turn');
   });
 });
 

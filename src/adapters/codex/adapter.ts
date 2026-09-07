@@ -17,6 +17,7 @@
 import { execFile } from 'node:child_process';
 import { closeSync, mkdirSync, openSync, realpathSync, writeSync } from 'node:fs';
 import path from 'node:path';
+import { z } from 'zod';
 import type { Policy } from '../../core/contracts.js';
 import { nowIso } from '../../core/ids.js';
 import { isProcessAlive, isProcessGroupAlive, matchProcessIdentity, type ProcessIdentity, type ProcessIdentityStatus } from '../../core/process.js';
@@ -47,6 +48,7 @@ import {
   type StopReceipt,
   type TurnHandle,
   type TurnInput,
+  type TurnUsageReport,
 } from '../types.js';
 import {
   CLIENT_METHOD,
@@ -73,6 +75,15 @@ export const DEFAULT_CODEX_EXECUTABLE = 'codex';
 
 /** The version this adapter's capability statuses were established against. */
 export const TESTED_CODEX_VERSION = '0.147.0';
+
+/**
+ * The token-usage shape this adapter reads off `thread/tokenUsage/updated`.
+ * Loose and validated rather than trusted: an unexpected shape yields no usage
+ * at all instead of a guessed number.
+ */
+const ThreadTokenUsageSchema = z.looseObject({
+  total: z.looseObject({ inputTokens: z.number().int().min(0).optional(), outputTokens: z.number().int().min(0).optional() }).optional(),
+});
 
 const CLIENT_NAME = 'workforce';
 const CLIENT_VERSION = '0.1.0';
@@ -429,6 +440,19 @@ export class CodexAdapter implements RuntimeAdapter {
   }
 
   async #openThread(input: SessionInput, resumeThreadId: string | null): Promise<SessionHandle> {
+    if (input.policy === 'verification') {
+      // The same refusal the Claude Code adapter gives, and for the same
+      // reason: the verification profile runs configured check commands
+      // against a frozen candidate copy (src/verification/), which is the check
+      // runner's job. A model session opened under it would let a runtime
+      // "verify" its own work. Both adapters answering openSession the same way
+      // for the same profile is asserted by the shared conformance suite.
+      throw new AdapterError(
+        CODEX_ADAPTER,
+        'unsupported_policy',
+        'the verification profile runs configured check commands against a frozen candidate copy; it is the check runner\'s job, not a runtime session. Refusing to open a Codex session under it',
+      );
+    }
     const settings = this.validateSettings(requestedSettingsOf(input));
     if (!settings.ok) {
       const problems = [settings.model, settings.effort].filter((r) => r.status === 'unsupported').map((r) => r.message);
@@ -604,6 +628,27 @@ export class CodexAdapter implements RuntimeAdapter {
    */
   lastTokenUsage(handle: SessionHandle): unknown {
     return this.#sessions.get(handle.sessionId)?.tokenUsage ?? null;
+  }
+
+  /**
+   * The same numbers in the shared contract shape (`RuntimeAdapter.lastTurnUsage`),
+   * which is what the coordinator reads. The app server reports no currency
+   * figure at all, so cost is `unavailable` with the reason — never a zero
+   * standing in for "not reported" (AT14).
+   */
+  lastTurnUsage(handle: SessionHandle): TurnUsageReport | null {
+    const parsed = ThreadTokenUsageSchema.safeParse(this.#sessions.get(handle.sessionId)?.tokenUsage ?? null);
+    const total = parsed.success ? parsed.data.total : undefined;
+    const inputTokens = total?.inputTokens ?? null;
+    const outputTokens = total?.outputTokens ?? null;
+    if (inputTokens === null && outputTokens === null) return null;
+    return {
+      inputTokens,
+      outputTokens,
+      costUsd: null,
+      costStatus: 'unavailable',
+      detail: 'thread/tokenUsage/updated reports token counts for this thread; the app server reports no currency cost, so cost is unavailable rather than zero',
+    };
   }
 
   /** Deliveries recorded while no turn was active; flushed into the next turn. */
@@ -937,7 +982,7 @@ export class CodexAdapter implements RuntimeAdapter {
     const activeTurn = session.activeTurnId;
     if (activeTurn === null || session.closed) {
       session.queued.push(input);
-      return { messageId: input.messageId, state: 'queued', turnId: null, at: nowIso() };
+      return { messageId: input.messageId, state: 'queued', turnId: null, holder: 'adapter', at: nowIso(), detail: 'no turn was active; the adapter holds this message and flushes it into the next turn' };
     }
     const body = `[coordinator message ${input.messageId}${input.correlationId ? ` re ${input.correlationId}` : ''}]\n${input.body}`;
     try {
@@ -947,13 +992,27 @@ export class CodexAdapter implements RuntimeAdapter {
         input: [{ type: 'text', text: body }],
       });
       const parsed = TurnSteerResultSchema.safeParse(raw);
-      return { messageId: input.messageId, state: 'submitted_to_active_turn', turnId: parsed.success ? parsed.data.turnId : activeTurn, at: nowIso() };
+      return {
+        messageId: input.messageId,
+        state: 'submitted_to_active_turn',
+        turnId: parsed.success ? parsed.data.turnId : activeTurn,
+        holder: 'runtime',
+        at: nowIso(),
+        detail: 'turn/steer accepted the message for the running turn (active_turn_delivery is verified for this runtime)',
+      };
     } catch (error) {
       // The turn ended between the check and the call, or steering was refused: queue
       // instead of losing the message, and leave the refusal in the event stream.
       session.queued.push(input);
       this.#push(session, 'raw', activeTurn, { reason: 'steer_refused', messageId: input.messageId, message: (error as Error).message }, this.#rawRef(session, `steer-${input.messageId}`));
-      return { messageId: input.messageId, state: 'queued', turnId: null, at: nowIso() };
+      return {
+        messageId: input.messageId,
+        state: 'queued',
+        turnId: null,
+        holder: 'adapter',
+        at: nowIso(),
+        detail: `turn/steer was refused (${(error as Error).message}); the adapter holds this message and flushes it into the next turn`,
+      };
     }
   }
 

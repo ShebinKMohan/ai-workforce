@@ -85,6 +85,8 @@ export function parseVersionOutput(adapter: DiscoverableAdapter, text: string): 
 export interface AuthObservation {
   readonly auth: AuthStatus;
   readonly detail: string;
+  /** A fact about what this observation does *not* establish; surfaced as a diagnostic. */
+  readonly caveat?: string;
 }
 
 const LOGGED_OUT_PATTERN = /\bnot\s+logged\s+in\b|\blogged\s+out\b|\bnot\s+signed\s+in\b|\bno\s+credentials\b/i;
@@ -116,7 +118,18 @@ export function parseClaudeAuthStatus(result: ProbeResult): AuthObservation {
   const json = extractJsonObject(result.stdout);
   if (json !== null) {
     const loggedIn = json['loggedIn'];
-    if (loggedIn === true) return { auth: 'logged_in', detail: '`claude auth status` reported loggedIn=true' };
+    // A stored profile is not a usable credential. Observed on 2.1.260:
+    // loggedIn=true while the runtime itself reported
+    // `account.tokenSource: "none"` and every turn failed with "OAuth session
+    // expired and could not be refreshed" (docs/runtime-claude-code.md section 9).
+    if (loggedIn === true) {
+      return {
+        auth: 'logged_in',
+        detail: '`claude auth status` reported loggedIn=true, which describes a stored profile rather than a usable credential',
+        caveat:
+          '`claude auth status` reporting loggedIn=true is not evidence that Claude Code holds a usable credential: on the tested build it reported loggedIn=true while the runtime itself reported account.tokenSource "none" and every turn failed authentication. Run `workforce doctor --connect` to ask the runtime, which is the only check that can reach verified_ready',
+      };
+    }
     if (loggedIn === false) return { auth: 'logged_out', detail: '`claude auth status` reported loggedIn=false' };
     return { auth: 'unknown', detail: '`claude auth status` returned JSON without a boolean loggedIn field' };
   }
@@ -205,6 +218,7 @@ export async function probeRuntime(adapter: DiscoverableAdapter, executable: str
     const observation = parseAuthStatus(adapter, authResult);
     if (observation.auth === 'unknown') diagnostics.push(`authentication status is unknown: ${observation.detail}`);
     if (observation.auth === 'logged_out') diagnostics.push(`${descriptor.displayName} is not logged in; run \`${descriptor.loginHint}\``);
+    if (observation.caveat !== undefined) diagnostics.push(observation.caveat);
 
     return { adapter, executable, version, versionLine, auth: observation.auth, authDetail: observation.detail, probes, diagnostics };
   });

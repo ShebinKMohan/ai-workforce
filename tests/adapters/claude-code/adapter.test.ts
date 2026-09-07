@@ -11,7 +11,9 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { AdapterError, type SessionHandle, type SessionInput } from '../../../src/adapters/types.js';
+import { AdapterError, type RuntimeEvent, type SessionHandle, type SessionInput } from '../../../src/adapters/types.js';
+import { CLAUDE_CODE_CAPABILITIES } from '../../../src/adapters/claude-code/adapter.js';
+import { summarizeTurnEvidence } from '../../../src/telemetry/events.js';
 import type { ClaudeCodeAdapter } from '../../../src/adapters/claude-code/adapter.js';
 import { allOfKind, argAfter, collect, firstOfKind, kinds, readArgvLog, replayAdapter, scenarioEnv, scenarioPath, tempWorkspace, variadicAfter } from './helpers.js';
 
@@ -158,8 +160,9 @@ describe('event normalization', () => {
       'raw', // the --replay-user-messages acknowledgement of our own frame
       'assistant_message',
       'tool_call',
-      'file_change',
+      'file_change', // the model's request to write
       'tool_result',
+      'file_change', // and the answer: the write was applied
       'assistant_message',
       'turn_completed',
     ]);
@@ -180,17 +183,32 @@ describe('event normalization', () => {
     expect(effective?.mcpServers).toEqual([]);
   });
 
-  it('marks a file change inside the granted paths', async () => {
+  it('marks a file change inside the granted paths, as a request and then as an applied write', async () => {
     const { adapter, handle, workspace } = await session('session-hello.synthetic.json');
     const turn = await adapter.startTurn(handle, { prompt: 'go' });
     const events = await collect(adapter, turn);
-    const change = firstOfKind(events, 'file_change')!;
-    expect(change.payload['withinAllowedPaths']).toBe(true);
-    expect(change.payload['resolvedPath']).toBe(path.join(workspace, 'hello.txt'));
-    expect(change.payload['tool']).toBe('Write');
+    const changes = allOfKind(events, 'file_change');
+    expect(changes).toHaveLength(2);
+
+    const [requested, applied] = changes as [RuntimeEvent, RuntimeEvent];
+    // The request says nothing about whether the write happened.
+    expect(requested.payload).toMatchObject({ tool: 'Write', phase: 'requested', applied: null, denied: false, withinAllowedPaths: true, toolUseId: 'toolu_01' });
+    expect(requested.payload['resolvedPath']).toBe(path.join(workspace, 'hello.txt'));
+    // The matching tool_result does, and is correlated back by tool_use id.
+    expect(applied.payload).toMatchObject({ tool: 'Write', phase: 'completed', applied: true, denied: false, withinAllowedPaths: true, toolUseId: 'toolu_01' });
+    expect(applied.payload['resolvedPath']).toBe(path.join(workspace, 'hello.txt'));
+
+    // The shared tool_result vocabulary every consumer reads: which tool, and
+    // whether it succeeded. Without the correlation this said "tool unknown".
+    const result = firstOfKind(events, 'tool_result')!;
+    expect(result.payload).toMatchObject({ tool: 'Write', status: 'ok', ok: true, isError: false, toolUseId: 'toolu_01' });
+
+    const evidence = summarizeTurnEvidence(events);
+    expect(evidence.fileChanges).toEqual([path.join(workspace, 'hello.txt')]);
+    expect(evidence.fileChangesOutsideAllowedPaths).toEqual([]);
   });
 
-  it('marks a file change outside the granted paths', async () => {
+  it('marks an applied file change outside the granted paths as an escape', async () => {
     const outside = tempWorkspace('wf-claude-outside-');
     const escapePath = path.join(outside, 'escape.txt');
     const { adapter, handle } = await session('session-escape.synthetic.json', { vars: { escapePath } });
@@ -199,6 +217,50 @@ describe('event normalization', () => {
     const change = firstOfKind(events, 'file_change')!;
     expect(change.payload['withinAllowedPaths']).toBe(false);
     expect(change.payload['resolvedPath']).toBe(escapePath);
+
+    const evidence = summarizeTurnEvidence(events);
+    expect(evidence.fileChangesOutsideAllowedPaths).toEqual([escapePath]);
+    expect(evidence.deniedFileChangesOutsideAllowedPaths).toEqual([]);
+    expect(evidence.unconfirmedFileChangesOutsideAllowedPaths).toEqual([]);
+  });
+
+  it('distinguishes a write the runtime refused from one it applied', async () => {
+    const outside = tempWorkspace('wf-claude-denied-');
+    const escapePath = path.join(outside, 'denied.txt');
+    const { adapter, handle } = await session('session-denied-write.synthetic.json', { vars: { escapePath } });
+    const turn = await adapter.startTurn(handle, { prompt: 'go' });
+    const events = await collect(adapter, turn);
+
+    const changes = allOfKind(events, 'file_change');
+    expect(changes).toHaveLength(2);
+    expect(changes[0]!.payload).toMatchObject({ phase: 'requested', applied: null, denied: false });
+    expect(changes[1]!.payload).toMatchObject({ phase: 'completed', applied: false, denied: true });
+    expect(String(changes[1]!.payload['detail'])).toContain('Permission denied');
+    expect(firstOfKind(events, 'tool_result')!.payload).toMatchObject({ tool: 'Write', status: 'failed', ok: false, isError: true });
+
+    // The boundary working is not an escape: it is recorded, and separately.
+    const evidence = summarizeTurnEvidence(events);
+    expect(evidence.fileChangesOutsideAllowedPaths).toEqual([]);
+    expect(evidence.deniedFileChangesOutsideAllowedPaths).toEqual([escapePath]);
+  });
+
+  it('treats a write whose outcome the runtime never reports as an escape it cannot rule out', async () => {
+    // session-hang emits an init for the first user frame and nothing else, so
+    // the delivered tool_use below never gets its tool_result.
+    const outside = tempWorkspace('wf-claude-unconfirmed-');
+    const escapePath = path.join(outside, 'unconfirmed.txt');
+    const { adapter, handle } = await session('session-escape-unconfirmed.synthetic.json', { vars: { escapePath } });
+    const turn = await adapter.startTurn(handle, { prompt: 'go' });
+    const events = await collect(adapter, turn);
+
+    const changes = allOfKind(events, 'file_change');
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.payload).toMatchObject({ phase: 'requested', applied: null });
+
+    const evidence = summarizeTurnEvidence(events);
+    expect(evidence.fileChangesOutsideAllowedPaths).toEqual([escapePath]);
+    expect(evidence.unconfirmedFileChangesOutsideAllowedPaths).toEqual([escapePath]);
+    expect(evidence.deniedFileChangesOutsideAllowedPaths).toEqual([]);
   });
 
   it('reports a completion claim as an assistant message, never as success (FR050)', async () => {
@@ -258,29 +320,61 @@ describe('delivery receipts (plan section 6: queued vs submitted)', () => {
     expect(adapter.pendingDeliveries(handle)).toHaveLength(0);
   });
 
-  it('reports submitted_to_active_turn only when the runtime acknowledges during the turn', async () => {
+  it('does not claim submission into the active turn on an acknowledgement alone', async () => {
     const { adapter, handle } = await session('session-delivery.synthetic.json');
     const turn = await adapter.startTurn(handle, { prompt: 'start working' });
     const receipt = await adapter.deliver(handle, { messageId: 'm2', body: 'stop after the first file', correlationId: 'c9' });
-    expect(receipt.state).toBe('submitted_to_active_turn');
-    expect(receipt.turnId).toBe(turn.turnId);
+
+    // The echo proves the runtime ingested the frame during the turn, not that
+    // the running turn will see it — and `active_turn_delivery` is
+    // supported_unverified for this build, so the contract's strongest receipt
+    // is not issued on that evidence.
+    expect(CLAUDE_CODE_CAPABILITIES.active_turn_delivery.status).toBe('supported_unverified');
+    expect(receipt.state).toBe('queued');
+    expect(receipt.turnId).toBeNull();
+    // Who has it is a value, not prose: the runtime does.
+    expect(receipt.holder).toBe('runtime');
     expect(receipt.detail).toContain('--replay-user-messages');
-    // Nothing was left in the adapter's own queue: the runtime has it.
+    expect(receipt.detail).toContain(turn.turnId);
+    // And because the runtime has it, the adapter does not hold a second copy.
     expect(adapter.pendingDeliveries(handle)).toHaveLength(0);
     await adapter.interrupt(turn);
   });
 
-  it('does not claim submission when the runtime never acknowledges', async () => {
-    // session-hang answers the handshake and then produces nothing at all.
-    const { adapter, handle } = await session('session-hang.synthetic.json', { adapter: replayAdapter({ deliveryAckTimeoutMs: 300 }) });
-    const turn = await adapter.startTurn(handle, { prompt: 'go' });
-    // The scenario's only `user` step emits an init record; a second delivery
-    // gets no echo, so the receipt must not claim submission.
-    await adapter.deliver(handle, { messageId: 'm3', body: 'first' });
-    const receipt = await adapter.deliver(handle, { messageId: 'm4', body: 'second' });
+  it('holds an unacknowledged message itself and flushes it into the next turn', async () => {
+    // The failure this guards against: a receipt saying "queued" for a message
+    // that is in neither queue, so the next turn never carries it and the
+    // runtime that was supposed to hold it may never have read it.
+    const { adapter, handle } = await session('session-hang-then-answer.synthetic.json', { adapter: replayAdapter({ deliveryAckTimeoutMs: 300 }) });
+    const first = await adapter.startTurn(handle, { prompt: 'go' });
+    const receipt = await adapter.deliver(handle, { messageId: 'm4', body: 'the peer changed the interface' });
+
     expect(receipt.state).toBe('queued');
+    expect(receipt.holder).toBe('adapter');
     expect(receipt.detail).toContain('not acknowledged');
-    void turn;
+    // The adapter took it back rather than leaving it with nobody.
+    expect(adapter.pendingDeliveries(handle).map((d) => d.messageId)).toEqual(['m4']);
+
+    await adapter.interrupt(first);
+    await collect(adapter, first);
+
+    const second = await adapter.startTurn(handle, { prompt: 'carry on' });
+    const events = await collect(adapter, second);
+    const replayed = allOfKind(events, 'raw').find((e) => e.payload['reason'] === 'user_message_replay')!;
+    expect(String(replayed.payload['text'])).toContain('[coordinator message m4]');
+    expect(String(replayed.payload['text'])).toContain('the peer changed the interface');
+    expect(adapter.pendingDeliveries(handle)).toHaveLength(0);
+  });
+
+  it('refuses a delivery to a session whose process is gone instead of promising a next turn', async () => {
+    const { adapter, handle } = await session('session-hello.synthetic.json');
+    await adapter.stopOwnedProcesses(handle);
+
+    // startTurn on this session always throws, so a "queued for the next turn"
+    // receipt would name a turn that can never happen.
+    await expect(adapter.deliver(handle, { messageId: 'm-after-death', body: 'hello' })).rejects.toMatchObject({ name: 'AdapterError', code: 'session_closed' });
+    expect(adapter.pendingDeliveries(handle)).toHaveLength(0);
+    await expect(adapter.startTurn(handle, { prompt: 'anything' })).rejects.toMatchObject({ code: 'session_closed' });
   });
 });
 
@@ -350,6 +444,91 @@ describe('stopping and reconciliation', () => {
   });
 });
 
+describe('one adapter turn is not one runtime turn', () => {
+  it('does not end a turn on the result of a turn the runtime scheduled for itself', async () => {
+    // The runtime's own fields describe a queue: a message delivered during a
+    // turn can become a turn of its own. Its result must not terminate the
+    // NEXT adapter turn's stream with another turn's text, usage and cost.
+    const { adapter, handle } = await session('session-queued-turn.synthetic.json');
+    const first = await adapter.startTurn(handle, { prompt: 'first' });
+    const firstEvents = await collect(adapter, first);
+    expect(firstOfKind(firstEvents, 'turn_completed')!.payload['resultText']).toBe('turn 1 done');
+    // The runtime said it still has one turn of its own to run.
+    expect(firstOfKind(firstEvents, 'turn_completed')!.payload['queuedTurnCount']).toBe(1);
+
+    const second = await adapter.startTurn(handle, { prompt: 'second' });
+    const events = await collect(adapter, second);
+
+    const terminal = events[events.length - 1]!;
+    expect(terminal.kind).toBe('turn_completed');
+    expect(terminal.turnId).toBe(second.turnId);
+    // Turn two's own result, not the queued turn's.
+    expect(terminal.payload['resultText']).toBe('turn 2 done');
+    expect((terminal.payload['usage'] as { costUsd: number | null }).costUsd).toBe(0.0123);
+
+    // The stray result is kept as evidence, attributed to nothing.
+    const stray = allOfKind(events, 'raw').find((e) => e.payload['reason'] === 'unattributed_result_record');
+    expect(stray, 'the queued turn\'s result is recorded as evidence').toBeDefined();
+    expect(stray!.turnId).toBeNull();
+    expect(JSON.stringify(stray!.payload['record'])).toContain('queued turn done');
+  });
+
+  it('does the same when the extra runtime turn starts before the previous one ends', async () => {
+    const { adapter, handle } = await session('session-queued-turn-interleaved.synthetic.json');
+    const first = await adapter.startTurn(handle, { prompt: 'first' });
+    await collect(adapter, first);
+
+    const second = await adapter.startTurn(handle, { prompt: 'second' });
+    const events = await collect(adapter, second);
+
+    const terminal = events[events.length - 1]!;
+    expect(terminal.kind).toBe('turn_completed');
+    expect(terminal.payload['resultText']).toBe('turn 2 done');
+    // Two runtime turns ran under one adapter turn, and the event stream says so.
+    expect(terminal.payload['runtimeTurnsObserved']).toBe(2);
+    const extra = allOfKind(events, 'raw').find((e) => e.payload['reason'] === 'extra_runtime_turn_started');
+    expect(extra, 'the second system/init is recorded as the signal it is').toBeDefined();
+  });
+});
+
+describe('a result record always ends its turn (plan section 9)', () => {
+  it('accepts a result whose optional fields are JSON null', async () => {
+    const { adapter, handle } = await session('session-null-fields-result.synthetic.json');
+    const turn = await adapter.startTurn(handle, { prompt: 'go' });
+    const events = await collect(adapter, turn);
+
+    const terminal = events[events.length - 1]!;
+    expect(terminal.kind).toBe('turn_completed');
+    expect(terminal.payload['terminalReason']).toBeNull();
+    expect(terminal.payload['resultText']).toBe('done');
+    // No protocol failure: nulls are read as absent values, not as a broken record.
+    expect(allOfKind(events, 'error')).toHaveLength(0);
+    // `total_cost_usd: null` is "no number", which is unavailable — never zero.
+    const usage = terminal.payload['usage'] as { costStatus: string; costUsd: number | null; inputTokens: number | null };
+    expect(usage).toMatchObject({ costStatus: 'unavailable', costUsd: null, inputTokens: null });
+    expect(await adapter.reconcile(handle)).toMatchObject({ activeTurnId: null });
+  });
+
+  it('ends the turn with a protocol diagnostic when the result body cannot be read at all', async () => {
+    const { adapter, handle } = await session('session-unreadable-result.synthetic.json');
+    const turn = await adapter.startTurn(handle, { prompt: 'go' });
+    const events = await collect(adapter, turn);
+
+    const terminal = events[events.length - 1]!;
+    expect(terminal.kind).toBe('turn_completed');
+    expect(terminal.payload['terminalReason']).toBe('malformed_result_record');
+    expect(terminal.payload['isError']).toBe(true);
+    expect(String(terminal.payload['protocolError'])).toContain('subtype');
+    // The raw body is retained, and the failure is reported rather than guessed at.
+    expect(JSON.stringify(terminal.payload['record'])).toContain('"subtype":7');
+    const error = firstOfKind(events, 'error')!;
+    expect(error.payload['reason']).toBe('malformed_result_record');
+    expect(error.payload['fatal']).toBe(false);
+    // The session is free to take another turn: nothing is left hanging.
+    expect(await adapter.reconcile(handle)).toMatchObject({ activeTurnId: null });
+  });
+});
+
 describe('usage and cost from the result record (FR060)', () => {
   it('reports a measured cost when the turn reached the provider', async () => {
     const { adapter, handle } = await session('session-hello.synthetic.json');
@@ -370,6 +549,24 @@ describe('usage and cost from the result record (FR060)', () => {
     const usage = adapter.lastUsage(handle)!;
     expect(usage.costStatus).toBe('unavailable');
     expect(usage.costUsd).toBeNull();
+  });
+
+  it('answers the shared contract accessor the coordinator actually reads', async () => {
+    // The manifest reads RuntimeAdapter.lastTurnUsage and nothing else. An
+    // adapter-shaped accessor alone is invisible to it, which is how a run
+    // ends up recording "no usage was reported" about a measured turn.
+    const { adapter, handle } = await session('session-hello.synthetic.json');
+    expect(typeof (adapter as unknown as { lastTurnUsage?: unknown }).lastTurnUsage).toBe('function');
+    const turn = await adapter.startTurn(handle, { prompt: 'go' });
+    await collect(adapter, turn);
+
+    expect(adapter.lastTurnUsage(handle)).toEqual({
+      inputTokens: 1200,
+      outputTokens: 40,
+      costUsd: 0.0123,
+      costStatus: 'measured',
+      detail: adapter.lastUsage(handle)!.costDetail,
+    });
   });
 });
 
