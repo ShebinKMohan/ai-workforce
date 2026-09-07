@@ -227,13 +227,27 @@ is refused before anything is spawned.
    to stderr on some invocations. It is captured in the raw log and does not affect the protocol.
 10. **`workspaceWrite` bounds writes and network, not reads.** `SandboxPolicy` has no read scope in
     this protocol version, so a worker under `local-development` can read any file the user can read.
-    The R0 demonstration recorded exactly that: a turn ran
-    `rg -n "paginate|pagination|…" ~/.codex/memories/MEMORY.md` from inside the candidate worktree and
-    the read was permitted (`docs/evidence/r0/`). Nothing was written outside the granted roots and
-    nothing left the machine, but the plan's `local-development` wording ("read/write the assigned
-    candidate and scratch/build paths") is **not** enforced for the read half by this runtime. Read
-    confinement needs an isolated environment around the process; it is not a policy this adapter can
-    claim, and the run manifest's `evidence.containmentNote` says so.
+    Measured with `command/exec` under the policy a turn gets — the full output is
+    `docs/evidence/r0/sandbox-boundary.txt`:
+
+    | Action under `local-development`, `writableRoots: [A]` | Result |
+    | --- | --- |
+    | write inside A | exit 0 |
+    | write outside A | exit 1, `Operation not permitted` |
+    | **read a file outside A** | **exit 0, contents returned** |
+    | `curl https://example.com` from a worker tool | exit 6, host not resolved |
+
+    A model-driven turn exercised this during an R0 rehearsal on the same fixture and configuration:
+    it ran `rg -n "paginate|pagination|…" ~/.codex/memories/MEMORY.md` from inside the candidate
+    worktree and the read was permitted. The two runs kept in `docs/evidence/r0/` happen not to
+    contain that command, because the model chose different commands each time; the probe above is
+    the deterministic evidence.
+
+    Nothing was written outside the granted roots and nothing left the machine, but the plan's
+    `local-development` wording ("read/write the assigned candidate and scratch/build paths") is
+    **not** enforced for the read half by this runtime. Read confinement needs an isolated
+    environment around the process; it is not a policy this adapter can claim, and the run manifest's
+    `evidence.containmentNote` says so.
 
 ## 7. Measured timings
 

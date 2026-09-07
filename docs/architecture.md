@@ -89,3 +89,11 @@ The Claude Code adapter (WP05), the coordination bridge (WP06), routing and hand
 Model and reasoning effort configured on a runtime reach `openSession`, which for Codex applies them as process-level `-c` overrides (`thread/start` has no `effort` parameter). Pin a model in the agent configuration rather than inheriting the user's `~/.codex/config.toml` default, which may be incompatible with the installed CLI.
 
 Usage (FR060) is read back from the adapter after the turn: an adapter that reports token counts yields `status: "measured"` with those counts, and `costUsd` stays `null` with a source line saying cost is unavailable — no installed runtime reports a price, and zero is never substituted for one.
+
+## R0 demonstration evidence
+
+`docs/evidence/r0/` holds the executed R0 demonstration (plan §3, AT02): the installed Codex runtime
+fixing the `ts-bug` fixture in a candidate worktree, accepted only after a verifier-executed check
+passed on the frozen candidate, with the terminal transcript, the `--json` stream, the run manifest,
+the candidate diff, the event projection, `status`, `doctor --json` and the checks that confirm the
+fixture checkout was left untouched. Its README also lists what the run does not demonstrate.
