@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "runtimes": {
+    "codex-local": {
+      "adapter": "codex",
+      "executable": "/opt/homebrew/bin/codex",
+      "model": "gpt-5.6-sol",
+      "effort": "medium"
+    }
+  },
+  "defaults": {
+    "workerAgent": "engineer",
+    "maxActiveTurns": 2,
+    "maxActiveWriters": 2,
+    "maxTasksPerRun": 8,
+    "maxDelegationDepth": 2,
+    "maxRepairAttempts": 2,
+    "maxTransientRetries": 2,
+    "runTimeoutMinutes": 30
+  },
+  "agents": [
+    {
+      "id": "engineer",
+      "runtime": "codex-local",
+      "instructions": "Inspect the relevant code, fix the underlying issue, and submit evidence against the task criteria.",
+      "capabilities": ["coding", "testing"],
+      "policy": "local-development"
+    }
+  ]
+}

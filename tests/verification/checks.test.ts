@@ -11,6 +11,7 @@ import {
   persistCheckReceipts,
   runChecks,
   scanTrackedFiles,
+  summarizeCheckOutput,
   type CandidateRef,
   type CheckReceipt,
 } from '../../src/verification/checks.js';
@@ -271,6 +272,49 @@ describe('runChecks executes checks itself against a frozen candidate (FR049)', 
   });
 });
 
+describe('a check that executed nothing is not a pass', () => {
+  it('records node --test finding no runnable file as no_tests_executed, not passed', async () => {
+    const candidate = await frozenCandidate({ fix: true });
+    // "docs/" holds no test file, so the runner starts, finds nothing and exits 0.
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'src/'], timeoutMs: 60_000 }],
+      outputRoot: candidate.outputRoot,
+    });
+    expect(receipts[0]!.exitCode).toBe(0);
+    expect(receipts[0]!.outputSummary.testsRun).toBe(0);
+    expect(receipts[0]!.outcome).toBe('no_tests_executed');
+    expect(decideAcceptance([{ id: 'node-tests' }], receipts).accepted).toBe(false);
+  });
+
+  it('leaves a real suite alone', async () => {
+    const candidate = await frozenCandidate({ fix: true });
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], timeoutMs: 60_000 }],
+      outputRoot: candidate.outputRoot,
+    });
+    expect(receipts[0]!.outcome).toBe('passed');
+    expect(receipts[0]!.outputSummary.runner).toBe('node_test');
+    expect(receipts[0]!.outputSummary.testsRun).toBeGreaterThan(0);
+  });
+});
+
+describe('summarizeCheckOutput reads a runner\'s own count and guesses nothing', () => {
+  it('recognizes the node and python summaries', () => {
+    expect(summarizeCheckOutput('ℹ tests 12\nℹ pass 12\n', '')).toMatchObject({ runner: 'node_test', testsRun: 12 });
+    expect(summarizeCheckOutput('# tests 3\n# fail 0\n', '')).toMatchObject({ runner: 'node_test', testsRun: 3 });
+    expect(summarizeCheckOutput('', 'Ran 4 tests in 0.002s\n\nOK\n')).toMatchObject({ runner: 'python_unittest', testsRun: 4 });
+    expect(summarizeCheckOutput('', 'Ran 0 tests in 0.000s\n\nNO TESTS RAN\n')).toMatchObject({ runner: 'python_unittest', testsRun: 0 });
+  });
+
+  it('reports null rather than a guess for anything else', () => {
+    const summary = summarizeCheckOutput('Build succeeded. 12 warnings.\n', '');
+    expect(summary.runner).toBeNull();
+    expect(summary.testsRun).toBeNull();
+  });
+});
+
 describe('buildCheckEnv', () => {
   it('keeps only the whitelist plus explicit non-sensitive values', () => {
     const { env, dropped } = buildCheckEnv('/tmp/home', '/tmp/tmp', { NORMAL: '1', GITHUB_TOKEN: 'x', DATABASE_PASSWORD: 'y' });
@@ -316,6 +360,7 @@ describe('decideAcceptance is the only route to a passed criterion (FR050)', () 
       candidate: { repoRoot: '/repo', revision: 'abc', patchHash: null },
       copyStrategy: 'git_archive',
       integrity: { before: 'a', after: 'a', mutated: false, mutatedFiles: [], addedFiles: [], fileCount: 1, scope: 'complete' },
+      outputSummary: { runner: 'node_test', testsRun: 3, note: 'node --test reported 3 test(s)' },
       stdoutPath: '/dev/null',
       stderrPath: '/dev/null',
       stdoutBytes: 0,
@@ -326,6 +371,35 @@ describe('decideAcceptance is the only route to a passed criterion (FR050)', () 
       evidenceProvenance: 'verifier_executed',
       diagnostics: [],
     }) satisfies CheckReceipt;
+
+  it('refuses a passing receipt whose fixtures the candidate rewrote (plan section 9)', () => {
+    const decision = decideAcceptance([{ id: 'tests' }], [receipt('tests', 'passed')], {
+      fixtureMutations: [{ criterionId: 'tests', changedPaths: ['M test/pagination.test.js'] }],
+    });
+    expect(decision.accepted).toBe(false);
+    expect(decision.requiredPassed).toBe(0);
+    expect(decision.criteria[0]!.status).toBe('compromised');
+    expect(decision.criteria[0]!.detail).toContain('M test/pagination.test.js');
+    expect(decision.reasons.join(' ')).toContain('does not establish the criterion the base revision defined');
+  });
+
+  it('applies a "*" fixture mutation to every criterion', () => {
+    const decision = decideAcceptance([{ id: 'tests' }, { id: 'lint' }], [receipt('tests', 'passed'), receipt('lint', 'passed')], {
+      fixtureMutations: [{ criterionId: '*', changedPaths: ['D test/a.test.js'] }],
+    });
+    expect(decision.accepted).toBe(false);
+    expect(decision.criteria.map((c) => c.status)).toEqual(['compromised', 'compromised']);
+  });
+
+  it('lets a run-level blocker refuse acceptance even when every criterion passed', () => {
+    const decision = decideAcceptance([{ id: 'tests' }], [receipt('tests', 'passed')], {
+      blockers: ['the worker wrote outside its granted paths (/elsewhere/note.txt)'],
+    });
+    expect(decision.accepted).toBe(false);
+    expect(decision.requiredPassed).toBe(1); // the criterion really did pass...
+    expect(decision.criteria[0]!.status).toBe('passed');
+    expect(decision.reasons).toEqual(['the worker wrote outside its granted paths (/elsewhere/note.txt)']); // ... and the run is still not accepted
+  });
 
   it('refuses to accept a criterion that has no receipt at all', () => {
     const decision = decideAcceptance([{ id: 'tests' }, { id: 'lint' }], [receipt('tests', 'passed')]);

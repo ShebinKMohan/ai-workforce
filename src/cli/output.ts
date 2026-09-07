@@ -87,3 +87,23 @@ export class Reporter {
     return error.exitCode;
   }
 }
+
+/**
+ * One label per criterion status. `COMP` is a criterion whose check passed but
+ * whose fixtures the candidate changed: it is neither a pass nor an ordinary
+ * failure, and calling it either would be misleading.
+ */
+export function statusLabel(status: string): string {
+  switch (status) {
+    case 'passed':
+      return 'PASS';
+    case 'failed':
+      return 'FAIL';
+    case 'compromised':
+      return 'COMP';
+    case 'no_evidence':
+      return 'NONE';
+    default:
+      return '????';
+  }
+}

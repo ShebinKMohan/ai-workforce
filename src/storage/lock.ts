@@ -7,8 +7,23 @@
  * SQLite implements that transaction with an OS file lock, so a second
  * coordinator (another process or another connection in this process) gets
  * SQLITE_BUSY immediately, and the lock disappears the instant the holder
- * dies, even from SIGKILL. There is no stale lock to reclaim and therefore
- * no reclaim race; a live coordinator can never have its ownership stolen.
+ * dies, even from SIGKILL. There is no stale lock to reclaim and therefore no
+ * reclaim race.
+ *
+ * The kernel lock lives on the *inode*, not on the path, so that argument
+ * holds only while the path still names the inode the holder locked. If the
+ * arbiter file is unlinked — by a temp cleaner, or by anything with write
+ * access to the state root — a later coordinator would create a fresh inode
+ * and take an uncontended lock on it. Two defences close that gap:
+ *
+ * - acquisition refuses when the info file left behind names a coordinator
+ *   process that is still alive (or whose liveness cannot be checked). That
+ *   file is written by the winner and removed on release, so its presence
+ *   next to an uncontended arbiter means the arbiter is not the one the live
+ *   holder locked;
+ * - `verifyOwnership` compares the arbiter path's current inode with the one
+ *   this lock took, so a holder can find out that its arbiter was replaced
+ *   instead of continuing to believe it owns the state root.
  *
  * `<lock>` itself (`coordinator.lock`) is the human-readable companion the
  * winner writes after winning: pid, process start time, hostname, a random
@@ -19,7 +34,7 @@
  *
  * Read-only status inspection never touches either file.
  */
-import { closeSync, fsyncSync, openSync, renameSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, renameSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
@@ -55,11 +70,51 @@ export class LockHeldError extends Error {
   }
 }
 
+export type OwnershipStatus = 'held' | 'arbiter_replaced' | 'arbiter_missing' | 'info_replaced' | 'released';
+
+export interface OwnershipCheck {
+  readonly status: OwnershipStatus;
+  readonly detail: string;
+}
+
+export class LockLostError extends Error {
+  readonly status: OwnershipStatus;
+
+  constructor(lockPath: string, check: OwnershipCheck) {
+    super(`coordinator ownership of ${lockPath} can no longer be proved (${check.status}): ${check.detail}`);
+    this.name = 'LockLostError';
+    this.status = check.status;
+  }
+}
+
 export interface CoordinatorLock {
   readonly path: string;
   readonly info: LockInfo;
+  /**
+   * Re-check that this lock still arbitrates the state root: the arbiter path
+   * must still name the inode we locked, and the info file must still carry
+   * our token. A caller uses this at points where acting on a stale belief
+   * would be expensive — before dispatching a worker, before writing a result.
+   */
+  verifyOwnership(): OwnershipCheck;
+  /** `verifyOwnership`, but throws `LockLostError` when ownership cannot be proved. */
+  assertOwnership(): void;
   /** Release ownership (closes the arbiter connection) and remove the info file if it still carries our token. Idempotent. */
   release(): void;
+}
+
+interface FileIdentity {
+  readonly dev: number;
+  readonly ino: number;
+}
+
+function fileIdentity(target: string): FileIdentity | null {
+  try {
+    const stats = statSync(target);
+    return { dev: Number(stats.dev), ino: Number(stats.ino) };
+  } catch {
+    return null;
+  }
 }
 
 /** Path of the kernel-arbitrated lock database that sits beside the info file. */
@@ -147,6 +202,27 @@ export function acquireCoordinatorLock(lockPath: string, options: AcquireLockOpt
     throw new LockHeldError(lockPath, holder, reason);
   }
 
+  // Winning an uncontended arbiter is not proof that nobody owns this state
+  // root: the arbiter file may have been unlinked out from under a live
+  // coordinator, which would leave that coordinator holding a lock on an inode
+  // no longer reachable by path. The info file is the surviving witness.
+  const previous = readLockInfo(lockPath);
+  if (previous !== null && !(previous.pid === pid && previous.hostname === os.hostname())) {
+    const status = classifyHolder(previous, now);
+    if (status === 'alive' || status === 'unverifiable') {
+      arbiter.close();
+      throw new LockHeldError(
+        lockPath,
+        previous,
+        status === 'alive'
+          ? `the arbiter database ${lockArbiterPath(lockPath)} was replaced or removed while that coordinator was running, so winning it proves nothing; refusing rather than becoming a second mutating coordinator`
+          : `the arbiter database ${lockArbiterPath(lockPath)} is uncontended but the recorded holder's liveness cannot be verified from this host; if that coordinator is gone, delete ${lockPath} and retry`,
+      );
+    }
+  }
+
+  const arbiterIdentity = fileIdentity(lockArbiterPath(lockPath));
+
   const info: LockInfo = {
     lockVersion: 1,
     pid,
@@ -163,9 +239,30 @@ export function acquireCoordinatorLock(lockPath: string, options: AcquireLockOpt
   }
 
   let released = false;
+  const verifyOwnership = (): OwnershipCheck => {
+    if (released) return { status: 'released', detail: 'this lock handle was already released' };
+    const current = fileIdentity(lockArbiterPath(lockPath));
+    if (current === null) {
+      return { status: 'arbiter_missing', detail: `${lockArbiterPath(lockPath)} no longer exists; this process still holds a lock on the deleted file, which no longer excludes anyone` };
+    }
+    if (arbiterIdentity !== null && (current.dev !== arbiterIdentity.dev || current.ino !== arbiterIdentity.ino)) {
+      return { status: 'arbiter_replaced', detail: `${lockArbiterPath(lockPath)} is now a different file (inode ${current.ino}, was ${arbiterIdentity.ino}); another coordinator can lock it` };
+    }
+    const recorded = readLockInfo(lockPath);
+    if (recorded === null || recorded.token !== info.token) {
+      return { status: 'info_replaced', detail: `${lockPath} no longer records this coordinator's token` };
+    }
+    return { status: 'held', detail: `${lockPath} still records this coordinator and the arbiter is the file it locked` };
+  };
+
   return {
     path: lockPath,
     info,
+    verifyOwnership,
+    assertOwnership: () => {
+      const check = verifyOwnership();
+      if (check.status !== 'held') throw new LockLostError(lockPath, check);
+    },
     release: () => {
       if (released) return;
       released = true;

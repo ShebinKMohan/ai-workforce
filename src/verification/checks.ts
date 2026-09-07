@@ -23,11 +23,22 @@
  *   4. Tracked files are hashed again. Any change to a tracked file is an
  *      integrity failure: build output belongs in the disposable copy's
  *      scratch paths, never in the candidate's tracked source.
+ *   5. The command's own output is summarized for recognized runners, so a
+ *      suite that exits 0 having executed zero tests is recorded as
+ *      `no_tests_executed` rather than read as a pass.
  *
  * The disposable copy is deleted afterwards; the logs are kept as evidence.
- * The `verification` policy profile applies: no coordinator credentials are
- * inherited, and the coordinator never runs repository tests with its own
- * environment.
+ *
+ * What this module does NOT do, stated plainly because the `verification`
+ * profile in plan section 8 asks for more than R0 delivers: repository test
+ * code runs with the coordinator's own user privileges. Only the environment
+ * is sanitized — no coordinator credentials are inherited and no variable
+ * whose name matches the redaction rule is passed — and the candidate itself
+ * is a throwaway copy. There is no OS-level containment, so a repository test
+ * can still read and write anything this user can, including the coordinator
+ * state root. That boundary is FR042 (an R1 gate) and no R0 run claims it;
+ * `decideAcceptance` therefore treats a candidate that rewrote the files a
+ * criterion executes as compromised evidence rather than as a pass.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync } from 'node:fs';
@@ -74,7 +85,60 @@ export interface CandidateRef {
   readonly patchHash?: string | null;
 }
 
-export type CheckOutcome = 'passed' | 'failed' | 'timeout' | 'error' | 'integrity_failed' | 'skipped';
+export type CheckOutcome = 'passed' | 'failed' | 'timeout' | 'error' | 'integrity_failed' | 'no_tests_executed' | 'skipped';
+
+/**
+ * What the check's own output says it did.
+ *
+ * `node --test <dir>` and `python -m unittest discover` both exit 0 when they
+ * find nothing to run, so an exit status alone cannot distinguish "every
+ * assertion passed" from "there were no assertions". For the runners we can
+ * recognize, the reported test count is part of the receipt and a zero count
+ * is not a pass.
+ */
+export interface CheckOutputSummary {
+  readonly runner: 'node_test' | 'python_unittest' | null;
+  readonly testsRun: number | null;
+  readonly note: string;
+}
+
+const UNRECOGNIZED_OUTPUT: CheckOutputSummary = {
+  runner: null,
+  testsRun: null,
+  note: 'the command is not a runner this verifier recognizes, so its exit status is the only evidence of what it executed',
+};
+
+/**
+ * Recognize a test count in a runner's own summary. Deliberately narrow: an
+ * unrecognized shape reports `null`, never a guessed number.
+ */
+export function summarizeCheckOutput(stdout: string, stderr: string): CheckOutputSummary {
+  const combined = `${stdout}\n${stderr}`;
+  // node --test: "ℹ tests 12" (spec reporter) or "# tests 12" (TAP reporter).
+  const node = /(?:^|\n)[^\S\n]*(?:ℹ|#)[^\S\n]*tests[^\S\n]+(\d+)[^\S\n]*(?:\n|$)/.exec(combined);
+  if (node !== null) {
+    const testsRun = Number(node[1]);
+    return {
+      runner: 'node_test',
+      testsRun,
+      note: testsRun === 0 ? 'node --test reported that it executed 0 tests' : `node --test reported ${testsRun} test(s)`,
+    };
+  }
+  // python -m unittest: "Ran 12 tests in 0.001s", plus an explicit "NO TESTS RAN".
+  const python = /(?:^|\n)Ran[^\S\n]+(\d+)[^\S\n]+tests?[^\S\n]+in[^\S\n]/.exec(combined);
+  if (python !== null) {
+    const testsRun = Number(python[1]);
+    return {
+      runner: 'python_unittest',
+      testsRun,
+      note: testsRun === 0 ? 'python unittest reported that it ran 0 tests' : `python unittest reported ${testsRun} test(s)`,
+    };
+  }
+  if (/(?:^|\n)NO TESTS RAN(?:\n|$)/.test(combined)) {
+    return { runner: 'python_unittest', testsRun: 0, note: 'python unittest reported NO TESTS RAN' };
+  }
+  return UNRECOGNIZED_OUTPUT;
+}
 
 export interface EnvironmentIdentity {
   readonly node: string;
@@ -125,6 +189,8 @@ export interface CheckReceipt {
   readonly candidate: { readonly repoRoot: string; readonly revision: string; readonly patchHash: string | null };
   readonly copyStrategy: 'git_archive' | 'git_worktree_detached';
   readonly integrity: IntegrityReport;
+  /** What the command's own output says it executed; `runner: null` when unrecognized. */
+  readonly outputSummary: CheckOutputSummary;
   readonly stdoutPath: string;
   readonly stderrPath: string;
   readonly stdoutBytes: number;
@@ -443,6 +509,7 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
     candidate,
     copyStrategy: strategy,
     integrity: { before: '', after: '', mutated: false, mutatedFiles: [], addedFiles: [], fileCount: 0, scope: 'bounded' },
+    outputSummary: { runner: null, testsRun: null, note: 'the command never ran, so it reported nothing' },
     stdoutPath,
     stderrPath,
     stdoutBytes: 0,
@@ -491,6 +558,8 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
       diagnostics.push(`the check created ${integrity.addedFiles.length} file(s) in the disposable copy (for example ${integrity.addedFiles.slice(0, 3).join(', ')}); they were discarded with the copy`);
     }
 
+    const outputSummary = summarizeCheckOutput(run.stdout, run.stderr);
+
     let outcome: CheckOutcome;
     if (run.spawnError !== null) {
       outcome = 'error';
@@ -503,6 +572,11 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
       diagnostics.push(
         `the check changed ${integrity.mutatedFiles.length} file(s) that belong to the frozen candidate (${integrity.mutatedFiles.slice(0, 5).join(', ')}); a check must not rewrite the source it is validating, so this result cannot be trusted as evidence`,
       );
+    } else if (run.exitCode === 0 && outputSummary.testsRun === 0) {
+      // Exit 0 with nothing executed is the shape a worker gets by emptying or
+      // rewriting the suite. It is recorded as what it is, not as a pass.
+      outcome = 'no_tests_executed';
+      diagnostics.push(`${outputSummary.note}; a run that executed no tests is not evidence that the criterion holds, so it does not count as a pass`);
     } else if (run.exitCode === 0) {
       outcome = 'passed';
     } else {
@@ -529,6 +603,7 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
       candidate,
       copyStrategy: copy.strategy,
       integrity,
+      outputSummary,
       stdoutPath,
       stderrPath,
       stdoutBytes: run.stdoutBytes,
@@ -560,8 +635,12 @@ export interface CriterionStatus {
   readonly criterionId: string;
   readonly description: string | null;
   readonly required: boolean;
-  /** `passed` only ever comes from a receipt. */
-  readonly status: 'passed' | 'failed' | 'no_evidence';
+  /**
+   * `passed` only ever comes from a receipt. `compromised` means a receipt
+   * passed but the candidate rewrote the files that receipt executed, so it
+   * does not establish the original criterion.
+   */
+  readonly status: 'passed' | 'failed' | 'compromised' | 'no_evidence';
   readonly outcome: CheckOutcome | null;
   readonly receiptId: string | null;
   readonly detail: string;
@@ -576,19 +655,57 @@ export interface AcceptanceDecision {
 }
 
 /**
- * Decide acceptance from receipts alone. A criterion with no receipt is
- * `no_evidence` and blocks acceptance when required: absence of a check is
- * never treated as a pass.
+ * A criterion whose own fixtures the candidate changed.
+ *
+ * The check *definition* is read from the base revision, but the code that
+ * definition executes lives in the candidate, so a worker that rewrites the
+ * repository's tests can make any command exit 0. `criterionId` is the
+ * criterion whose evidence is affected, or `*` when the changed files affect
+ * every criterion.
+ */
+export interface FixtureMutation {
+  readonly criterionId: string;
+  /** Changed paths, as `M path` / `D path` entries taken from the candidate diff. */
+  readonly changedPaths: ReadonlyArray<string>;
+}
+
+export interface DecideAcceptanceOptions {
+  /** Acceptance fixtures the candidate modified or deleted. */
+  readonly fixtureMutations?: ReadonlyArray<FixtureMutation>;
+  /**
+   * Run-level facts that block acceptance whatever the receipts say — an
+   * observed write outside the granted paths, a runtime that died mid-turn.
+   */
+  readonly blockers?: ReadonlyArray<string>;
+}
+
+/**
+ * Decide acceptance from receipts, the integrity of the fixtures those
+ * receipts executed, and run-level blockers.
+ *
+ * A criterion with no receipt is `no_evidence` and blocks acceptance when
+ * required: absence of a check is never treated as a pass. A criterion whose
+ * fixtures the candidate rewrote is `compromised` and blocks acceptance too:
+ * the command may exit 0, but it is no longer running the criterion the base
+ * revision defined (plan section 9, "a worker cannot manufacture a passing
+ * result").
  */
 export function decideAcceptance(
   criteria: ReadonlyArray<{ id: string; description?: string | null; required?: boolean }>,
   receipts: ReadonlyArray<CheckReceipt>,
+  options: DecideAcceptanceOptions = {},
 ): AcceptanceDecision {
   const byCriterion = new Map(receipts.map((receipt) => [receipt.criterionId, receipt] as const));
+  const mutations = options.fixtureMutations ?? [];
   const statuses: CriterionStatus[] = [];
   const reasons: string[] = [];
   let requiredTotal = 0;
   let requiredPassed = 0;
+
+  const mutatedFor = (criterionId: string): ReadonlyArray<string> => {
+    const paths = mutations.filter((entry) => entry.criterionId === criterionId || entry.criterionId === '*').flatMap((entry) => entry.changedPaths);
+    return [...new Set(paths)].sort();
+  };
 
   for (const criterion of criteria) {
     const receipt = byCriterion.get(criterion.id) ?? null;
@@ -607,19 +724,26 @@ export function decideAcceptance(
       if (required) reasons.push(`criterion "${criterion.id}" has no verifier-executed evidence`);
       continue;
     }
-    const passed = receipt.outcome === 'passed';
+    const mutated = mutatedFor(criterion.id);
+    const passed = receipt.outcome === 'passed' && mutated.length === 0;
     if (passed && required) requiredPassed += 1;
+    const compromised = receipt.outcome === 'passed' && mutated.length > 0;
+    const detail = compromised
+      ? `${describeOutcome(receipt)}, but the candidate changed the files this criterion executes (${mutated.join(', ')}), so the result does not establish the criterion the base revision defined`
+      : describeOutcome(receipt);
     statuses.push({
       criterionId: criterion.id,
       description: criterion.description ?? receipt.description ?? null,
       required,
-      status: passed ? 'passed' : 'failed',
+      status: passed ? 'passed' : compromised ? 'compromised' : 'failed',
       outcome: receipt.outcome,
       receiptId: receipt.id,
-      detail: describeOutcome(receipt),
+      detail,
     });
-    if (!passed && required) reasons.push(`criterion "${criterion.id}" ${describeOutcome(receipt)}`);
+    if (!passed && required) reasons.push(`criterion "${criterion.id}" ${detail}`);
   }
+
+  for (const blocker of options.blockers ?? []) reasons.push(blocker);
 
   // Receipts for criteria that are not in the contract are still evidence, but they cannot grant acceptance.
   for (const receipt of receipts) {
@@ -649,6 +773,8 @@ function describeOutcome(receipt: CheckReceipt): string {
       return `exceeded its ${receipt.timeoutMs}ms deadline and was terminated`;
     case 'integrity_failed':
       return `changed files of the frozen candidate it was validating (${receipt.integrity.mutatedFiles.slice(0, 5).join(', ')})`;
+    case 'no_tests_executed':
+      return `exited 0 without executing any test (${receipt.outputSummary.note})`;
     case 'error':
       return `could not be executed (${receipt.diagnostics[receipt.diagnostics.length - 1] ?? 'unknown error'})`;
     case 'skipped':

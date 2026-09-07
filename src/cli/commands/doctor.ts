@@ -7,10 +7,11 @@
  * `--version` and the documented login-status command and nothing else, so it
  * can never start a paid model turn.
  */
+import path from 'node:path';
 import { computeAgentSnapshot } from '../../core/snapshot.js';
 import type { LoadedAgentConfig } from '../../core/config.js';
-import { loadVerifiedCapabilityOverrides, DISCOVERY_CAPABILITY_NAMES } from '../../discovery/capabilities.js';
-import { discoverRuntimes, type RuntimeReadinessReport } from '../../discovery/readiness.js';
+import { loadVerifiedCapabilityOverrides, DISCOVERY_CAPABILITY_NAMES, type LoadedOverrides } from '../../discovery/capabilities.js';
+import { discoverRuntime, discoverRuntimes, type RuntimeReadinessReport } from '../../discovery/readiness.js';
 import { DISCOVERABLE_ADAPTERS, type DiscoverableAdapter } from '../../discovery/runtimes.js';
 import { validateRuntimeSettings } from '../../discovery/settings.js';
 import type { ProbeSpawner } from '../../discovery/spawn.js';
@@ -107,9 +108,79 @@ function reportLines(report: RuntimeReadinessReport): string[] {
   return lines;
 }
 
-function configLines(config: LoadedAgentConfig, byAdapter: Map<DiscoverableAdapter, RuntimeReadinessReport>): { lines: string[]; data: Record<string, unknown> } {
+/**
+ * A configuration that pins `executable` to a path names the binary `run`
+ * will spawn. That is not necessarily the one PATH discovery selected, so it
+ * is probed on its own rather than inheriting the discovered runtime's
+ * version, capabilities and readiness (plan section 6 rule 4: an unknown
+ * status must not become ready by assumption).
+ *
+ * A bare command name is left to the discovered report, because that is the
+ * same PATH lookup `spawn` performs.
+ */
+function namesAPath(executable: string): boolean {
+  return executable.includes(path.sep) || executable.startsWith('~') || executable.startsWith('.');
+}
+
+interface ConfiguredRuntimeProbe {
+  readonly report: RuntimeReadinessReport | undefined;
+  /** Set when this report came from probing the configured path rather than from PATH discovery. */
+  readonly probedPath: string | null;
+}
+
+async function probeConfiguredRuntimes(
+  config: LoadedAgentConfig,
+  byAdapter: Map<DiscoverableAdapter, RuntimeReadinessReport>,
+  deps: DoctorDeps,
+  overrides: LoadedOverrides,
+): Promise<Map<string, ConfiguredRuntimeProbe>> {
+  const probes = new Map<string, ConfiguredRuntimeProbe>();
+  const byPath = new Map<string, RuntimeReadinessReport>();
+
+  for (const [id, runtime] of Object.entries(config.config.runtimes)) {
+    if (runtime.adapter === 'fake') continue;
+    const discovered = byAdapter.get(runtime.adapter);
+    if (!namesAPath(runtime.executable)) {
+      probes.set(id, { report: discovered, probedPath: null });
+      continue;
+    }
+    const resolved = path.resolve(runtime.executable.startsWith('~') ? runtime.executable.replace(/^~/, deps.homeDir ?? process.env['HOME'] ?? '~') : runtime.executable);
+    if (discovered?.executable === resolved || discovered?.realPath === resolved) {
+      probes.set(id, { report: discovered, probedPath: null });
+      continue;
+    }
+    const cacheKey = `${runtime.adapter}\0${resolved}`;
+    const cached = byPath.get(cacheKey);
+    if (cached !== undefined) {
+      probes.set(id, { report: cached, probedPath: resolved });
+      continue;
+    }
+    // Passive: `--version` and the documented login-status command only.
+    const report = await discoverRuntime(runtime.adapter, {
+      override: runtime.executable,
+      overrides,
+      ...(deps.spawner !== undefined ? { spawner: deps.spawner } : {}),
+      ...(deps.pathValue !== undefined ? { pathValue: deps.pathValue } : {}),
+      ...(deps.homeDir !== undefined ? { homeDir: deps.homeDir } : {}),
+      ...(deps.knownLocations !== undefined ? { knownLocations: deps.knownLocations } : {}),
+      ...(deps.timeoutMs !== undefined ? { timeoutMs: deps.timeoutMs } : {}),
+      ...(deps.now !== undefined ? { now: deps.now } : {}),
+    });
+    byPath.set(cacheKey, report);
+    probes.set(id, { report, probedPath: resolved });
+  }
+  return probes;
+}
+
+function configLines(
+  config: LoadedAgentConfig,
+  byAdapter: Map<DiscoverableAdapter, RuntimeReadinessReport>,
+  configured: Map<string, ConfiguredRuntimeProbe>,
+): { lines: string[]; data: Record<string, unknown> } {
   const lines: string[] = ['', `agent configuration: ${config.path} (valid)`];
   const runtimes: Record<string, unknown>[] = [];
+  const reportFor = (runtimeId: string, adapter: DiscoverableAdapter): RuntimeReadinessReport | undefined =>
+    configured.get(runtimeId)?.report ?? byAdapter.get(adapter);
 
   for (const [id, runtime] of Object.entries(config.config.runtimes)) {
     if (runtime.adapter === 'fake') {
@@ -117,21 +188,42 @@ function configLines(config: LoadedAgentConfig, byAdapter: Map<DiscoverableAdapt
       runtimes.push({ id, adapter: runtime.adapter, discovered: false });
       continue;
     }
-    const report = byAdapter.get(runtime.adapter);
+    const probe = configured.get(id);
+    const report = probe?.report;
     const validation = validateRuntimeSettings(runtime.adapter, report?.version ?? null, {
       ...(runtime.model !== undefined ? { model: runtime.model } : {}),
       ...(runtime.effort !== undefined ? { effort: runtime.effort } : {}),
     });
     lines.push(`  runtime ${id}: ${runtime.adapter} via ${runtime.executable} — ${report?.readiness ?? 'unknown'}`);
+    if (probe?.probedPath != null) {
+      lines.push(`    probed the configured executable ${probe.probedPath} directly: version ${report?.version ?? '(unknown)'}, auth ${report?.auth ?? 'unknown'}`);
+      for (const diagnostic of report?.diagnostics ?? []) lines.push(`    note: ${diagnostic}`);
+    } else if (report !== undefined) {
+      lines.push(`    readiness above is the discovered ${report.executable ?? '(not found)'}; "${runtime.executable}" is resolved through PATH at spawn time`);
+    }
     for (const rejected of validation.rejected) lines.push(`    rejected ${rejected.setting}: ${rejected.reason}`);
     for (const unsupportedSetting of validation.unsupported) lines.push(`    unsupported ${unsupportedSetting.setting}: ${unsupportedSetting.reason}`);
     for (const accepted of validation.accepted) lines.push(`    ${accepted.setting} = ${accepted.value} (${accepted.status})`);
-    runtimes.push({ id, adapter: runtime.adapter, executable: runtime.executable, readiness: report?.readiness ?? null, settings: validation });
+    runtimes.push({
+      id,
+      adapter: runtime.adapter,
+      executable: runtime.executable,
+      probedExecutable: probe?.probedPath ?? report?.executable ?? null,
+      probedConfiguredPath: probe?.probedPath !== null && probe?.probedPath !== undefined,
+      version: report?.version ?? null,
+      readiness: report?.readiness ?? null,
+      auth: report?.auth ?? null,
+      capabilities:
+        report === undefined
+          ? null
+          : Object.fromEntries(DISCOVERY_CAPABILITY_NAMES.map((name) => [name, { status: report.capabilities[name].status, source: report.capabilities[name].source }])),
+      settings: validation,
+    });
   }
 
   const agents = config.config.agents.map((agent) => {
     const runtime = config.config.runtimes[agent.runtime]!;
-    const report = runtime.adapter === 'fake' ? undefined : byAdapter.get(runtime.adapter);
+    const report = runtime.adapter === 'fake' ? undefined : reportFor(agent.runtime, runtime.adapter);
     const model = agent.model ?? runtime.model;
     const effort = agent.effort ?? runtime.effort;
     const validation =
@@ -201,7 +293,8 @@ export async function commandDoctor(args: DoctorArgs, deps: DoctorDeps = {}): Pr
   };
 
   if (args.config !== undefined) {
-    const rendered = configLines(args.config, byAdapter);
+    const configured = await probeConfiguredRuntimes(args.config, byAdapter, deps, overrides);
+    const rendered = configLines(args.config, byAdapter, configured);
     lines.push(...rendered.lines);
     data['config'] = rendered.data;
   }

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openStateStore } from '../src/storage/db.js';
-import { LockHeldError, acquireCoordinatorLock, classifyHolder, lockArbiterPath, parseElapsed, readLockInfo, type LockInfo } from '../src/storage/lock.js';
+import { LockHeldError, LockLostError, acquireCoordinatorLock, classifyHolder, lockArbiterPath, parseElapsed, readLockInfo, type LockInfo } from '../src/storage/lock.js';
 import { createStatePaths } from '../src/storage/paths.js';
 import { nowIso } from '../src/core/ids.js';
 import { tempDir } from './helpers/state.js';
@@ -147,6 +147,54 @@ describe('coordinator lock', () => {
     await new Promise((resolve) => winner.child.once('exit', resolve));
     const mine = acquireCoordinatorLock(lockPath);
     expect(mine.info.pid).toBe(process.pid);
+    mine.release();
+  });
+
+  it('refuses to become a second coordinator when the arbiter file is deleted under a live holder', async () => {
+    const root = tempDir();
+    roots.push(root);
+    const paths = createStatePaths(root);
+    openStateStore(paths, { mode: 'mutating' }).close();
+
+    const { child } = await spawnHolder(paths.lockPath);
+    const holder = readLockInfo(paths.lockPath)!;
+    expect(classifyHolder(holder)).toBe('alive');
+
+    // Anything with write access to the state root can unlink the arbiter — a
+    // temp cleaner, or (until FR042 lands) a repository test. The kernel lock
+    // lives on the inode, so a fresh file would be uncontended.
+    rmSync(lockArbiterPath(paths.lockPath), { force: true });
+
+    expect(() => acquireCoordinatorLock(paths.lockPath)).toThrow(LockHeldError);
+    expect(() => acquireCoordinatorLock(paths.lockPath)).toThrow(/was replaced or removed while that coordinator was running/);
+    expect(() => openStateStore(paths, { mode: 'mutating' })).toThrow(/held by pid/);
+    // The live holder's own record is untouched by the refusal.
+    expect(readLockInfo(paths.lockPath)?.token).toBe(holder.token);
+
+    // Once that coordinator is really gone, the state root is available again.
+    child.kill('SIGKILL');
+    await new Promise((resolve) => child.once('exit', resolve));
+    const mine = acquireCoordinatorLock(paths.lockPath);
+    expect(mine.info.pid).toBe(process.pid);
+    mine.release();
+  });
+
+  it('reports that ownership can no longer be proved once its arbiter is replaced', () => {
+    const root = tempDir();
+    roots.push(root);
+    const lockPath = path.join(root, 'coordinator.lock');
+    const mine = acquireCoordinatorLock(lockPath);
+    expect(mine.verifyOwnership().status).toBe('held');
+    expect(() => mine.assertOwnership()).not.toThrow();
+
+    rmSync(lockArbiterPath(lockPath), { force: true });
+    expect(mine.verifyOwnership().status).toBe('arbiter_missing');
+    expect(() => mine.assertOwnership()).toThrow(LockLostError);
+
+    // A different coordinator recreating the arbiter is just as detectable.
+    acquireCoordinatorLock(`${lockPath}.other`).release();
+    writeFileSync(lockArbiterPath(lockPath), '');
+    expect(mine.verifyOwnership().status).toBe('arbiter_replaced');
     mine.release();
   });
 

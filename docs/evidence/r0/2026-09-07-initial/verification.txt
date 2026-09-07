@@ -1,0 +1,77 @@
+V1  user's checkout unchanged
+    recorded base HEAD : 7b7e317aa85b7a3b4a67056991859fdd44953ba5
+    HEAD after 2 runs  : 7b7e317aa85b7a3b4a67056991859fdd44953ba5  -> SAME
+    branch             : main
+    git status         : clean (no output)
+    bug still in checkout: 1 occurrence
+    main reflog        : 1 entry (the fixture import only)
+
+V2  candidate branches carry a coordinator checkpoint commit on top of the base
+    run 01a07ade-6f69-7166-89b2-650940cddd7a
+      branch workforce/01a07ade-6f69-7166-89b2-650940cddd7a/01a07ade-6f69-7167-841f-caf42f889fe3/01a07ade-6f69-7168-8ac6-7ab3af6c4d09
+      HEAD   1b54578be36ff269bd64852c49a56b2ef8edf453 workforce candidate checkpoint  [workforce coordinator <coordinator@workforce.invalid>]
+      parent 7b7e317aa85b7a3b4a67056991859fdd44953ba5 (= base)
+    run 01a07adf-c405-77f8-b5b1-681a87300045
+      branch workforce/01a07adf-c405-77f8-b5b1-681a87300045/01a07adf-c405-77f9-8ece-b0335d07cf72/01a07adf-c405-77fa-94d0-36fad6e245e4
+      HEAD   05297664593e181ea3916c32af979161e21a0d82 workforce candidate checkpoint  [workforce coordinator <coordinator@workforce.invalid>]
+      parent 7b7e317aa85b7a3b4a67056991859fdd44953ba5 (= base)
+
+V3  the candidate patch actually fixes the bug (checked outside the coordinator)
+    base copy    : node --test exit 1 (non-zero = bug reproduces)
+    git apply    : candidate.patch applied cleanly
+    patched copy : node --test exit 0 (0 = fixed)
+
+V4  the stored patch hashes to the recorded candidate identity
+    sha256(candidate.patch) 2a4859774b600038ab57e399f5192a907daf1a3081d09ca3d0d62546ae00e7b4
+    manifest patchHash      2a4859774b600038ab57e399f5192a907daf1a3081d09ca3d0d62546ae00e7b4
+    manifest candidateRev   1b54578be36ff269bd64852c49a56b2ef8edf453
+    check ran against rev   1b54578be36ff269bd64852c49a56b2ef8edf453
+    check ran against hash  2a4859774b600038ab57e399f5192a907daf1a3081d09ca3d0d62546ae00e7b4
+
+V5  acceptance came only from a verifier-executed check on the frozen candidate
+    outcome                : accepted | accepted True (1/1 required)
+    criterion              : node-tests-pass -> node --test test/ => exit 0 passed
+    evidenceProvenance     : verifier_executed (not runtime_reported)
+    executed on            : a git_archive copy of the frozen candidate
+    candidate mutated      : False | integrity scope complete over 6 files
+    verifier env           : ['HOME', 'PATH', 'TMPDIR'] node v26.8.1 darwin arm64
+    check source           : repository_config - 1 check(s) from .workforce/checks.json at base 7b7e317aa85b
+    runtime claimed done   : True <- recorded as a claim; it is not why the task was accepted
+    writes outside grants  : []
+    unresolved             : []
+
+V6  timing split and usage (FR060)
+    run A (human): dispatch 144 ms | startup 1352 ms | runtime 84293 ms | validation 195 ms | elapsed 87027 ms
+      usage measured: in 227583 out 2312 tokens, costUsd None (never reported as zero)
+    run B (--json): dispatch 138 ms | startup 1218 ms | runtime 70788 ms | validation 195 ms | elapsed 73381 ms
+      usage measured: in 228092 out 1847 tokens, costUsd None (never reported as zero)
+
+V7  evidence files present
+    events.jsonl                               present, 124101 bytes
+    request.json                               present, 551 bytes
+    contract.json                              present, 983 bytes
+    config-snapshot.json                       present, 1749 bytes
+    artifacts/result.json                      present, 7596 bytes
+    artifacts/summary.md                       present, 1748 bytes
+    artifacts/candidate.patch                  present, 1192 bytes
+    artifacts/logs/runtime-events.jsonl        present, 84970 bytes
+    artifacts/checks/node-tests-pass/receipt.json present, 2314 bytes
+    events.jsonl records: 116
+
+V8  --json stdout is machine-readable JSONL, diagnostics on stderr
+    110 stdout lines, 0 not valid JSON
+    final record: ok True exitCode 0 outcome accepted accepted True
+    stderr diagnostics: 66 lines
+
+V9  doctor is passive: only --version and the documented login-status command were spawned
+    passive: True
+    codex        v0.147.0   readiness=controllable  auth=logged_in
+      probe: /opt/homebrew/bin/codex --version -> exit 0 (46 ms)
+      probe: /opt/homebrew/bin/codex login status -> exit 0 (49 ms)
+    claude-code  v2.1.260   readiness=controllable  auth=logged_in
+      probe: /Users/shebin_mohan_k/.local/bin/claude --version -> exit 0 (67 ms)
+      probe: /Users/shebin_mohan_k/.local/bin/claude auth status -> exit 0 (273 ms)
+
+V10 exit codes
+RUN_A_EXIT=0
+RUN_B_EXIT=0

@@ -1,5 +1,5 @@
 /** AT01 — `workforce doctor`: informational exit 0, exit 2 only for bad arguments, and no invocation that could start a model turn. */
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli } from '../../src/cli/index.js';
@@ -158,6 +158,76 @@ describe('workforce doctor reports what it found', () => {
   });
 });
 
+describe('a configured executable is probed, not assumed (FR001, FR002)', () => {
+  function configWith(dir: string, codexExecutable: string): string {
+    const file = path.join(dir, 'agents.json');
+    writeFileSync(
+      file,
+      JSON.stringify({
+        schemaVersion: 1,
+        runtimes: { 'codex-local': { adapter: 'codex', executable: codexExecutable } },
+        defaults: {
+          workerAgent: 'engineer',
+          maxActiveTurns: 2,
+          maxActiveWriters: 2,
+          maxTasksPerRun: 8,
+          maxDelegationDepth: 2,
+          maxRepairAttempts: 2,
+          maxTransientRetries: 2,
+          runTimeoutMinutes: 30,
+        },
+        agents: [{ id: 'engineer', runtime: 'codex-local', instructions: 'fix the bug', capabilities: ['coding'], policy: 'local-development' }],
+      }),
+    );
+    return file;
+  }
+
+  it('reports a configured path that is not installed as missing, not as the discovered binary', async () => {
+    const bin = scratch();
+    const discovered = writeExecutable(bin, 'codex', fakeCodex({ version: '0.147.0', login: 'in' }));
+    const config = configWith(scratch(), path.join(scratch(), 'not-installed', 'codex'));
+
+    const result = await invoke(['doctor', '--agents', config, '--codex-path', discovered, '--state-dir', path.join(scratch(), 'state'), '--json']);
+
+    expect(result.code).toBe(EXIT_CODES.verifiedCandidate);
+    const configured = (jsonDocument(result)['config'] as { runtimes: Array<Record<string, unknown>> }).runtimes[0]!;
+    expect(configured['readiness']).toBe('missing');
+    expect(configured['version']).toBeNull();
+    expect(configured['probedConfiguredPath']).toBe(true);
+    // The discovered runtime is still reported on its own; it is just not this runtime's readiness.
+    expect(runtimes(jsonDocument(result))[0]!.readiness).toBe('controllable');
+  });
+
+  it('probes the configured binary itself, so its version and capabilities are the ones reported', async () => {
+    const configuredDir = scratch();
+    const configured = writeExecutable(configuredDir, 'codex', fakeCodex({ version: '9.9.9', login: 'out' }));
+    const discovered = writeExecutable(scratch(), 'codex', fakeCodex({ version: '0.147.0', login: 'in' }));
+    const config = configWith(scratch(), configured);
+
+    const result = await invoke(['doctor', '--agents', config, '--codex-path', discovered, '--state-dir', path.join(scratch(), 'state'), '--json']);
+
+    const doc = jsonDocument(result);
+    const runtime = (doc['config'] as { runtimes: Array<Record<string, unknown>> }).runtimes[0]!;
+    expect(runtime['version']).toBe('9.9.9');
+    expect(runtime['auth']).toBe('logged_out');
+    expect(runtime['probedExecutable']).toBe(configured);
+    // 0.147.0's verified capabilities are not carried over to an unprobed version.
+    const capabilities = runtime['capabilities'] as Record<string, { status: string; source: string }>;
+    expect(Object.values(capabilities).every((entry) => entry.source !== 'override')).toBe(true);
+    expect(runtimes(doc)[0]!.version).toBe('0.147.0');
+  });
+
+  it('leaves a bare command name to PATH and says so rather than probing a guessed path', async () => {
+    const bin = scratch();
+    const discovered = writeExecutable(bin, 'codex', fakeCodex({ version: '0.147.0' }));
+    const config = configWith(scratch(), 'codex');
+
+    const result = await invoke(['doctor', '--agents', config, '--codex-path', discovered, '--state-dir', path.join(scratch(), 'state')]);
+
+    expect(result.stdout).toContain('is resolved through PATH at spawn time');
+  });
+});
+
 describe('doctor argument handling', () => {
   it('exits 2 for an empty runtime path and for an unknown flag, and never for a missing runtime', async () => {
     const empty = await invoke(['doctor', '--codex-path', '  ']);
@@ -173,7 +243,6 @@ describe('doctor argument handling', () => {
     const badConfig = path.join(root, 'agents.json');
     writeExecutable(root, 'unused', '#!/bin/sh\nexit 0\n');
     rmSync(path.join(root, 'unused'));
-    const { writeFileSync } = await import('node:fs');
     writeFileSync(badConfig, JSON.stringify({ schemaVersion: 1, runtimes: {}, defaults: {}, agents: [] }));
 
     const result = await invoke(['doctor', '--agents', badConfig]);

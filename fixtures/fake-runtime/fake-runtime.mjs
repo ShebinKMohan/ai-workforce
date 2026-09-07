@@ -13,6 +13,7 @@
  *   turn N executes `turns[N]` when present, otherwise `steps`.
  * Steps:
  *   {"action":"edit_file","path":"rel/path","content":"..."}   write a file inside cwd
+ *   {"action":"delete_file","path":"rel/path"}                  delete a file inside cwd
  *   {"action":"claim_done","message":"..."}                     print a done claim without editing
  *   {"action":"sleep","ms":250}                                 interruptible pause
  *   {"action":"write_outside","name":"escape.txt"}              attempt a write outside cwd (../name)
@@ -25,7 +26,7 @@
  * Every event carries an extra `fakeExtra` field that adapters must ignore.
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -96,6 +97,20 @@ async function runStep(turnId, step) {
       writeFileSync(target, step.content ?? `edited by fake runtime turn ${turnId}\n`);
       emit('file_change', { turnId, path: target, withinCwd: target.startsWith(cwd + path.sep) });
       emit('tool_result', { turnId, tool: 'write_file', ok: true });
+      return;
+    }
+    case 'delete_file': {
+      const target = path.resolve(cwd, step.path ?? 'fake-edit.txt');
+      emit('tool_call', { turnId, tool: 'delete_file', path: target });
+      let removed = true;
+      try {
+        rmSync(target, { force: false, recursive: step.recursive === true });
+      } catch (err) {
+        removed = false;
+        emit('error', { turnId, code: 'delete_failed', path: target, detail: String(err && err.code ? err.code : err), fatal: false });
+      }
+      if (removed) emit('file_change', { turnId, path: target, withinCwd: target.startsWith(cwd + path.sep), deleted: true });
+      emit('tool_result', { turnId, tool: 'delete_file', ok: removed });
       return;
     }
     case 'claim_done':

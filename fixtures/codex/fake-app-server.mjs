@@ -18,6 +18,13 @@
  * actually used, so replay does not depend on matching id numbering; server ->
  * client request ids are left alone, because the client answers them by id.
  *
+ * Consuming the `out` record and releasing the `in` records that follow it are
+ * one step in the `writing` chain, never split across it. Two client frames
+ * can arrive in a single stdin chunk — `initialized` and the request that
+ * follows it routinely do — and advancing the cursor outside the chain made
+ * the second frame skip its own `out` record, so its response was never
+ * emitted and the client waited for a reply that could not come.
+ *
  * Options:
  *   --transcript <path>   required
  *   --chunk <bytes>       write stdout in fixed-size chunks, splitting JSON
@@ -118,8 +125,10 @@ function onClientFrame(line) {
   }
   // Requests get a response; the client's own answers to server requests do not.
   if (frame.id !== undefined && frame.method !== undefined) pendingIds.push(frame.id);
-  if (cursor < records.length && records[cursor].dir === 'out') cursor += 1;
-  schedule(releaseUntilNextClientFrame);
+  schedule(async () => {
+    if (cursor < records.length && records[cursor].dir === 'out') cursor += 1;
+    await releaseUntilNextClientFrame();
+  });
 }
 
 schedule(releaseUntilNextClientFrame);

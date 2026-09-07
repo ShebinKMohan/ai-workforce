@@ -14,6 +14,7 @@ import {
   type RunStream,
 } from '../../src/core/run-direct.js';
 import { openStateStore } from '../../src/storage/db.js';
+import { LockLostError } from '../../src/storage/lock.js';
 import { createStatePaths } from '../../src/storage/paths.js';
 import { getAttempt, getRun, getTask, listTasks } from '../../src/storage/records.js';
 import { listEvents } from '../../src/storage/events.js';
@@ -23,12 +24,17 @@ import { gitTextOrNull } from '../../src/workspaces/git.js';
 import {
   claimDoneWithoutEditingScenario,
   cleanupAll,
+  deleteTheTestsScenario,
   fingerprintCheckout,
+  fixAndEscapeScenario,
   fixedPaginationSource,
   fixTheBugScenario,
+  fixThenExitCleanlyScenario,
   fixThePythonBugScenario,
+  hangScenario,
   longRunningScenario,
   registerCleanup,
+  rewriteTheTestsScenario,
   runtimeExitsScenario,
   tempDir,
   useFixture,
@@ -52,7 +58,7 @@ interface Harness {
   readonly lines: string[];
   readonly jsonEvents: Array<Record<string, unknown>>;
   readonly stream: RunStream;
-  run(scenario: FakeScenario, options?: { checkFlags?: string[]; signal?: AbortSignal }): Promise<RunDirectResult>;
+  run(scenario: FakeScenario, options?: { checkFlags?: string[]; signal?: AbortSignal; runDeadlineMs?: number; ownership?: { assertOwnership(): void } }): Promise<RunDirectResult>;
 }
 
 async function harness(fixtureName: 'ts-bug' | 'py-bug' = 'ts-bug'): Promise<Harness> {
@@ -91,6 +97,8 @@ async function harness(fixtureName: 'ts-bug' | 'py-bug' = 'ts-bug'): Promise<Har
           sessionEnv: { [FAKE_SCENARIO_ENV]: scenarioPath },
           ...(options.checkFlags !== undefined ? { checkFlags: options.checkFlags } : {}),
           ...(options.signal !== undefined ? { signal: options.signal } : {}),
+          ...(options.runDeadlineMs !== undefined ? { runDeadlineMs: options.runDeadlineMs } : {}),
+          ...(options.ownership !== undefined ? { ownership: options.ownership } : {}),
         });
       } finally {
         store.close();
@@ -239,6 +247,58 @@ describe('the direct path produces a verified candidate (FR019, FR020, FR041, FR
     expect(await gitTextOrNull(['rev-parse', result.snapshot!.branch], { cwd: h.repo })).toBe(result.snapshot!.candidateRevision);
   });
 
+  it('stops an unresponsive runtime instead of waiting for it forever (FR039)', async () => {
+    const h = await harness();
+    const controller = new AbortController();
+    // Interrupt once the runtime is provably unresponsive, not after a guessed
+    // delay: the fake runtime spawns a child and stops reading stdin, so from
+    // that point nothing it is asked to do can end the turn.
+    void (async () => {
+      const deadline = Date.now() + 20_000;
+      while (Date.now() < deadline && !h.lines.some((line) => line.includes('exec hang'))) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      controller.abort();
+    })();
+
+    const started = Date.now();
+    const result = await h.run(hangScenario(), { signal: controller.signal });
+    const elapsed = Date.now() - started;
+
+    expect(result.outcome).toBe('interrupted');
+    expect(elapsed).toBeLessThan(30_000);
+    expect(result.stopReceipt?.state).toBe('process_tree_terminated');
+    expect(h.lines.join('\n')).toContain('terminating the owned process group');
+    // The work the runtime managed before hanging is preserved.
+    expect(result.snapshot!.checkpointCreated).toBe(true);
+
+    readState(h.stateRoot, (db) => {
+      const types = listEvents(db, result.runId).map((e) => e.type);
+      expect(types).toContain('run.interrupt_requested');
+      expect(types).toContain('run.interrupt_acknowledged');
+      expect(types).toContain('runtime.stopped');
+      // The persisted run and task are not left saying "running".
+      expect(getRun(db, result.runId).state).toBe('interrupted');
+      expect(getTask(db, result.taskId).state).toBe('cancelled');
+      expect(getAttempt(db, result.attemptId).state).toBe('interrupted');
+    });
+  }, 60_000);
+
+  it('enforces the configured run deadline rather than only reporting it (FR014)', async () => {
+    const h = await harness();
+
+    const result = await h.run(longRunningScenario(30_000), { runDeadlineMs: 600 });
+
+    expect(result.outcome).toBe('interrupted');
+    expect(result.manifest.runtime['interruptReason']).toBe('run_deadline');
+    expect(result.manifest.unresolved.join(' ')).toContain('deadline before acceptance');
+    expect(h.lines.join('\n')).toContain('run deadline of 600ms reached');
+    readState(h.stateRoot, (db) => {
+      const interrupt = listEvents(db, result.runId).find((e) => e.type === 'run.interrupt_requested');
+      expect(interrupt!.payload['reason']).toBe('run_deadline');
+    });
+  }, 60_000);
+
   it('stops the worker, preserves the work and reports an interruption on abort (FR039)', async () => {
     const h = await harness();
     const controller = new AbortController();
@@ -316,6 +376,135 @@ describe('the direct path produces a verified candidate (FR019, FR020, FR041, FR
     // The manifest names them for what they are.
     expect(result.manifest.evidence['unnormalizedRuntimeEvents']).toBe(result.evidence!.rawEvents);
     expect(Object.keys(result.manifest.evidence)).not.toContain('malformedRuntimeLines');
+  });
+
+  it('refuses acceptance when the candidate rewrites the tests its own criterion executes', async () => {
+    const h = await harness();
+
+    const result = await h.run(rewriteTheTestsScenario());
+
+    // The rewritten suite really does exit 0 — that is the whole point of the attack.
+    expect(result.receipts[0]!.outcome).toBe('passed');
+    expect(result.receipts[0]!.exitCode).toBe(0);
+    // ... and it still does not accept, because the candidate changed the code the criterion runs.
+    expect(result.outcome).toBe('failed');
+    expect(result.acceptance.accepted).toBe(false);
+    expect(result.acceptance.criteria[0]!.status).toBe('compromised');
+    expect(result.acceptance.reasons.join(' ')).toContain('test/pagination.test.js');
+    expect(result.manifest.unresolved.join(' ')).toContain('files that criterion "node-tests-pass" executes');
+    expect(result.manifest.evidence['acceptanceFixtureMutations']).toEqual([
+      { criterionId: '*', changedPaths: ['M test/pagination.test.js'] },
+      { criterionId: 'node-tests-pass', changedPaths: ['M test/pagination.test.js'] },
+    ]);
+    // The bug is still there; nothing pretends otherwise.
+    expect(result.snapshot!.changedFiles).toEqual(['test/pagination.test.js']);
+
+    readState(h.stateRoot, (db) => {
+      expect(getTask(db, result.taskId).state).toBe('failed');
+      expect(listEvents(db, result.runId).map((e) => e.type)).not.toContain('run.accepted');
+    });
+  });
+
+  it('does not read a suite that executed zero tests as a passing check', async () => {
+    const h = await harness();
+
+    const result = await h.run(deleteTheTestsScenario());
+
+    // `node --test <dir>` exits 0 when the directory holds nothing runnable; the receipt says what really happened.
+    expect(result.receipts[0]!.exitCode).toBe(0);
+    expect(result.receipts[0]!.outcome).toBe('no_tests_executed');
+    expect(result.receipts[0]!.outputSummary).toEqual({ runner: 'node_test', testsRun: 0, note: 'node --test reported that it executed 0 tests' });
+    expect(result.acceptance.criteria[0]!.detail).toContain('without executing any test');
+    expect(result.outcome).toBe('failed');
+    expect(result.acceptance.accepted).toBe(false);
+    expect(result.snapshot!.changes).toEqual([
+      { status: 'A', path: 'test/NOTES.md' },
+      { status: 'D', path: 'test/pagination.test.js' },
+    ]);
+    // The deletion compromises the criterion; the added file is recorded, not held against the worker.
+    expect(result.manifest.evidence['acceptanceFixtureAdditions']).toEqual(['test/NOTES.md']);
+  });
+
+  it('tells the worker which files are acceptance fixtures instead of only catching it afterwards', async () => {
+    const h = await harness();
+    await h.run(fixTheBugScenario());
+    const contract = JSON.parse(readFileSync(path.join(h.stateRoot, 'runs', (h.jsonEvents[0] as { runId: string }).runId, 'contract.json'), 'utf8')) as {
+      scope: { forbiddenPaths: string[] };
+    };
+    expect(contract.scope.forbiddenPaths).toEqual(['.git', '.workforce/checks.json', 'test', 'test/pagination.test.js']);
+    expect(h.lines.join('\n')).toContain('acceptance fixtures (the worker must not rewrite these; new test files are fine)');
+  });
+
+  it('does not accept a run whose worker wrote outside its granted paths (AT12)', async () => {
+    const h = await harness();
+
+    const result = await h.run(fixAndEscapeScenario());
+
+    // The fix itself is good and the check passes on it.
+    expect(result.receipts[0]!.outcome).toBe('passed');
+    expect(result.snapshot!.changedFiles).toEqual(['src/pagination.js']);
+    // The escape is still not an accepted run.
+    expect(result.outcome).toBe('failed');
+    expect(result.acceptance.accepted).toBe(false);
+    expect(result.acceptance.reasons.join(' ')).toContain('wrote outside its granted paths');
+    expect(result.evidence!.fileChangesOutsideAllowedPaths).toHaveLength(1);
+    readState(h.stateRoot, (db) => expect(getTask(db, result.taskId).state).toBe('failed'));
+  });
+
+  it('does not accept a candidate produced by a turn whose runtime died, even with a passing check', async () => {
+    const h = await harness();
+
+    const result = await h.run(fixThenExitCleanlyScenario());
+
+    expect(result.manifest.runtime['turnConclusion']).toBe('runtime_exited');
+    expect(result.receipts[0]!.outcome).toBe('passed'); // the partial work happens to be the whole fix
+    expect(result.outcome).toBe('failed');
+    expect(result.acceptance.accepted).toBe(false);
+    expect(result.acceptance.reasons.join(' ')).toContain('ended before the turn completed');
+    readState(h.stateRoot, (db) => {
+      // The attempt failed and so did the task it belongs to: they cannot disagree.
+      expect(getAttempt(db, result.attemptId).state).toBe('failed');
+      expect(getTask(db, result.taskId).state).toBe('failed');
+    });
+  });
+
+  it('does not accept a run that changed nothing, even when every configured check passes', async () => {
+    const h = await harness();
+
+    // A check that passes whatever the candidate contains, plus a worker that edits nothing.
+    const result = await h.run(claimDoneWithoutEditingScenario(), { checkFlags: ['node --version'] });
+
+    expect(result.receipts[0]!.outcome).toBe('passed');
+    expect(result.snapshot!.checkpointCreated).toBe(false);
+    expect(result.outcome).toBe('failed');
+    expect(result.acceptance.accepted).toBe(false);
+    expect(result.acceptance.reasons.join(' ')).toContain('no change, so there is no candidate to accept');
+  });
+
+  it('stops the run honestly when exclusive ownership of the state root can no longer be proved', async () => {
+    const h = await harness();
+    // Ownership holds while the worker is dispatched and is gone by the time a
+    // result would be written — the shape `lock.assertOwnership` produces when
+    // the arbiter file is replaced mid-run.
+    let calls = 0;
+    const ownership = {
+      assertOwnership: () => {
+        calls += 1;
+        if (calls > 1) throw new LockLostError('/state/coordinator.lock', { status: 'arbiter_replaced', detail: 'the arbiter is now a different file' });
+      },
+    };
+
+    await expect(h.run(fixTheBugScenario(), { ownership })).rejects.toBeInstanceOf(LockLostError);
+    expect(calls).toBe(2);
+
+    readState(h.stateRoot, (db) => {
+      const runId = (h.jsonEvents.find((event) => event['type'] === 'run.created') as { runId: string }).runId;
+      expect(getRun(db, runId).state).toBe('failed');
+      expect(listEvents(db, runId).map((e) => e.type)).toContain('run.ownership_lost');
+      // No acceptance was recorded for a run that could not prove it owned the state root.
+      expect(listEvents(db, runId).map((e) => e.type)).not.toContain('run.accepted');
+      expect(listChecks(db, runId)).toEqual([]);
+    });
   });
 
   it('refuses to start when no acceptance checks can be resolved', async () => {

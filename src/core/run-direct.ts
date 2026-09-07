@@ -74,9 +74,35 @@ import {
   type AcceptanceDecision,
   type CheckReceipt,
   type CheckSpec,
+  type FixtureMutation,
 } from '../verification/checks.js';
 
 export const RUN_MANIFEST_VERSION = 1 as const;
+
+/**
+ * How long a runtime gets to acknowledge an interruption before the
+ * coordinator terminates the process group it owns (plan section 9).
+ */
+export const INTERRUPT_ACKNOWLEDGEMENT_MS = 5_000;
+
+/** Resolve `promise`, or `null` when it does not settle inside `ms`. */
+async function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The race handles a rejection, but only while it is still listening; this
+  // keeps a late rejection from becoming an unhandled one.
+  promise.catch(() => undefined);
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Adapter registry
@@ -310,9 +336,14 @@ export async function resolveAcceptanceChecks(
   };
 }
 
+/** Every tracked path at a revision. Empty when the revision cannot be listed. */
+export async function listFilesAtRevision(repoRoot: string, revision: string): Promise<string[]> {
+  const listing = await git(['ls-tree', '-r', '--name-only', '-z', revision], { cwd: repoRoot, maxOutputBytes: 8 * 1024 * 1024 });
+  return listing.ok ? listing.stdout.split('\0').filter((name) => name.length > 0) : [];
+}
+
 async function detectChecks(repoRoot: string, baseRevision: string): Promise<ResolvedChecks | null> {
-  const listing = await git(['ls-tree', '-r', '--name-only', '-z', baseRevision], { cwd: repoRoot, maxOutputBytes: 8 * 1024 * 1024 });
-  const files = listing.ok ? listing.stdout.split('\0').filter((name) => name.length > 0) : [];
+  const files = await listFilesAtRevision(repoRoot, baseRevision);
 
   if (files.includes('package.json')) {
     const raw = await showAtRevision(repoRoot, baseRevision, 'package.json');
@@ -351,6 +382,128 @@ async function detectChecks(repoRoot: string, baseRevision: string): Promise<Res
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Acceptance fixture surface
+// ---------------------------------------------------------------------------
+
+/**
+ * Paths that look like an acceptance fixture whatever the check command is.
+ * A criterion executes them, so the candidate rewriting them changes what the
+ * criterion means.
+ */
+const FIXTURE_PATH_PATTERNS: ReadonlyArray<RegExp> = [
+  /(^|\/)(tests?|spec|specs|__tests__)\//,
+  /\.(test|spec)\.[cm]?[jt]sx?$/,
+  /(^|\/)(test_[^/]*\.py|[^/]*_test\.py|conftest\.py)$/,
+];
+
+/** Package managers that read `package.json` to decide what the check actually runs. */
+const PACKAGE_MANAGER_COMMANDS = new Set(['npm', 'npx', 'yarn', 'pnpm']);
+
+export interface AcceptanceSurface {
+  /** Criterion id (or `*` for every criterion) to the base paths its evidence executes. */
+  readonly byCriterion: ReadonlyMap<string, ReadonlyArray<string>>;
+  /** Base paths that define acceptance without being executed by it. */
+  readonly definitionPaths: ReadonlyArray<string>;
+}
+
+function normalizeRelative(value: string): string | null {
+  const cleaned = value.replace(/^\.\//, '').replace(/\/+$/, '');
+  if (cleaned.length === 0 || cleaned === '.' || cleaned.startsWith('/') || cleaned.startsWith('..') || cleaned.includes('\0')) return null;
+  return cleaned;
+}
+
+function existsInTree(baseFiles: ReadonlyArray<string>, candidate: string): boolean {
+  return baseFiles.some((file) => file === candidate || file.startsWith(`${candidate}/`));
+}
+
+/**
+ * Work out which base files each criterion's evidence actually executes.
+ *
+ * The check *definition* is already pinned to the base revision, but the code
+ * it runs comes from the candidate. This is how the run finds out whether the
+ * worker rewrote that code (plan section 9: acceptance fixtures stay outside
+ * worker write access, and a task that legitimately changes repository tests
+ * still has to be assessed against the original criteria).
+ */
+export function acceptanceSurface(checks: ReadonlyArray<CheckSpec>, baseFiles: ReadonlyArray<string>): AcceptanceSurface {
+  const byCriterion = new Map<string, ReadonlyArray<string>>();
+
+  const shared = baseFiles.filter((file) => FIXTURE_PATH_PATTERNS.some((pattern) => pattern.test(file)));
+  if (shared.length > 0) byCriterion.set('*', [...new Set(shared)].sort());
+
+  for (const check of checks) {
+    const paths = new Set<string>();
+    for (const token of [...(check.args ?? []), ...(check.cwd !== undefined ? [check.cwd] : [])]) {
+      if (token.startsWith('-')) continue;
+      const relative = normalizeRelative(token);
+      if (relative === null) continue;
+      if (existsInTree(baseFiles, relative)) paths.add(relative);
+    }
+    if (PACKAGE_MANAGER_COMMANDS.has(check.command) && baseFiles.includes('package.json')) paths.add('package.json');
+    if (paths.size > 0) byCriterion.set(check.criterionId, [...paths].sort());
+  }
+
+  const definitionPaths = baseFiles.includes('.workforce/checks.json') ? ['.workforce/checks.json'] : [];
+  return { byCriterion, definitionPaths };
+}
+
+function matchesSurfacePath(changedPath: string, surfacePath: string): boolean {
+  return changedPath === surfacePath || changedPath.startsWith(`${surfacePath}/`);
+}
+
+export interface SurfaceFindings {
+  /** Criteria whose executed fixtures the candidate modified or deleted. */
+  readonly mutations: ReadonlyArray<FixtureMutation>;
+  /** Files the candidate added inside an acceptance surface: recorded, not blocking. */
+  readonly additions: ReadonlyArray<string>;
+  /** Acceptance definitions the candidate changed. They cannot affect this run, which read them from the base. */
+  readonly definitionChanges: ReadonlyArray<string>;
+}
+
+/**
+ * Compare the candidate diff against the acceptance surface.
+ *
+ * Modifying or deleting a file a criterion executes compromises that
+ * criterion's evidence. *Adding* a file does not: writing a new test to
+ * protect the fix is exactly what a worker should be able to do, so it is
+ * recorded and left alone.
+ */
+export function findSurfaceChanges(surface: AcceptanceSurface, changes: ReadonlyArray<{ status: string; path: string }>): SurfaceFindings {
+  const mutations: FixtureMutation[] = [];
+  const additions: string[] = [];
+
+  for (const [criterionId, paths] of surface.byCriterion) {
+    const changed = changes
+      .filter((change) => !change.status.startsWith('A') && paths.some((surfacePath) => matchesSurfacePath(change.path, surfacePath)))
+      .map((change) => `${change.status} ${change.path}`);
+    if (changed.length > 0) mutations.push({ criterionId, changedPaths: [...new Set(changed)].sort() });
+  }
+
+  for (const change of changes) {
+    if (!change.status.startsWith('A')) continue;
+    for (const paths of surface.byCriterion.values()) {
+      if (paths.some((surfacePath) => matchesSurfacePath(change.path, surfacePath))) {
+        additions.push(change.path);
+        break;
+      }
+    }
+  }
+
+  const definitionChanges = changes
+    .filter((change) => surface.definitionPaths.some((definitionPath) => matchesSurfacePath(change.path, definitionPath)))
+    .map((change) => `${change.status} ${change.path}`);
+
+  return { mutations, additions: [...new Set(additions)].sort(), definitionChanges: [...new Set(definitionChanges)].sort() };
+}
+
+/** Every surface path, for the contract's forbidden list and the worker prompt. */
+function surfacePaths(surface: AcceptanceSurface): string[] {
+  const all = new Set<string>(surface.definitionPaths);
+  for (const paths of surface.byCriterion.values()) for (const value of paths) all.add(value);
+  return [...all].sort();
 }
 
 // ---------------------------------------------------------------------------
@@ -393,7 +546,9 @@ export function composeTaskPrompt(input: PromptInput): string {
   lines.push(`- Edit files under ${workspace.path} only. A write outside it is recorded as out of scope and is not part of the candidate.`);
   lines.push('- Do not create commits, branches or tags, and do not touch .git: the coordinator creates the checkpoint commit for the candidate.');
   if (contract.scope.allowedPaths.length > 0) lines.push(`- Stay within: ${contract.scope.allowedPaths.join(', ')}.`);
-  if (contract.scope.forbiddenPaths.length > 0) lines.push(`- Do not modify: ${contract.scope.forbiddenPaths.join(', ')}.`);
+  if (contract.scope.forbiddenPaths.length > 0) {
+    lines.push(`- Do not modify or delete: ${contract.scope.forbiddenPaths.join(', ')}. The acceptance criteria execute those files; changing them does not make a criterion pass, it makes the run refuse acceptance. You may add new test files.`);
+  }
   lines.push('');
   lines.push('Acceptance criteria. The coordinator runs these itself against a frozen copy of your result; reporting success does not mark the task accepted:');
   for (const criterion of contract.acceptanceCriteria) {
@@ -435,6 +590,19 @@ export interface RunDirectInput {
   /** Extra environment for the runtime session (used to select a fake-runtime scenario). */
   readonly sessionEnv?: Readonly<Record<string, string>>;
   readonly keepCheckCopies?: boolean;
+  /**
+   * The coordinator lock this run was started under. It is re-checked before
+   * the worker is dispatched and before the result is written, so a state root
+   * whose lock stopped excluding other coordinators fails the run instead of
+   * producing a result two coordinators believe they own.
+   */
+  readonly ownership?: { assertOwnership(): void };
+  /**
+   * Override the run deadline in milliseconds. `runTimeoutMinutes` is the
+   * configured value and the smallest one the schema allows is a minute, which
+   * is too long to wait for in a test of the deadline itself.
+   */
+  readonly runDeadlineMs?: number;
 }
 
 export type RunOutcome = 'accepted' | 'failed' | 'interrupted';
@@ -565,6 +733,16 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   }
   stream.line(`acceptance: ${resolvedChecks.detail}`);
 
+  // What the criteria actually execute. The definitions are pinned to the
+  // base, but their fixtures live in the repository, so the run has to know
+  // which files a candidate must not rewrite.
+  const baseFiles = await listFilesAtRevision(projectRoot, baseRevision);
+  const surface = acceptanceSurface(resolvedChecks.checks, baseFiles);
+  const fixturePaths = surfacePaths(surface);
+  if (fixturePaths.length > 0) {
+    stream.line(`acceptance fixtures (the worker must not rewrite these; new test files are fine): ${fixturePaths.join(', ')}`);
+  }
+
   // ---- 4. Durable records ------------------------------------------------
   const createdAt = nowIso();
   ensureRunDir(paths, runId);
@@ -579,7 +757,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     baseMode: 'head',
     submittedAt: createdAt,
   });
-  const contract = buildContract(input.requestText, resolvedChecks.checks);
+  const contract = buildContract(input.requestText, resolvedChecks.checks, fixturePaths);
 
   const project = registerProject(db, { inspection, dataLocation: paths.root, checks: resolvedChecks.checks, now: createdAt });
   insertRun(db, { request, policy, limits, projectId: project.id, baseRevision, now: createdAt });
@@ -652,18 +830,83 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   const runtimeEvents: RuntimeEvent[] = [];
   let receipts: CheckReceipt[] = [];
 
-  const onAbort = (): void => {
+  // Stopping the worker (plan section 9): request runtime interruption, wait a
+  // bounded time for the runtime to acknowledge, then terminate the process
+  // group we own. Without the second step a runtime that stops reading its
+  // input keeps the event loop below open forever and Ctrl+C never lands.
+  const deadlineMs = input.runDeadlineMs ?? limits.runTimeoutMinutes * 60_000;
+  let interruptReason: 'signal' | 'run_deadline' | null = null;
+  let escalating = false;
+  let escalation: Promise<void> | null = null;
+  let interruptStopReceipt: StopReceipt | null = null;
+
+  const escalateInterruption = async (): Promise<void> => {
+    if (escalating) return;
+    escalating = true;
+    let acknowledgement: 'observed' | 'requested' | 'failed' | 'no_turn' = 'no_turn';
+    let detail: string | null = null;
+    if (turn !== null) {
+      try {
+        const receipt = await withDeadline(adapter.interrupt(turn), INTERRUPT_ACKNOWLEDGEMENT_MS);
+        acknowledgement = receipt === null ? 'requested' : receipt.state === 'observed' ? 'observed' : 'requested';
+        if (receipt === null) detail = `the runtime did not answer turn interruption within ${INTERRUPT_ACKNOWLEDGEMENT_MS}ms`;
+      } catch (error) {
+        acknowledgement = 'failed';
+        detail = (error as Error).message;
+      }
+    }
+    appendEvent(db, {
+      runId,
+      taskId,
+      attemptId,
+      type: 'run.interrupt_acknowledged',
+      payload: { reason: interruptReason, acknowledgement, detail, at: nowIso() },
+    });
+    if (acknowledgement === 'observed') {
+      stream.line('  the runtime acknowledged the interruption and ended the turn');
+      return;
+    }
+    // No observed end of turn inside the budget: terminate what we own, which
+    // also ends the event stream this run is waiting on.
+    if (session !== null) {
+      stream.line(`  the runtime did not end the turn within ${INTERRUPT_ACKNOWLEDGEMENT_MS}ms; terminating the owned process group`);
+      try {
+        interruptStopReceipt = await adapter.stopOwnedProcesses(session);
+        appendEvent(db, { runId, taskId, attemptId, type: 'runtime.stopped', payload: { ...interruptStopReceipt, cause: 'interruption_escalation' } });
+        stream.line(`  worker stopped: ${interruptStopReceipt.state}${interruptStopReceipt.detail !== undefined ? ` (${interruptStopReceipt.detail})` : ''}`);
+      } catch (error) {
+        appendEvent(db, { runId, taskId, attemptId, type: 'runtime.stop_failed', payload: { message: (error as Error).message } });
+        stream.line(`  could not stop the owned process group: ${(error as Error).message}`);
+      }
+    }
+  };
+
+  const beginInterruption = (reason: 'signal' | 'run_deadline'): void => {
     if (interrupted) return;
     interrupted = true;
+    interruptReason = reason;
     // Persist the interruption intent before anything is signalled.
-    appendEvent(db, { runId, taskId, attemptId, type: 'run.interrupt_requested', payload: { reason: 'signal', at: nowIso() } });
-    stream.line('interrupt requested: stopping the worker and preserving what exists');
-    if (turn !== null) void adapter.interrupt(turn).catch(() => undefined);
+    appendEvent(db, { runId, taskId, attemptId, type: 'run.interrupt_requested', payload: { reason, at: nowIso() } });
+    stream.line(
+      reason === 'signal'
+        ? 'interrupt requested: stopping the worker and preserving what exists'
+        : `run deadline of ${deadlineMs}ms reached: stopping the worker and preserving what exists`,
+    );
+    escalation = escalateInterruption();
+    escalation.catch(() => undefined);
   };
+
+  const onAbort = (): void => beginInterruption('signal');
   if (input.signal !== undefined) {
     if (input.signal.aborted) onAbort();
     else input.signal.addEventListener('abort', onAbort, { once: true });
   }
+
+  // FR014: `runTimeoutMinutes` is a real deadline, not a number in a manifest.
+  // A runtime that never ends its turn is stopped here rather than hanging the
+  // coordinator until someone notices.
+  const deadlineTimer = setTimeout(() => beginInterruption('run_deadline'), deadlineMs);
+  deadlineTimer.unref?.();
 
   try {
     // ---- 6. Candidate workspace (FR041) ----------------------------------
@@ -691,6 +934,9 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     stream.line(`candidate workspace ${workspace.path} on branch ${workspace.branch}`);
     stream.event({ type: 'workspace.created', path: workspace.path, branch: workspace.branch, baseRevision: workspace.baseRevision });
 
+    // Still the one mutating coordinator for this state root? Ask before a
+    // worker exists, not after.
+    input.ownership?.assertOwnership();
     markDispatched(db, operation.id, { workspacePath: workspace.path, branch: workspace.branch });
     transitionTask(db, taskId, 'running');
     dispatchSpan.end();
@@ -763,9 +1009,16 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     }
 
     // ---- 8. Stop owned processes, then freeze the candidate --------------
-    stopReceipt = await adapter.stopOwnedProcesses(session);
-    appendEvent(db, { runId, taskId, attemptId, type: 'runtime.stopped', payload: { ...stopReceipt } });
-    stream.line(`worker stopped: ${stopReceipt.state}${stopReceipt.detail !== undefined ? ` (${stopReceipt.detail})` : ''}`);
+    // An interruption may already have terminated the group; wait for that to
+    // finish rather than signalling the same tree from two places.
+    if (escalation !== null) await escalation;
+    if (interruptStopReceipt !== null) {
+      stopReceipt = interruptStopReceipt;
+    } else {
+      stopReceipt = await adapter.stopOwnedProcesses(session);
+      appendEvent(db, { runId, taskId, attemptId, type: 'runtime.stopped', payload: { ...stopReceipt } });
+      stream.line(`worker stopped: ${stopReceipt.state}${stopReceipt.detail !== undefined ? ` (${stopReceipt.detail})` : ''}`);
+    }
     if (stopReceipt.state !== 'process_tree_terminated') {
       unresolved.push(`the worker's process tree was not observed terminated (${stopReceipt.state}${stopReceipt.detail !== undefined ? `: ${stopReceipt.detail}` : ''})`);
     }
@@ -828,14 +1081,62 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       throw error;
     }
   } finally {
+    clearTimeout(deadlineTimer);
     input.signal?.removeEventListener('abort', onAbort);
   }
 
   // ---- 10. Persist evidence and decide acceptance ------------------------
+  // Losing exclusive ownership here is not a check failure; it means this
+  // process can no longer say what the state root contains. Record why the run
+  // stops and leave the rest alone rather than writing a result over work
+  // another coordinator may be doing.
+  try {
+    input.ownership?.assertOwnership();
+  } catch (error) {
+    appendEvent(db, { runId, taskId, attemptId, type: 'run.ownership_lost', payload: { message: (error as Error).message } });
+    transitionAttemptSafely(db, attemptId, 'failed', { outcome: { turnConclusion, ownershipLost: true }, uncertain: true });
+    transitionTaskSafely(db, taskId, 'failed');
+    transitionRunSafely(db, runId, 'failed');
+    recordReceiptSafely(db, operation.id, 'failed', { ownershipLost: true, candidateRevision: candidateSnapshot?.candidateRevision ?? null });
+    projectEventsJsonl(db, paths, runId);
+    throw error;
+  }
   const persistedChecks = receipts.length > 0 ? persistCheckReceipts(db, paths, { runId, taskId, attemptId, receipts }) : [];
+
+  // Did the candidate rewrite the code its own criteria execute? The check
+  // definitions are pinned to the base revision, but their fixtures are in the
+  // repository, so this is the difference between "the tests pass" and "the
+  // worker replaced the tests".
+  const surfaceFindings = candidateSnapshot === null ? { mutations: [], additions: [], definitionChanges: [] } : findSurfaceChanges(surface, candidateSnapshot.changes);
+  for (const mutation of surfaceFindings.mutations) {
+    unresolved.push(
+      `the candidate changed files that criterion "${mutation.criterionId}" executes (${mutation.changedPaths.join(', ')}); the check result cannot establish the criterion the base revision defined`,
+    );
+  }
+  if (surfaceFindings.additions.length > 0) {
+    unresolved.push(`the candidate added ${surfaceFindings.additions.length} file(s) under the acceptance fixtures (${surfaceFindings.additions.join(', ')}); added tests do not block acceptance, but they were not part of the original criteria`);
+  }
+  for (const change of surfaceFindings.definitionChanges) {
+    unresolved.push(`the candidate changed an acceptance definition (${change}); this run read the definition from the base revision, so the change did not affect it, but a later run would use the new one`);
+  }
+
+  // Facts that block acceptance whatever the receipts say. Each one means the
+  // run cannot honestly claim "verified candidate" (plan section 9, AT02, AT12).
+  const blockers: string[] = [];
+  for (const escaped of evidence?.fileChangesOutsideAllowedPaths ?? []) {
+    blockers.push(`the worker wrote outside its granted paths (${escaped}); an observed escape is not an accepted run`);
+  }
+  if (turnConclusion === 'runtime_exited') {
+    blockers.push(`the runtime process ended before the turn completed (${describeExit(runtimeEvents)}); a candidate produced by a crashed turn is not accepted`);
+  }
+  if (candidateSnapshot !== null && !candidateSnapshot.checkpointCreated) {
+    blockers.push('the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done');
+  }
+
   const acceptance = decideAcceptance(
     contract.acceptanceCriteria.map((criterion) => ({ id: criterion.id, description: criterion.description })),
     receipts,
+    { fixtureMutations: surfaceFindings.mutations, blockers },
   );
 
   const artifacts: ArtifactRecord[] = [];
@@ -877,7 +1178,11 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   let outcome: RunOutcome;
   if (interrupted) {
     outcome = 'interrupted';
-    unresolved.push('the run was interrupted before acceptance; resume creates a new attempt generation for this task');
+    unresolved.push(
+      interruptReason === 'run_deadline'
+        ? `the run reached its ${deadlineMs}ms deadline before acceptance and the worker was stopped; resume creates a new attempt generation for this task`
+        : 'the run was interrupted before acceptance; resume creates a new attempt generation for this task',
+    );
     transitionAttemptSafely(db, attemptId, 'interrupted', { outcome: { turnConclusion, interrupted: true }, uncertain: turnConclusion === 'no_turn' });
     transitionTaskSafely(db, taskId, 'cancelled');
     transitionRunSafely(db, runId, 'interrupted');
@@ -971,6 +1276,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       turnId: turn?.turnId ?? null,
       turnConclusion,
       stopReceipt,
+      interruptReason,
     },
     requirements: acceptance.criteria,
     checks: receipts.map((receipt) => ({
@@ -984,6 +1290,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       timeoutMs: receipt.timeoutMs,
       environmentIdentity: receipt.environmentIdentity,
       integrity: receipt.integrity,
+      outputSummary: receipt.outputSummary,
       copyStrategy: receipt.copyStrategy,
       evidenceProvenance: receipt.evidenceProvenance,
       logArtifactId: persistedChecks.find((check) => check.checkId === receipt.id)?.logArtifact.id ?? null,
@@ -999,13 +1306,17 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       runtimeToolCalls: evidence?.toolCalls ?? 0,
       runtimeCommands: evidence?.commandsExecuted ?? 0,
       runtimeErrors: evidence?.errors.length ?? 0,
+      acceptanceFixturePaths: fixturePaths,
+      acceptanceFixtureMutations: surfaceFindings.mutations,
+      acceptanceFixtureAdditions: surfaceFindings.additions,
+      acceptanceDefinitionChanges: surfaceFindings.definitionChanges,
       // Well-formed runtime output the adapter did not normalize — not
       // malformed lines, and not an error count.
       unnormalizedRuntimeEvents: evidence?.rawEvents ?? 0,
       verificationCopyStrategy: receipts[0]?.copyStrategy ?? null,
-      note: 'acceptance is decided only from verifier-executed check receipts; the runtime-reported fields above are context, not evidence of correctness',
+      note: 'acceptance is decided from verifier-executed check receipts, the integrity of the fixtures those receipts executed, and the run-level blockers listed under acceptance.reasons; the runtime-reported fields above are context, not evidence of correctness',
       containmentNote:
-        'the candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Write confinement is only what the runtime adapter reports as an enforced capability, and any write seen outside the granted paths is listed above. Reads are not confined by either installed runtime sandbox: a worker can read files outside the repository, and this run did not prevent that. Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment; an enforced execution boundary for tool and test subprocesses (FR042) is not claimed by this run.',
+        'the candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Write confinement is only what the runtime adapter reports as an enforced capability, and any write seen outside the granted paths is listed above and blocks acceptance. Reads are not confined by either installed runtime sandbox: a worker can read files outside the repository, and this run did not prevent that. Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, but with this user\'s own filesystem privileges: repository test code could still read or write anything this user can, including the coordinator state root. An enforced execution boundary for tool and test subprocesses (FR042) is an R1 gate and is not claimed by this run; acceptance compensates only by refusing evidence whose fixtures the candidate changed.',
     },
     timing,
     usage: usageFor(adapter, session),
@@ -1088,12 +1399,15 @@ class InterruptedError extends Error {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildContract(requestText: string, checks: ReadonlyArray<CheckSpec>): TaskContract {
+function buildContract(requestText: string, checks: ReadonlyArray<CheckSpec>, acceptanceFixturePaths: ReadonlyArray<string> = []): TaskContract {
   const firstLine = requestText.trim().split('\n')[0] ?? requestText.trim();
   return validateTaskContract({
     contractVersion: TASK_CONTRACT_VERSION,
     objective: firstLine.length > 200 ? `${firstLine.slice(0, 197)}...` : firstLine,
-    scope: { description: 'the candidate workspace for this attempt', allowedPaths: [], forbiddenPaths: ['.git'] },
+    // The acceptance fixtures are forbidden because rewriting them is how a
+    // worker would manufacture a pass, and the run refuses acceptance when it
+    // sees that happen. Adding a new test file is still allowed.
+    scope: { description: 'the candidate workspace for this attempt', allowedPaths: [], forbiddenPaths: ['.git', ...acceptanceFixturePaths] },
     acceptanceCriteria: checks.map((check) => ({
       id: check.criterionId,
       description: check.description ?? `${check.command} ${(check.args ?? []).join(' ')}`.trim(),

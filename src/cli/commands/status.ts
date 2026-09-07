@@ -20,7 +20,7 @@ import { createStatePaths, resolveStateRoot } from '../../storage/paths.js';
 import { findRun, listTasks } from '../../storage/records.js';
 import { listChecks } from '../../verification/checks.js';
 import { redactValue } from '../../telemetry/redaction.js';
-import { CliError, EXIT_CODES, type CommandResult } from '../output.js';
+import { CliError, EXIT_CODES, statusLabel, type CommandResult } from '../output.js';
 
 export interface StatusCommandArgs {
   readonly positionals: ReadonlyArray<string>;
@@ -139,7 +139,7 @@ export function commandStatus(args: StatusCommandArgs): CommandResult {
       `checks: ${checks.length === 0 ? '(none)' : ''}`,
       ...checks.map((check) => `  ${check.criterionIds.join(',')} ${check.outcome}${check.exitCode === null ? '' : ` (exit ${check.exitCode})`} — ${check.evidenceProvenance} against ${check.candidateRevision?.slice(0, 12) ?? 'unknown candidate'}`),
       ...(requirements.length > 0 ? ['requirements:'] : []),
-      ...requirements.map((requirement) => `  ${requirement.status === 'passed' ? 'PASS' : requirement.status === 'failed' ? 'FAIL' : '????'} ${requirement.criterionId}${requirement.required ? '' : ' (optional)'}: ${requirement.detail}`),
+      ...requirements.map((requirement) => `  ${statusLabel(requirement.status)} ${requirement.criterionId}${requirement.required ? '' : ' (optional)'}: ${requirement.detail}`),
       `events: ${last} recorded; last ${events.length}:`,
       ...events.map((event) => `  #${event.sequence} ${event.timestamp} ${event.type}`),
       `artifacts: ${artifacts.length === 0 ? '(none)' : ''}`,

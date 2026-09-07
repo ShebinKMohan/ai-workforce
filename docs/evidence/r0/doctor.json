@@ -1,385 +1,435 @@
 {
- "ok": true,
- "command": "doctor",
- "exitCode": 0,
- "stateRoot": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-r0/state-doctor",
- "passive": true,
- "verifiedCapabilitiesFile": {
-  "path": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/docs/verified-capabilities.json",
-  "present": true
- },
- "runtimes": [
-  {
-   "adapter": "codex",
-   "executable": "/opt/homebrew/bin/codex",
-   "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
-   "version": "0.147.0",
-   "installed": true,
-   "adapterSupported": true,
-   "controllable": true,
-   "auth": "logged_in",
-   "readiness": "controllable",
-   "capabilities": {
-    "structured_execution": {
-     "status": "verified",
-     "source": "override",
-     "note": "WP03 tests/adapters/codex/real-runtime.test.ts (codex-cli 0.147.0, darwin): thread/started, turn/started, item/started, item/completed, thread/tokenUsage/updated, error and turn/completed observed on real sessions and normalized; unknown methods and fields are preserved as raw events"
-    },
-    "owned_session_identity": {
-     "status": "verified",
-     "source": "override",
-     "note": "WP03 tests/adapters/codex/real-runtime.test.ts: thread/start returns a stable thread id reused by every later request, notification and resume"
-    },
-    "observed_cancellation": {
-     "status": "verified",
-     "source": "override",
-     "note": "WP03 tests/adapters/codex/real-runtime.test.ts: turn/interrupt ended a running shell loop and the receipt reports 'observed' only after turn/completed with status interrupted; shutdown escalates SIGTERM then SIGKILL against the owned process group and reports the observed group state"
-    },
-    "resume_session": {
-     "status": "verified",
-     "source": "override",
-     "note": "WP03 tests/adapters/codex/real-runtime.test.ts: a thread was resumed by id in a second app-server process after the first was terminated and answered from the earlier turn's history. Resuming a thread with no completed turn fails with -32600 'no rollout found'"
-    },
-    "active_turn_delivery": {
-     "status": "verified",
-     "source": "override",
-     "note": "WP03 tests/adapters/codex/real-runtime.test.ts: turn/steer with expectedTurnId accepted mid-turn, receipt state submitted_to_active_turn; a delivery with no active turn is queued and flushed into the next turn/start input"
-    },
-    "mcp_config_injection": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "MCP servers are configured through `-c mcp_servers...`"
-    },
-    "sandbox_workspace_write": {
-     "status": "verified",
-     "source": "override",
-     "note": "WP03 tests/adapters/codex/real-runtime.test.ts (FR042 boundary): workspace-write with explicit writableRoots plus excludeSlashTmp and excludeTmpdirEnvVar. Writes inside the granted root succeed; writes to a sibling workspace, /tmp and $TMPDIR are denied with 'Operation not permitted'; network denied. Checked through command/exec and through a model-driven turn. Codex's own workspaceWrite default leaves /tmp and $TMPDIR writable, so both exclusions are always set by this adapter"
-    },
-    "model_selection": {
-     "status": "verified",
-     "source": "override",
-     "note": "WP03 tests/adapters/codex/real-runtime.test.ts: model/list reports available ids and -c model=\"<id>\" is reflected in the thread/start response and used by the turn"
-    },
-    "effort_selection": {
-     "status": "verified",
-     "source": "override",
-     "note": "WP03 tests/adapters/codex/real-runtime.test.ts: model/list reports supported reasoning efforts per model and -c model_reasoning_effort=\"<value>\" is reflected in the thread/start response; thread/start has no effort parameter in this protocol version"
-    },
-    "token_usage_report": {
-     "status": "verified",
-     "source": "override",
-     "note": "WP03 tests/adapters/codex/real-runtime.test.ts: thread/tokenUsage/updated reports input, cached input, output and reasoning token counts per turn"
-    },
-    "cost_report": {
-     "status": "unsupported",
-     "source": "override",
-     "note": "WP03 docs/runtime-codex.md: the app server reports no currency-cost field at all; cost must be labelled unavailable, never zero"
-    }
-   },
-   "checkedAt": "2026-09-07T07:59:13.775Z",
-   "minimumSupportedVersion": "0.140.0",
-   "probeKind": "passive",
-   "authDetail": "`codex login status` reports an active login",
-   "missingControls": [],
-   "installations": [
-    {
-     "path": "/opt/homebrew/bin/codex",
-     "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
-     "source": "path",
-     "origins": [
-      "PATH entry /opt/homebrew/bin"
-     ],
-     "selected": true
-    }
-   ],
-   "searchedLocations": [
-    "[omitted for this evidence record: 61 directories from the recording machine's PATH and known install locations; they name unrelated local tooling and per-session directories and are not needed to read this report]"
-   ],
-   "probes": [
-    {
-     "purpose": "version",
-     "argv": [
-      "/opt/homebrew/bin/codex",
-      "--version"
-     ],
-     "exitCode": 0,
-     "timedOut": false,
-     "durationMs": 46,
-     "timeoutMs": 10000,
-     "spawnError": null
-    },
-    {
-     "purpose": "auth",
-     "argv": [
-      "/opt/homebrew/bin/codex",
-      "login",
-      "status"
-     ],
-     "exitCode": 0,
-     "timedOut": false,
-     "durationMs": 49,
-     "timeoutMs": 10000,
-     "spawnError": null
-    }
-   ],
-   "diagnostics": []
+  "ok": true,
+  "command": "doctor",
+  "exitCode": 0,
+  "stateRoot": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r0b/state-doctor",
+  "passive": true,
+  "verifiedCapabilitiesFile": {
+    "path": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/docs/verified-capabilities.json",
+    "present": true
   },
-  {
-   "adapter": "claude-code",
-   "executable": "/Users/shebin_mohan_k/.local/bin/claude",
-   "realPath": "/Users/shebin_mohan_k/.local/share/claude/versions/2.1.260",
-   "version": "2.1.260",
-   "installed": true,
-   "adapterSupported": true,
-   "controllable": true,
-   "auth": "logged_in",
-   "readiness": "controllable",
-   "capabilities": {
-    "structured_execution": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "`--print --output-format stream-json` emits structured events and a result record"
-    },
-    "owned_session_identity": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "sessions carry an id that `--resume` accepts"
-    },
-    "observed_cancellation": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "the process can be interrupted; observed termination still needs the process group"
-    },
-    "resume_session": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "documented for this version range; not yet proved against the installed executable"
-    },
-    "active_turn_delivery": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "documented for this version range; not yet proved against the installed executable"
-    },
-    "mcp_config_injection": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "MCP servers are configured through `--mcp-config`"
-    },
-    "sandbox_workspace_write": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "write scope is bounded by `--add-dir` and the permission mode, not by an OS sandbox"
-    },
-    "model_selection": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "documented for this version range; not yet proved against the installed executable"
-    },
-    "effort_selection": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "`--effort` accepts low, medium, high, xhigh and max on this version"
-    },
-    "token_usage_report": {
-     "status": "supported_unverified",
-     "source": "table",
-     "note": "documented for this version range; not yet proved against the installed executable"
-    },
-    "cost_report": {
-     "status": "unsupported",
-     "source": "table",
-     "note": "no currency-cost field is established for this runtime; report cost as unavailable, never as zero"
-    }
-   },
-   "checkedAt": "2026-09-07T07:59:13.873Z",
-   "minimumSupportedVersion": "2.1.0",
-   "probeKind": "passive",
-   "authDetail": "`claude auth status` reported loggedIn=true",
-   "missingControls": [],
-   "installations": [
-    {
-     "path": "/Users/shebin_mohan_k/.local/bin/claude",
-     "realPath": "/Users/shebin_mohan_k/.local/share/claude/versions/2.1.260",
-     "source": "path",
-     "origins": [
-      "PATH entry /Users/shebin_mohan_k/.local/bin"
-     ],
-     "selected": true
-    }
-   ],
-   "searchedLocations": [
-    "[omitted for this evidence record: 61 directories from the recording machine's PATH and known install locations; they name unrelated local tooling and per-session directories and are not needed to read this report]"
-   ],
-   "probes": [
-    {
-     "purpose": "version",
-     "argv": [
-      "/Users/shebin_mohan_k/.local/bin/claude",
-      "--version"
-     ],
-     "exitCode": 0,
-     "timedOut": false,
-     "durationMs": 67,
-     "timeoutMs": 10000,
-     "spawnError": null
-    },
-    {
-     "purpose": "auth",
-     "argv": [
-      "/Users/shebin_mohan_k/.local/bin/claude",
-      "auth",
-      "status"
-     ],
-     "exitCode": 0,
-     "timedOut": false,
-     "durationMs": 273,
-     "timeoutMs": 10000,
-     "spawnError": null
-    }
-   ],
-   "diagnostics": []
-  }
- ],
- "config": {
-  "path": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-r0/agents.json",
-  "schemaVersion": 1,
   "runtimes": [
-   {
-    "id": "codex-local",
-    "adapter": "codex",
-    "executable": "/opt/homebrew/bin/codex",
-    "readiness": "controllable",
-    "settings": {
-     "adapter": "codex",
-     "version": "0.147.0",
-     "adapterSupported": true,
-     "accepted": [
-      {
-       "setting": "model",
-       "value": "gpt-5.6-sol",
-       "status": "accepted_unverified",
-       "controls": [
-        {
-         "argv": [
-          "--model",
-          "gpt-5.6-sol"
-         ],
-         "description": "codex model selection"
+    {
+      "adapter": "codex",
+      "executable": "/opt/homebrew/bin/codex",
+      "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+      "version": "0.147.0",
+      "installed": true,
+      "adapterSupported": true,
+      "controllable": true,
+      "auth": "logged_in",
+      "readiness": "controllable",
+      "capabilities": {
+        "structured_execution": {
+          "status": "verified",
+          "source": "override",
+          "note": "WP03 tests/adapters/codex/real-runtime.test.ts (codex-cli 0.147.0, darwin): thread/started, turn/started, item/started, item/completed, thread/tokenUsage/updated, error and turn/completed observed on real sessions and normalized; unknown methods and fields are preserved as raw events"
+        },
+        "owned_session_identity": {
+          "status": "verified",
+          "source": "override",
+          "note": "WP03 tests/adapters/codex/real-runtime.test.ts: thread/start returns a stable thread id reused by every later request, notification and resume"
+        },
+        "observed_cancellation": {
+          "status": "verified",
+          "source": "override",
+          "note": "WP03 tests/adapters/codex/real-runtime.test.ts: turn/interrupt ended a running shell loop and the receipt reports 'observed' only after turn/completed with status interrupted; shutdown escalates SIGTERM then SIGKILL against the owned process group and reports the observed group state"
+        },
+        "resume_session": {
+          "status": "verified",
+          "source": "override",
+          "note": "WP03 tests/adapters/codex/real-runtime.test.ts: a thread was resumed by id in a second app-server process after the first was terminated and answered from the earlier turn's history. Resuming a thread with no completed turn fails with -32600 'no rollout found'"
+        },
+        "active_turn_delivery": {
+          "status": "verified",
+          "source": "override",
+          "note": "WP03 tests/adapters/codex/real-runtime.test.ts: turn/steer with expectedTurnId accepted mid-turn, receipt state submitted_to_active_turn; a delivery with no active turn is queued and flushed into the next turn/start input"
+        },
+        "mcp_config_injection": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "MCP servers are configured through `-c mcp_servers...`"
+        },
+        "sandbox_workspace_write": {
+          "status": "verified",
+          "source": "override",
+          "note": "WP03 tests/adapters/codex/real-runtime.test.ts (FR042 boundary): workspace-write with explicit writableRoots plus excludeSlashTmp and excludeTmpdirEnvVar. Writes inside the granted root succeed; writes to a sibling workspace, /tmp and $TMPDIR are denied with 'Operation not permitted'; network denied. Checked through command/exec and through a model-driven turn. Codex's own workspaceWrite default leaves /tmp and $TMPDIR writable, so both exclusions are always set by this adapter"
+        },
+        "model_selection": {
+          "status": "verified",
+          "source": "override",
+          "note": "WP03 tests/adapters/codex/real-runtime.test.ts: model/list reports available ids and -c model=\"<id>\" is reflected in the thread/start response and used by the turn"
+        },
+        "effort_selection": {
+          "status": "verified",
+          "source": "override",
+          "note": "WP03 tests/adapters/codex/real-runtime.test.ts: model/list reports supported reasoning efforts per model and -c model_reasoning_effort=\"<value>\" is reflected in the thread/start response; thread/start has no effort parameter in this protocol version"
+        },
+        "token_usage_report": {
+          "status": "verified",
+          "source": "override",
+          "note": "WP03 tests/adapters/codex/real-runtime.test.ts: thread/tokenUsage/updated reports input, cached input, output and reasoning token counts per turn"
+        },
+        "cost_report": {
+          "status": "unsupported",
+          "source": "override",
+          "note": "WP03 docs/runtime-codex.md: the app server reports no currency-cost field at all; cost must be labelled unavailable, never zero"
         }
-       ],
-       "note": "discovery cannot enumerate this runtime's models, so the value is passed through unchanged and the effective model is recorded from what the runtime reports"
       },
-      {
-       "setting": "effort",
-       "value": "medium",
-       "status": "accepted",
-       "controls": [
+      "checkedAt": "2026-09-07T10:16:42.054Z",
+      "minimumSupportedVersion": "0.140.0",
+      "probeKind": "passive",
+      "authDetail": "`codex login status` reports an active login",
+      "missingControls": [],
+      "installations": [
         {
-         "argv": [
-          "-c",
-          "model_reasoning_effort=\"medium\""
-         ],
-         "description": "Codex sets reasoning effort through a configuration value, not a flag"
+          "path": "/opt/homebrew/bin/codex",
+          "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+          "source": "path",
+          "origins": [
+            "PATH entry /opt/homebrew/bin"
+          ],
+          "selected": true
         }
-       ],
-       "note": "documented effort level for codex"
-      }
-     ],
-     "rejected": [],
-     "unsupported": [],
-     "ok": true
-    }
-   }
-  ],
-  "agents": [
-   {
-    "id": "engineer",
-    "runtime": "codex-local",
-    "adapter": "codex",
-    "policy": "local-development",
-    "snapshotHash": "26e9c5aaeee9b5a97084785b2127a4f5dd834f687779157dfc6b82db0d9e04c3",
-    "settings": {
-     "adapter": "codex",
-     "version": "0.147.0",
-     "adapterSupported": true,
-     "accepted": [
-      {
-       "setting": "model",
-       "value": "gpt-5.6-sol",
-       "status": "accepted_unverified",
-       "controls": [
+      ],
+      "searchedLocations": [
+        "[omitted for this evidence record: 61 directories from the recording machine's PATH and known install locations; they name unrelated local tooling and per-session directories and are not needed to read this report]"
+      ],
+      "probes": [
         {
-         "argv": [
-          "--model",
-          "gpt-5.6-sol"
-         ],
-         "description": "codex model selection"
-        }
-       ],
-       "note": "discovery cannot enumerate this runtime's models, so the value is passed through unchanged and the effective model is recorded from what the runtime reports"
-      },
-      {
-       "setting": "effort",
-       "value": "medium",
-       "status": "accepted",
-       "controls": [
-        {
-         "argv": [
-          "-c",
-          "model_reasoning_effort=\"medium\""
-         ],
-         "description": "Codex sets reasoning effort through a configuration value, not a flag"
-        }
-       ],
-       "note": "documented effort level for codex"
-      },
-      {
-       "setting": "permissions.profile",
-       "value": "local-development",
-       "status": "accepted",
-       "controls": [
-        {
-         "argv": [
-          "--sandbox",
-          "workspace-write"
-         ],
-         "description": "local-development: the granted candidate workspace is writable"
+          "purpose": "version",
+          "argv": [
+            "/opt/homebrew/bin/codex",
+            "--version"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "durationMs": 44,
+          "timeoutMs": 10000,
+          "spawnError": null
         },
         {
-         "argv": [
-          "--ask-for-approval",
-          "never"
-         ],
-         "description": "unattended execution: failures return to the model instead of waiting on an approval prompt"
+          "purpose": "auth",
+          "argv": [
+            "/opt/homebrew/bin/codex",
+            "login",
+            "status"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "durationMs": 47,
+          "timeoutMs": 10000,
+          "spawnError": null
         }
-       ],
-       "note": "the local-development profile maps to --sandbox workspace-write --ask-for-approval never"
-      }
-     ],
-     "rejected": [],
-     "unsupported": [
-      {
-       "setting": "permissions.network",
-       "reason": "no documented codex flag enforces the \"project_allowlist\" worker-tool network policy; it must be enforced by the execution environment rather than claimed by the adapter"
+      ],
+      "diagnostics": []
+    },
+    {
+      "adapter": "claude-code",
+      "executable": "/Users/shebin_mohan_k/.local/bin/claude",
+      "realPath": "/Users/shebin_mohan_k/.local/share/claude/versions/2.1.260",
+      "version": "2.1.260",
+      "installed": true,
+      "adapterSupported": true,
+      "controllable": true,
+      "auth": "logged_in",
+      "readiness": "controllable",
+      "capabilities": {
+        "structured_execution": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "`--print --output-format stream-json` emits structured events and a result record"
+        },
+        "owned_session_identity": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "sessions carry an id that `--resume` accepts"
+        },
+        "observed_cancellation": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "the process can be interrupted; observed termination still needs the process group"
+        },
+        "resume_session": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "documented for this version range; not yet proved against the installed executable"
+        },
+        "active_turn_delivery": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "documented for this version range; not yet proved against the installed executable"
+        },
+        "mcp_config_injection": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "MCP servers are configured through `--mcp-config`"
+        },
+        "sandbox_workspace_write": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "write scope is bounded by `--add-dir` and the permission mode, not by an OS sandbox"
+        },
+        "model_selection": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "documented for this version range; not yet proved against the installed executable"
+        },
+        "effort_selection": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "`--effort` accepts low, medium, high, xhigh and max on this version"
+        },
+        "token_usage_report": {
+          "status": "supported_unverified",
+          "source": "table",
+          "note": "documented for this version range; not yet proved against the installed executable"
+        },
+        "cost_report": {
+          "status": "unsupported",
+          "source": "table",
+          "note": "no currency-cost field is established for this runtime; report cost as unavailable, never as zero"
+        }
       },
-      {
-       "setting": "permissions.externalDelivery",
-       "reason": "no adapter control prevents a worker from attempting a push or deployment; the coordinator denies external delivery by withholding credentials and remotes"
-      }
-     ],
-     "ok": true
+      "checkedAt": "2026-09-07T10:16:42.149Z",
+      "minimumSupportedVersion": "2.1.0",
+      "probeKind": "passive",
+      "authDetail": "`claude auth status` reported loggedIn=true",
+      "missingControls": [],
+      "installations": [
+        {
+          "path": "/Users/shebin_mohan_k/.local/bin/claude",
+          "realPath": "/Users/shebin_mohan_k/.local/share/claude/versions/2.1.260",
+          "source": "path",
+          "origins": [
+            "PATH entry /Users/shebin_mohan_k/.local/bin"
+          ],
+          "selected": true
+        }
+      ],
+      "searchedLocations": [
+        "[omitted for this evidence record: 61 directories from the recording machine's PATH and known install locations; they name unrelated local tooling and per-session directories and are not needed to read this report]"
+      ],
+      "probes": [
+        {
+          "purpose": "version",
+          "argv": [
+            "/Users/shebin_mohan_k/.local/bin/claude",
+            "--version"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "durationMs": 77,
+          "timeoutMs": 10000,
+          "spawnError": null
+        },
+        {
+          "purpose": "auth",
+          "argv": [
+            "/Users/shebin_mohan_k/.local/bin/claude",
+            "auth",
+            "status"
+          ],
+          "exitCode": 0,
+          "timedOut": false,
+          "durationMs": 293,
+          "timeoutMs": 10000,
+          "spawnError": null
+        }
+      ],
+      "diagnostics": []
     }
-   }
   ],
-  "defaults": {
-   "workerAgent": "engineer",
-   "maxActiveTurns": 2,
-   "maxActiveWriters": 2,
-   "maxTasksPerRun": 8,
-   "maxDelegationDepth": 2,
-   "maxRepairAttempts": 2,
-   "maxTransientRetries": 2,
-   "runTimeoutMinutes": 30
+  "config": {
+    "path": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r0b/agents.json",
+    "schemaVersion": 1,
+    "runtimes": [
+      {
+        "id": "codex-local",
+        "adapter": "codex",
+        "executable": "/opt/homebrew/bin/codex",
+        "probedExecutable": "/opt/homebrew/bin/codex",
+        "probedConfiguredPath": false,
+        "version": "0.147.0",
+        "readiness": "controllable",
+        "auth": "logged_in",
+        "capabilities": {
+          "structured_execution": {
+            "status": "verified",
+            "source": "override"
+          },
+          "owned_session_identity": {
+            "status": "verified",
+            "source": "override"
+          },
+          "observed_cancellation": {
+            "status": "verified",
+            "source": "override"
+          },
+          "resume_session": {
+            "status": "verified",
+            "source": "override"
+          },
+          "active_turn_delivery": {
+            "status": "verified",
+            "source": "override"
+          },
+          "mcp_config_injection": {
+            "status": "supported_unverified",
+            "source": "table"
+          },
+          "sandbox_workspace_write": {
+            "status": "verified",
+            "source": "override"
+          },
+          "model_selection": {
+            "status": "verified",
+            "source": "override"
+          },
+          "effort_selection": {
+            "status": "verified",
+            "source": "override"
+          },
+          "token_usage_report": {
+            "status": "verified",
+            "source": "override"
+          },
+          "cost_report": {
+            "status": "unsupported",
+            "source": "override"
+          }
+        },
+        "settings": {
+          "adapter": "codex",
+          "version": "0.147.0",
+          "adapterSupported": true,
+          "accepted": [
+            {
+              "setting": "model",
+              "value": "gpt-5.6-sol",
+              "status": "accepted_unverified",
+              "controls": [
+                {
+                  "argv": [
+                    "--model",
+                    "gpt-5.6-sol"
+                  ],
+                  "description": "codex model selection"
+                }
+              ],
+              "note": "discovery cannot enumerate this runtime's models, so the value is passed through unchanged and the effective model is recorded from what the runtime reports"
+            },
+            {
+              "setting": "effort",
+              "value": "medium",
+              "status": "accepted",
+              "controls": [
+                {
+                  "argv": [
+                    "-c",
+                    "model_reasoning_effort=\"medium\""
+                  ],
+                  "description": "Codex sets reasoning effort through a configuration value, not a flag"
+                }
+              ],
+              "note": "documented effort level for codex"
+            }
+          ],
+          "rejected": [],
+          "unsupported": [],
+          "ok": true
+        }
+      }
+    ],
+    "agents": [
+      {
+        "id": "engineer",
+        "runtime": "codex-local",
+        "adapter": "codex",
+        "policy": "local-development",
+        "snapshotHash": "26e9c5aaeee9b5a97084785b2127a4f5dd834f687779157dfc6b82db0d9e04c3",
+        "settings": {
+          "adapter": "codex",
+          "version": "0.147.0",
+          "adapterSupported": true,
+          "accepted": [
+            {
+              "setting": "model",
+              "value": "gpt-5.6-sol",
+              "status": "accepted_unverified",
+              "controls": [
+                {
+                  "argv": [
+                    "--model",
+                    "gpt-5.6-sol"
+                  ],
+                  "description": "codex model selection"
+                }
+              ],
+              "note": "discovery cannot enumerate this runtime's models, so the value is passed through unchanged and the effective model is recorded from what the runtime reports"
+            },
+            {
+              "setting": "effort",
+              "value": "medium",
+              "status": "accepted",
+              "controls": [
+                {
+                  "argv": [
+                    "-c",
+                    "model_reasoning_effort=\"medium\""
+                  ],
+                  "description": "Codex sets reasoning effort through a configuration value, not a flag"
+                }
+              ],
+              "note": "documented effort level for codex"
+            },
+            {
+              "setting": "permissions.profile",
+              "value": "local-development",
+              "status": "accepted",
+              "controls": [
+                {
+                  "argv": [
+                    "--sandbox",
+                    "workspace-write"
+                  ],
+                  "description": "local-development: the granted candidate workspace is writable"
+                },
+                {
+                  "argv": [
+                    "--ask-for-approval",
+                    "never"
+                  ],
+                  "description": "unattended execution: failures return to the model instead of waiting on an approval prompt"
+                }
+              ],
+              "note": "the local-development profile maps to --sandbox workspace-write --ask-for-approval never"
+            }
+          ],
+          "rejected": [],
+          "unsupported": [
+            {
+              "setting": "permissions.network",
+              "reason": "no documented codex flag enforces the \"project_allowlist\" worker-tool network policy; it must be enforced by the execution environment rather than claimed by the adapter"
+            },
+            {
+              "setting": "permissions.externalDelivery",
+              "reason": "no adapter control prevents a worker from attempting a push or deployment; the coordinator denies external delivery by withholding credentials and remotes"
+            }
+          ],
+          "ok": true
+        }
+      }
+    ],
+    "defaults": {
+      "workerAgent": "engineer",
+      "maxActiveTurns": 2,
+      "maxActiveWriters": 2,
+      "maxTasksPerRun": 8,
+      "maxDelegationDepth": 2,
+      "maxRepairAttempts": 2,
+      "maxTransientRetries": 2,
+      "runTimeoutMinutes": 30
+    }
   }
- }
 }

@@ -76,15 +76,18 @@ describe('a probe is bounded and takes its whole process group with it', () => {
     const pidFile = path.join(root, 'child.pid');
     const hanging = writeExecutable(root, 'codex', hangingScript(pidFile));
 
+    // Long enough that the script reliably reaches `echo $! > pidFile` even on
+    // a loaded machine — a probe killed before its child exists would test
+    // nothing about process groups — and still far below the bound asserted here.
     const started = Date.now();
-    const probe = await probeRuntime('codex', hanging, { timeoutMs: 700 });
+    const probe = await probeRuntime('codex', hanging, { timeoutMs: 3_000 });
     const elapsed = Date.now() - started;
 
     const record = probe.probes[0]!;
     expect(record.timedOut).toBe(true);
     expect(probe.version).toBeNull();
     expect(probe.diagnostics.join(' ')).toContain('process group was terminated');
-    expect(elapsed).toBeLessThan(6_000); // the deadline is enforced, not merely recorded
+    expect(elapsed).toBeLessThan(10_000); // the deadline is enforced, not merely recorded
 
     expect(existsSync(pidFile)).toBe(true);
     const grandchild = Number(readFileSync(pidFile, 'utf8').trim());

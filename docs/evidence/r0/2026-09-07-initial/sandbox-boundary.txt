@@ -1,0 +1,15 @@
+policy           : local-development
+writableRoots    : [/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-r0/probe/granted]
+also set         : excludeSlashTmp, excludeTmpdirEnvVar, networkAccess: false
+read target      : /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/AGENTS.md
+write target     : /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-r0/probe/outside/probe-escape.txt
+
+write inside the granted root    exit   0   wrote
+write outside the granted root   exit   1   …v50vb_g1hlhd5zz_yw0000gn/T/workforce-r0/probe/outside/probe-escape.txt: Operation not permitted
+read outside the granted root    exit   0   # AGENTS.md — repository conventions for codin
+network from a worker tool       exit   6   (no output)
+
+after the probe: the outside directory is empty (0 files) — the denied write created nothing.
+curl exit 6 is "Couldn't resolve host"; networkAccess: false blocks the worker tool's DNS.
+the read succeeded and returned the file's first bytes: workspaceWrite has no read scope in
+codex app-server protocol 0.147.0, so this half of the local-development profile is not enforced.

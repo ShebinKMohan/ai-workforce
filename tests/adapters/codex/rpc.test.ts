@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -205,3 +206,61 @@ describe('codex json-rpc transport', () => {
     }
   });
 });
+
+describe('the replay fixture answers every client frame, however they are chunked', () => {
+  /**
+   * `initialize` -> `initialized` -> `model/list` is the real client's opening
+   * sequence, and the last two routinely land in one stdin chunk. The fixture
+   * used to advance its transcript cursor outside the write chain, so the
+   * second frame skipped its own `out` record and its response was never
+   * emitted — a real client then waited for a reply that could not come.
+   */
+  it('answers two requests that arrive in a single stdin write', async () => {
+    const root = tempRoot();
+    const transcript = writeTranscript(root, 'batched.jsonl', [
+      out({ id: 1, method: 'initialize' }),
+      inn({ id: 1, result: { userAgent: 'fake' } }),
+      out({ method: 'initialized' }),
+      inn({ method: 'thread/started', params: { thread: { id: 'thread-1' } } }),
+      out({ id: 2, method: 'model/list' }),
+      inn({ id: 2, result: { data: [{ id: 'model-a' }] } }),
+    ]);
+
+    const server = spawn(process.execPath, [FAKE_APP_SERVER, '--transcript', transcript], { stdio: ['pipe', 'pipe', 'pipe'], shell: false });
+    try {
+      const frames: Array<Record<string, unknown>> = [];
+      let buffer = '';
+      server.stdout.setEncoding('utf8');
+      server.stdout.on('data', (chunk: string) => {
+        buffer += chunk;
+        let newline = buffer.indexOf('\n');
+        while (newline >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          if (line.length > 0) frames.push(JSON.parse(line) as Record<string, unknown>);
+          newline = buffer.indexOf('\n');
+        }
+      });
+
+      server.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })}\n`);
+      await waitForFrames(frames, 1);
+      // Both in one write: this is what makes the ordering matter.
+      server.stdin.write(
+        `${JSON.stringify({ jsonrpc: '2.0', method: 'initialized' })}\n${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'model/list', params: {} })}\n`,
+      );
+      await waitForFrames(frames, 3);
+
+      expect(frames.map((frame) => frame['id'] ?? frame['method'])).toEqual([1, 'thread/started', 2]);
+      expect(frames[2]!['result']).toEqual({ data: [{ id: 'model-a' }] });
+    } finally {
+      server.kill('SIGKILL');
+      await new Promise((resolve) => server.once('exit', resolve));
+    }
+  });
+});
+
+async function waitForFrames(frames: ReadonlyArray<unknown>, count: number, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (frames.length < count && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+  if (frames.length < count) throw new Error(`the replay fixture emitted ${frames.length} frame(s); expected at least ${count} within ${timeoutMs}ms`);
+}

@@ -28,13 +28,13 @@ import {
   type RunDirectResult,
   type RunStream,
 } from '../../core/run-direct.js';
-import { LockHeldError } from '../../storage/lock.js';
+import { LockHeldError, LockLostError } from '../../storage/lock.js';
 import { openStateStore } from '../../storage/db.js';
 import { createStatePaths, PathsManifestSchema, resolveStateRoot } from '../../storage/paths.js';
 import { ProjectInspectionError } from '../../workspaces/project.js';
 import { CandidateWorkspaceError } from '../../workspaces/candidate.js';
 import { redactedJson } from '../../telemetry/redaction.js';
-import { CliError, EXIT_CODES, type CommandResult, type ExitCode, type Reporter, type Streams } from '../output.js';
+import { CliError, EXIT_CODES, statusLabel, type CommandResult, type ExitCode, type Reporter, type Streams } from '../output.js';
 
 export interface RunCommandArgs {
   readonly repo?: string;
@@ -174,6 +174,7 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
       paths,
       db: store.db,
       stream: createRunStream(deps.reporter, deps.streams),
+      ...(store.lock !== null ? { ownership: store.lock } : {}),
       ...(args.agent !== undefined ? { agentId: args.agent } : {}),
       ...(args.checks !== undefined ? { checkFlags: args.checks } : {}),
       ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
@@ -213,7 +214,7 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   const lines: string[] = [
     `run ${result.runId}: ${result.outcome}`,
     `task ${result.taskId}: ${result.taskState}`,
-    ...result.manifest.requirements.map((requirement) => `  ${requirement.status === 'passed' ? 'PASS' : requirement.status === 'failed' ? 'FAIL' : '????'} ${requirement.criterionId}: ${requirement.detail}`),
+    ...result.manifest.requirements.map((requirement) => `  ${statusLabel(requirement.status)} ${requirement.criterionId}: ${requirement.detail}`),
     `evidence and manifest: ${result.runDir}`,
   ];
   if (result.manifest.unresolved.length > 0) {
@@ -226,6 +227,11 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
 
 function toCliError(error: unknown): CliError {
   if (error instanceof CliError) return error;
+  if (error instanceof LockLostError) {
+    return new CliError(EXIT_CODES.executionFailure, 'coordinator_ownership_lost', error.message, [
+      'the coordinator lock stopped excluding other coordinators mid-run; whatever was written is preserved, but this run cannot claim it owned the state root',
+    ]);
+  }
   if (error instanceof AdapterNotRegisteredError) {
     return new CliError(EXIT_CODES.executionFailure, 'adapter_not_registered', error.message);
   }
