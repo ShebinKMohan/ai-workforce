@@ -2,14 +2,15 @@
 /**
  * workforce CLI: doctor | run | status | resume.
  *
- * WP01 wires argument parsing, configuration validation (exit 2 on invalid
- * input), state-root resolution and read-only status. Discovery, execution
- * and resume arrive with WP02-WP09 and currently report "not implemented".
+ * WP01 wired argument parsing, configuration validation (exit 2 on invalid
+ * input), state-root resolution and read-only status. WP02 adds `doctor`.
+ * Execution and resume arrive with WP03-WP09 and report "not implemented".
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { commandDoctor as runDoctor } from './commands/doctor.js';
 import { ContractValidationError } from '../core/contracts.js';
 import { loadAgentConfigFile, type LoadedAgentConfig } from '../core/config.js';
 import { computeAgentSnapshot } from '../core/snapshot.js';
@@ -25,7 +26,7 @@ import { CliError, EXIT_CODES, Reporter, type CommandResult, type ExitCode, type
 export const USAGE = `workforce — coordinate installed coding runtimes on one engineering task
 
 Usage:
-  workforce doctor [--agents <file>] [--state-dir <dir>] [--json]
+  workforce doctor [--codex-path <file>] [--claude-path <file>] [--agents <file>] [--state-dir <dir>] [--json]
   workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--state-dir <dir>] [--json]
   workforce status <run-id> [--state-dir <dir>] [--json]
   workforce resume <run-id> --agents <file> [--state-dir <dir>] [--json]
@@ -35,6 +36,8 @@ Options:
   --agents <file>      agent configuration JSON (schemaVersion 1)
   --task <text>        task request text
   --task-file <file>   read the task request from a file
+  --codex-path <file>  explicit path to the codex executable (doctor)
+  --claude-path <file> explicit path to the claude executable (doctor)
   --state-dir <dir>    coordinator state root (default: $WORKFORCE_STATE_DIR or ~/.workforce)
   --json               machine-readable stdout; diagnostics go to stderr
   -h, --help           show this help
@@ -48,6 +51,8 @@ interface ParsedArgs {
   readonly agents?: string;
   readonly task?: string;
   readonly taskFile?: string;
+  readonly codexPath?: string;
+  readonly claudePath?: string;
   readonly stateDir?: string;
   readonly json: boolean;
   readonly help: boolean;
@@ -69,6 +74,8 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     ...(values.agents !== undefined ? { agents: values.agents } : {}),
     ...(values.task !== undefined ? { task: values.task } : {}),
     ...(values['task-file'] !== undefined ? { taskFile: values['task-file'] } : {}),
+    ...(values['codex-path'] !== undefined ? { codexPath: values['codex-path'] } : {}),
+    ...(values['claude-path'] !== undefined ? { claudePath: values['claude-path'] } : {}),
     ...(values['state-dir'] !== undefined ? { stateDir: values['state-dir'] } : {}),
     json: values.json === true,
     help: values.help === true,
@@ -80,6 +87,8 @@ const OPTIONS = {
   agents: { type: 'string' },
   task: { type: 'string' },
   'task-file': { type: 'string' },
+  'codex-path': { type: 'string' },
+  'claude-path': { type: 'string' },
   'state-dir': { type: 'string' },
   json: { type: 'boolean', default: false },
   help: { type: 'boolean', short: 'h', default: false },
@@ -155,20 +164,14 @@ function requireRunId(args: ParsedArgs, command: string): string {
   return runId;
 }
 
-function commandDoctor(args: ParsedArgs): CommandResult {
-  const stateRoot = resolveStateRoot(args.stateDir);
-  const data: Record<string, unknown> = { stateRoot };
-  const lines = [`state root: ${stateRoot}`];
-  if (args.agents !== undefined) {
-    const loaded = loadConfigOrFail(args.agents);
-    data['config'] = configSummary(loaded);
-    lines.push(`agent configuration: ${loaded.path} (valid)`);
-    for (const agent of loaded.config.agents) {
-      const runtime = loaded.config.runtimes[agent.runtime]!;
-      lines.push(`  agent ${agent.id}: runtime ${agent.runtime} (${runtime.adapter} via ${runtime.executable}), policy ${agent.policy}`);
-    }
-  }
-  return notImplemented('doctor', data, lines, 'WP02 discovery');
+/** WP02 discovery: bounded passive probes, readiness and setting validation. */
+function commandDoctor(args: ParsedArgs): Promise<CommandResult> {
+  return runDoctor({
+    stateDir: args.stateDir,
+    codexPath: args.codexPath,
+    claudePath: args.claudePath,
+    config: args.agents === undefined ? undefined : loadConfigOrFail(args.agents),
+  });
 }
 
 function commandRun(args: ParsedArgs): CommandResult {
@@ -240,7 +243,7 @@ function commandResume(args: ParsedArgs): CommandResult {
   return notImplemented('resume', data, lines, 'WP09 recovery');
 }
 
-export function runCli(argv: ReadonlyArray<string>, streams: Streams = process): ExitCode {
+export async function runCli(argv: ReadonlyArray<string>, streams: Streams = process): Promise<ExitCode> {
   let json = argv.includes('--json');
   let reporter = new Reporter(json, streams);
   let command = 'workforce';
@@ -256,7 +259,7 @@ export function runCli(argv: ReadonlyArray<string>, streams: Streams = process):
     command = args.command;
     switch (args.command) {
       case 'doctor':
-        return reporter.result(commandDoctor(args));
+        return reporter.result(await commandDoctor(args));
       case 'run':
         return reporter.result(commandRun(args));
       case 'status':
@@ -273,12 +276,12 @@ export function runCli(argv: ReadonlyArray<string>, streams: Streams = process):
   }
 }
 
-function main(): void {
+async function main(): Promise<void> {
   process.on('SIGINT', () => {
     process.stderr.write('\ninterrupted\n');
     process.exit(EXIT_CODES.interrupted);
   });
-  process.exitCode = runCli(process.argv.slice(2));
+  process.exitCode = await runCli(process.argv.slice(2));
 }
 
 function isInvokedDirectly(): boolean {
@@ -291,4 +294,4 @@ function isInvokedDirectly(): boolean {
   }
 }
 
-if (isInvokedDirectly()) main();
+if (isInvokedDirectly()) void main();
