@@ -1,0 +1,332 @@
+/**
+ * Integration wiring: the CLI dispatches doctor/run/status, the run path's
+ * adapter registry resolves the real Codex adapter, and --state-dir /
+ * --workspace-root reach the coordinator's paths.
+ *
+ * Nothing here starts a model turn: the Codex branch is exercised with a stub
+ * executable that exits immediately, which proves the adapter is constructed
+ * and driven without paying for a turn.
+ */
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { FakeAdapter, FAKE_SCENARIO_ENV, type CapabilityName, type RuntimeCapabilities, type SessionHandle } from '../../src/adapters/index.js';
+import { CodexAdapter } from '../../src/adapters/codex/index.js';
+import { FAKE_APP_SERVER, fixturePath as codexFixturePath } from '../adapters/codex/helpers.js';
+import { runCli } from '../../src/cli/index.js';
+import { EXIT_CODES } from '../../src/cli/output.js';
+import { loadAgentConfigFile } from '../../src/core/config.js';
+import { AdapterNotRegisteredError, createAdapter, runDirect } from '../../src/core/run-direct.js';
+import { openStateStore } from '../../src/storage/db.js';
+import { createStatePaths } from '../../src/storage/paths.js';
+import { cleanupAll, fixTheBugScenario, registerCleanup, tempDir, useFixture, writeFakeAgentsConfig, writeScenario } from '../workspaces/support.js';
+
+const CODEX_TRANSCRIPT = codexFixturePath('session-hello.synthetic.jsonl');
+
+afterEach(() => cleanupAll());
+
+interface Captured {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly code: number;
+}
+
+async function invoke(argv: string[]): Promise<Captured> {
+  let stdout = '';
+  let stderr = '';
+  const sink = (append: (chunk: string) => void): NodeJS.WritableStream =>
+    ({
+      write(chunk: string | Uint8Array) {
+        append(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+        return true;
+      },
+    }) as unknown as NodeJS.WritableStream;
+  const code = await runCli(argv, { stdout: sink((c) => (stdout += c)), stderr: sink((c) => (stderr += c)) });
+  return { stdout, stderr, code };
+}
+
+function useScenario(): void {
+  const scenarioPath = writeScenario(fixTheBugScenario());
+  const previous = process.env[FAKE_SCENARIO_ENV];
+  process.env[FAKE_SCENARIO_ENV] = scenarioPath;
+  registerCleanup(() => {
+    if (previous === undefined) delete process.env[FAKE_SCENARIO_ENV];
+    else process.env[FAKE_SCENARIO_ENV] = previous;
+  });
+}
+
+/** An executable that answers nothing and exits: enough to drive the adapter, never a model turn. */
+function stubExecutable(dir: string): string {
+  const file = path.join(dir, 'codex-stub');
+  writeFileSync(file, '#!/bin/sh\nexit 0\n');
+  chmodSync(file, 0o755);
+  return file;
+}
+
+function writeCodexAgentsConfig(dir: string, executable: string): string {
+  const file = path.join(dir, 'agents.json');
+  writeFileSync(
+    file,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        runtimes: { 'codex-local': { adapter: 'codex', executable } },
+        defaults: {
+          workerAgent: 'engineer',
+          maxActiveTurns: 2,
+          maxActiveWriters: 2,
+          maxTasksPerRun: 8,
+          maxDelegationDepth: 2,
+          maxRepairAttempts: 2,
+          maxTransientRetries: 2,
+          runTimeoutMinutes: 30,
+        },
+        agents: [{ id: 'engineer', runtime: 'codex-local', instructions: 'Fix the issue and show evidence.', capabilities: ['coding'], policy: 'local-development' }],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  return file;
+}
+
+describe('run-path adapter registry', () => {
+  it('resolves "codex" to the real Codex adapter, keeps "fake" and still refuses the unbuilt claude-code adapter', () => {
+    const logsDir = path.join(tempDir('workforce-registry-'), 'logs');
+    const context = { runId: 'run-1', taskId: 'task-1', attemptId: 'attempt-1', logsDir };
+
+    const codex = createAdapter({ id: 'codex-local', adapter: 'codex', executable: '/usr/local/bin/codex' }, context);
+    expect(codex).toBeInstanceOf(CodexAdapter);
+    expect(codex.id).toBe('codex');
+    // The adapter binds its capability statuses to a tested executable version
+    // rather than assuming the installed one behaves the same way.
+    expect(codex.capabilities().capabilities.structured_events.testedVersion).not.toBeNull();
+
+    expect(createAdapter({ id: 'fake-local', adapter: 'fake', executable: '/tmp/fake.mjs' }, context)).toBeInstanceOf(FakeAdapter);
+
+    expect(() => createAdapter({ id: 'claude-local', adapter: 'claude-code', executable: 'claude' }, context)).toThrow(AdapterNotRegisteredError);
+    expect(() => createAdapter({ id: 'claude-local', adapter: 'claude-code', executable: 'claude' }, context)).toThrow(/WP05/);
+  });
+
+  it('drives the real Codex adapter from "workforce run" and reports its transport failure, not a missing registration', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-codex-state-'), 'state');
+    const configDir = tempDir('workforce-codex-config-');
+    const configPath = writeCodexAgentsConfig(configDir, stubExecutable(configDir));
+
+    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
+
+    expect(result.code).toBe(EXIT_CODES.executionFailure);
+    const document = JSON.parse(result.stdout.trimEnd().split('\n').at(-1) as string) as { error?: { code?: string; message?: string } };
+    expect(document.error?.code).not.toBe('adapter_not_registered');
+    // The failure is the app server refusing to talk, which only the real
+    // adapter can produce.
+    expect(`${document.error?.message ?? ''}`).toMatch(/app-server/);
+    expect(existsSync(path.join(stateDir, 'coordinator.lock'))).toBe(false);
+  });
+});
+
+describe('state and workspace roots reach the coordinator', () => {
+  it('puts the candidate workspace under --workspace-root and the coordinator state under --state-dir', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-roots-state-'), 'state');
+    const workspaceRoot = path.join(tempDir('workforce-roots-ws-'), 'candidates');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-roots-config-'));
+    useScenario();
+
+    const result = await invoke([
+      'run',
+      '--repo',
+      fixture.path,
+      '--agents',
+      configPath,
+      '--task',
+      'Fix the pagination off-by-one.',
+      '--state-dir',
+      stateDir,
+      '--workspace-root',
+      workspaceRoot,
+    ]);
+
+    expect(result.code).toBe(EXIT_CODES.verifiedCandidate);
+    expect(result.stdout).toContain(`candidate workspace ${workspaceRoot}`);
+    // The state root holds coordinator state only; the default workspace
+    // directory under it is never created when a root is supplied.
+    expect(existsSync(path.join(stateDir, 'state.sqlite'))).toBe(true);
+    expect(existsSync(path.join(stateDir, 'workspaces'))).toBe(false);
+    expect(readdirSync(workspaceRoot).length).toBeGreaterThan(0);
+    const manifest = JSON.parse(readFileSync(path.join(stateDir, 'manifest.json'), 'utf8')) as { workspaceRoot: string };
+    expect(manifest.workspaceRoot).toBe(workspaceRoot);
+  });
+
+  it('refuses a --workspace-root that disagrees with the one the state root already records', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-roots-state2-'), 'state');
+    const firstRoot = path.join(tempDir('workforce-roots-ws1-'), 'candidates');
+    const secondRoot = path.join(tempDir('workforce-roots-ws2-'), 'candidates');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-roots-config2-'));
+    mkdirSync(stateDir, { recursive: true });
+    writeFileSync(
+      path.join(stateDir, 'manifest.json'),
+      `${JSON.stringify({ manifestVersion: 1, stateRoot: stateDir, workspaceRoot: firstRoot, databasePath: path.join(stateDir, 'state.sqlite'), createdAt: new Date().toISOString() }, null, 2)}\n`,
+    );
+
+    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--workspace-root', secondRoot]);
+
+    expect(result.code).toBe(EXIT_CODES.invalidInput);
+    expect(result.stderr).toContain('already records workspace root');
+    expect(existsSync(path.join(stateDir, 'coordinator.lock'))).toBe(false);
+  });
+});
+
+describe('the CLI dispatches every implemented command', () => {
+  it('runs doctor, run and status against one state root and still reports resume as unimplemented', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-dispatch-'), 'state');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-dispatch-config-'));
+    useScenario();
+
+    const doctor = await invoke(['doctor', '--state-dir', stateDir, '--json']);
+    expect(doctor.code).toBe(EXIT_CODES.verifiedCandidate);
+    const doctorDocument = JSON.parse(doctor.stdout) as { stateRoot: string; runtimes: ReadonlyArray<{ adapter: string }> };
+    expect(doctorDocument.stateRoot).toBe(path.resolve(stateDir));
+    expect(doctorDocument.runtimes.map((runtime) => runtime.adapter).sort()).toEqual(['claude-code', 'codex']);
+
+    const run = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
+    expect(run.code).toBe(EXIT_CODES.verifiedCandidate);
+    const runDocument = JSON.parse(run.stdout.trimEnd().split('\n').at(-1) as string) as { runId: string };
+
+    const status = await invoke(['status', runDocument.runId, '--state-dir', stateDir, '--json']);
+    expect(status.code).toBe(EXIT_CODES.verifiedCandidate);
+    const statusDocument = JSON.parse(status.stdout) as { run: { id: string; state: string } };
+    expect(statusDocument.run.id).toBe(runDocument.runId);
+    expect(statusDocument.run.state).toBe('ready_for_review');
+
+    const resume = await invoke(['resume', runDocument.runId, '--state-dir', stateDir]);
+    expect(resume.code).toBe(EXIT_CODES.executionFailure);
+    expect(resume.stdout).toContain('not implemented');
+  });
+});
+
+/**
+ * A fake runtime that also reports token counts the way the Codex app server
+ * does, so the manifest's usage handling can be exercised without spending a
+ * model turn.
+ */
+class UsageReportingFakeAdapter extends FakeAdapter {
+  readonly reported: unknown;
+
+  constructor(scriptPath: string, reported: unknown) {
+    super({ scriptPath });
+    this.reported = reported;
+  }
+
+  override capabilities(): RuntimeCapabilities {
+    const base = super.capabilities();
+    const capabilities: Record<CapabilityName, RuntimeCapabilities['capabilities'][CapabilityName]> = { ...base.capabilities };
+    capabilities.usage_reporting = { status: 'verified', testedVersion: '0.0.0-test', os: process.platform, note: 'token counts only; the runtime reports no price' };
+    return { ...base, capabilities };
+  }
+
+  lastTokenUsage(_session: SessionHandle): unknown {
+    return this.reported;
+  }
+}
+
+describe('usage reporting is measured or unavailable, never zero (FR060)', () => {
+  async function runWithUsage(reported: unknown): Promise<{ status: string; inputTokens: number | null; outputTokens: number | null; costUsd: number | null; source: string }> {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-usage-state-');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-usage-config-'));
+    const scenarioPath = writeScenario(fixTheBugScenario());
+    const paths = createStatePaths(stateRoot);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    try {
+      const loaded = loadAgentConfigFile(configPath);
+      const result = await runDirect({
+        repoPath: fixture.path,
+        config: loaded.config,
+        configRaw: loaded.raw,
+        configPath: loaded.path,
+        requestText: 'Fix the pagination off-by-one.',
+        requestSource: 'argument',
+        paths,
+        db: store.db,
+        sessionEnv: { [FAKE_SCENARIO_ENV]: scenarioPath },
+        adapterFactory: (runtime) => new UsageReportingFakeAdapter(runtime.executable, reported),
+      });
+      return result.manifest.usage;
+    } finally {
+      store.close();
+    }
+  }
+
+  it('records the token counts a runtime reports and still refuses to invent a cost', async () => {
+    const usage = await runWithUsage({ total: { totalTokens: 135_069, inputTokens: 133_961, outputTokens: 1_108 }, last: { inputTokens: 27_861 } });
+
+    expect(usage.status).toBe('measured');
+    expect(usage.inputTokens).toBe(133_961);
+    expect(usage.outputTokens).toBe(1_108);
+    expect(usage.costUsd).toBeNull();
+    expect(usage.source).toContain('cost is unavailable rather than zero');
+  });
+
+  it('reports usage as unavailable when the runtime reports a shape it cannot read', async () => {
+    const usage = await runWithUsage({ tokens: 'a lot' });
+
+    expect(usage.status).toBe('unavailable');
+    expect(usage.inputTokens).toBeNull();
+    expect(usage.outputTokens).toBeNull();
+    expect(usage.costUsd).toBeNull();
+  });
+});
+
+describe('the real Codex adapter drives the direct run path (no model turn)', () => {
+  it('runs a recorded Codex session end to end, records its token counts and fails honestly when nothing was changed', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-codex-run-');
+    const configPath = writeCodexAgentsConfig(tempDir('workforce-codex-run-config-'), process.execPath);
+    const paths = createStatePaths(stateRoot);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    let logsDir: string | null = null;
+    try {
+      const loaded = loadAgentConfigFile(configPath);
+      const result = await runDirect({
+        repoPath: fixture.path,
+        config: loaded.config,
+        configRaw: loaded.raw,
+        configPath: loaded.path,
+        requestText: 'Fix the pagination off-by-one.',
+        requestSource: 'argument',
+        paths,
+        db: store.db,
+        // The real Codex adapter, pointed at the recorded app-server
+        // transcript instead of the installed binary: the whole adapter is
+        // exercised, no model turn is started and no quota is spent.
+        adapterFactory: (_runtime, context) => {
+          logsDir = context.logsDir;
+          return new CodexAdapter({
+            executablePath: process.execPath,
+            appServerArgs: [FAKE_APP_SERVER, '--transcript', CODEX_TRANSCRIPT],
+            logsDir: context.logsDir,
+            startupTimeoutMs: 15_000,
+            requestTimeoutMs: 15_000,
+            stopTimeoutMs: 5_000,
+          });
+        },
+      });
+
+      // The recorded turn only talks; the fixture's failing test is still
+      // failing, so the run refuses to accept it.
+      expect(result.outcome).toBe('failed');
+      expect(result.acceptance.accepted).toBe(false);
+      expect(result.manifest.runtime).toMatchObject({ adapter: 'codex', turnConclusion: 'completed' });
+      // Token counts come from the runtime; cost does not exist for it.
+      expect(result.manifest.usage).toMatchObject({ status: 'measured', inputTokens: 1200, outputTokens: 40, costUsd: null });
+      // The adapter's raw stdio capture lands in the run's own logs directory.
+      expect(readdirSync(logsDir as unknown as string).some((name) => name.startsWith('codex-') && name.endsWith('.jsonl'))).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+});

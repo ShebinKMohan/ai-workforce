@@ -32,6 +32,7 @@ import { newId, nowIso } from './ids.js';
 import { computeAgentSnapshot } from './snapshot.js';
 import type { ProcessIdentity } from './process.js';
 import {
+  CodexAdapter,
   FakeAdapter,
   FAKE_SCENARIO_ENV,
   validateBindingSettings,
@@ -97,23 +98,40 @@ export interface RuntimeBindingRef {
   readonly executable: string;
 }
 
-export type AdapterFactory = (runtime: RuntimeBindingRef) => RuntimeAdapter;
+/**
+ * Per-attempt context an adapter needs but the runtime binding cannot carry.
+ * `logsDir` is a path only: the adapter creates it lazily when it actually
+ * opens a session, so a refused run leaves nothing behind.
+ */
+export interface AdapterContext {
+  readonly runId: string;
+  readonly taskId: string;
+  readonly attemptId: string;
+  /** Where the adapter writes its raw runtime capture (`<run>/artifacts/logs`). */
+  readonly logsDir: string;
+}
+
+export type AdapterFactory = (runtime: RuntimeBindingRef, context: AdapterContext) => RuntimeAdapter;
 
 /**
  * ===================== ADAPTER REGISTRATION POINT =====================
- * WP03 registers the Codex adapter under 'codex' and WP05 registers the
- * Claude Code adapter under 'claude-code'. Replace the throwing branches
- * below with the real constructors; nothing else in the direct path needs to
- * change, because both adapters implement the same `RuntimeAdapter`
- * contract that `FakeAdapter` already satisfies.
+ * 'fake' is the deterministic test runtime, 'codex' is the WP03 app-server
+ * adapter. WP05 registers the Claude Code adapter under 'claude-code'.
+ * Every adapter implements the same `RuntimeAdapter` contract, so nothing
+ * else in the direct path changes when one is added.
  * ======================================================================
  */
-export function createAdapter(runtime: RuntimeBindingRef): RuntimeAdapter {
+export function createAdapter(runtime: RuntimeBindingRef, context?: AdapterContext): RuntimeAdapter {
   switch (runtime.adapter) {
     case 'fake':
       return new FakeAdapter({ scriptPath: runtime.executable });
     case 'codex':
-      throw new AdapterNotRegisteredError('codex', 'WP03');
+      // The raw JSONL capture is the only evidence of what the worker did,
+      // so the run's own logs directory is handed to the adapter here.
+      return new CodexAdapter({
+        executablePath: runtime.executable,
+        ...(context !== undefined ? { logsDir: context.logsDir } : {}),
+      });
     case 'claude-code':
       throw new AdapterNotRegisteredError('claude-code', 'WP05');
     default:
@@ -519,7 +537,16 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   const limits: Limits = limitsFromDefaults(input.config.defaults);
   const policy: Policy = binding.policy;
 
-  const adapter = (input.adapterFactory ?? createAdapter)({ id: binding.runtime.id, adapter: binding.runtime.adapter, executable: binding.runtime.executable });
+  // Identities are minted before the adapter so the adapter can be told where
+  // its raw capture belongs. They are values only; no directory is created
+  // until the run is past every refusal below.
+  const runId = newId();
+  const taskId = newId();
+  const attemptId = newId();
+  const adapter = (input.adapterFactory ?? createAdapter)(
+    { id: binding.runtime.id, adapter: binding.runtime.adapter, executable: binding.runtime.executable },
+    { runId, taskId, attemptId, logsDir: path.join(paths.runArtifactsDir(runId), 'logs') },
+  );
   const settings = validateBindingSettings(adapter, binding);
   if (!settings.ok) {
     dispatchSpan.end();
@@ -539,9 +566,6 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   stream.line(`acceptance: ${resolvedChecks.detail}`);
 
   // ---- 4. Durable records ------------------------------------------------
-  const runId = newId();
-  const taskId = newId();
-  const attemptId = newId();
   const createdAt = nowIso();
   ensureRunDir(paths, runId);
   const runDir = paths.runDir(runId);
@@ -971,7 +995,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
         'the candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment; an enforced execution boundary for tool and test subprocesses (FR042) is not claimed by this run.',
     },
     timing,
-    usage: usageFor(adapter),
+    usage: usageFor(adapter, session),
     unresolved,
     artifacts: artifacts.map((artifact) => ({ type: artifact.type, path: artifact.relativePath, sha256: artifact.sha256 })),
   };
@@ -1121,10 +1145,52 @@ function summarizeTiming(timer: PhaseTimer): RunTiming {
   };
 }
 
-function usageFor(adapter: RuntimeAdapter): UsageReport {
+/**
+ * Token counts an adapter may expose beyond the shared contract. The shape is
+ * validated here rather than trusted: an adapter that reports something else
+ * yields "unavailable", never a guessed number.
+ */
+const ReportedTokenUsageSchema = z.looseObject({
+  total: z
+    .looseObject({
+      inputTokens: z.number().int().min(0).optional(),
+      outputTokens: z.number().int().min(0).optional(),
+    })
+    .optional(),
+});
+
+interface TokenUsageReporting {
+  lastTokenUsage(session: SessionHandle): unknown;
+}
+
+function reportsTokenUsage(adapter: RuntimeAdapter): adapter is RuntimeAdapter & TokenUsageReporting {
+  return typeof (adapter as Partial<TokenUsageReporting>).lastTokenUsage === 'function';
+}
+
+/**
+ * FR060: separate measured from unavailable usage. Currency cost is never
+ * inferred — no installed runtime reports a price, so `costUsd` stays null and
+ * the source says so rather than presenting zero.
+ */
+function usageFor(adapter: RuntimeAdapter, session: SessionHandle | null): UsageReport {
   const report = adapter.capabilities().capabilities.usage_reporting;
   if (report.status === 'unsupported') {
     return { ...USAGE_UNAVAILABLE, source: `${adapter.id}: ${report.note ?? 'usage reporting is unsupported'}` };
+  }
+  if (session !== null && reportsTokenUsage(adapter)) {
+    const parsed = ReportedTokenUsageSchema.safeParse(adapter.lastTokenUsage(session));
+    const total = parsed.success ? parsed.data.total : undefined;
+    const inputTokens = total?.inputTokens ?? null;
+    const outputTokens = total?.outputTokens ?? null;
+    if (inputTokens !== null || outputTokens !== null) {
+      return {
+        status: 'measured',
+        inputTokens,
+        outputTokens,
+        costUsd: null,
+        source: `${adapter.id}: token counts reported by the runtime for this session; it reports no currency cost, so cost is unavailable rather than zero`,
+      };
+    }
   }
   return { ...USAGE_UNAVAILABLE, source: `${adapter.id}: no usage was reported for this turn` };
 }

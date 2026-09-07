@@ -1,6 +1,6 @@
-# Architecture — WP01 foundation
+# Architecture — WP01 foundation, WP02–WP04 integrated
 
-This document describes the module boundaries laid down by WP01 and the invariants each module enforces. `docs/plan.md` remains the specification; this file records how the code is organized to satisfy it. Later packages (WP02 discovery, WP03/WP05 real adapters, WP04 workspaces and checks, WP06 coordination) build on these types without redesigning them.
+This document describes the module boundaries laid down by WP01 and the invariants each module enforces. `docs/plan.md` remains the specification; this file records how the code is organized to satisfy it. WP02 (discovery), WP03 (Codex adapter) and WP04 (workspaces, candidate runs and the contained check runner) are merged into `main` and build on these types without redesigning them; later packages (WP05 Claude Code, WP06 coordination) do the same.
 
 ## Package shape
 
@@ -9,7 +9,10 @@ One ESM TypeScript package (`workforce`), strict mode, Node 22+ with the built-i
 ```
 src/core        pure contracts, ids, lifecycle state machine, snapshots, config loading
 src/storage     state root layout, SQLite schema/migrations, transactions, lock, operations, events, artifacts
-src/adapters    RuntimeAdapter contract + the deterministic fake adapter (real adapters arrive in WP03/WP05)
+src/adapters    RuntimeAdapter contract, the deterministic fake adapter and the Codex app-server adapter (claude-code arrives in WP05)
+src/discovery   executable resolution, bounded passive probes, readiness and capability reports
+src/workspaces  project inspection, candidate worktrees, snapshots
+src/verification contained acceptance-check runner
 src/telemetry   runtime-event normalization, events.jsonl projection, phase timing, redaction
 src/cli         argument parsing (node:util parseArgs), human/--json output, exit codes, command stubs
 fixtures        fake runtime script and example agent configuration
@@ -55,7 +58,11 @@ Settings (FR006): `validateSettings` reports each of model and effort as `runtim
 
 ## cli
 
-`workforce doctor | run | status | resume` with `--repo`, `--agents`, `--task`, `--task-file`, `--state-dir`, `--json`. Exit codes are frozen by `tests/cli.test.ts`: 0 verified candidate, 2 invalid input/configuration, 3 required user action, 4 execution/validation failure, 130 interrupted. `--json` writes exactly one document to stdout and every diagnostic to stderr. Configuration is validated and the state root resolved before any command body runs; an invalid configuration exits 2 without creating state. `status` opens the store read-only and never acquires the coordinator lock. `doctor`, `run` and `resume` report `not_implemented` with exit 4 until WP02, WP03/WP04 and WP09 respectively.
+`workforce doctor | run | status | resume` with `--repo`, `--agents`, `--task`, `--task-file`, `--agent`, `--check`, `--codex-path`, `--claude-path`, `--state-dir`, `--workspace-root`, `--json`. Exit codes are frozen by `tests/cli.test.ts`: 0 verified candidate, 2 invalid input/configuration, 3 required user action, 4 execution/validation failure, 130 interrupted. `--json` writes exactly one document to stdout and every diagnostic to stderr — except `run --json`, which emits JSONL (one event object per line, the final result object last). Configuration is validated and the state root resolved before any command body runs; an invalid configuration exits 2 without creating state. `status` opens the store read-only and never acquires the coordinator lock.
+
+`runCli` is asynchronous: `doctor` spawns bounded probes and `run` drives a runtime session, neither of which a synchronous spawn can bound or terminate as a process group. `main()` installs a SIGINT handler that aborts the active command on the first Ctrl+C and force-exits 130 on the second.
+
+`--state-dir` resolves the coordinator state root (`$WORKFORCE_STATE_DIR`, else `~/.workforce`) for every command. `--workspace-root` moves candidate workspaces off the state root; the paths manifest records the root the state was created with, and a later `--workspace-root` that disagrees with it exits 2 rather than writing somewhere the manifest does not describe. `resume` still reports `not_implemented` with exit 4 until WP09.
 
 ## Invariants enforced by WP01 code (and tested)
 
@@ -73,4 +80,12 @@ Settings (FR006): `validateSettings` reports each of model and effort as `runtim
 
 ## Deliberately not in WP01
 
-Executable discovery and readiness reports (WP02), Codex and Claude Code adapters (WP03, WP05), repository inspection, candidate worktrees and the contained check runner (WP04), the coordination bridge (WP06) and JSON-schema exports under `schemas/` (added when an external consumer needs them).
+The Claude Code adapter (WP05), the coordination bridge (WP06), routing and handoff (WP07), integration and repair (WP08), cancellation/resume and reconciliation (WP09) and JSON-schema exports under `schemas/` (added when an external consumer needs them).
+
+## Adapter registry (WP02–WP04 integration)
+
+`src/core/run-direct.ts` holds the run path's single adapter registry. `createAdapter(runtime, context)` maps a configured runtime's `adapter` field onto an implementation: `fake` for the deterministic test runtime, `codex` for `src/adapters/codex`, and a refusal naming WP05 for `claude-code`. The `context` carries the attempt's identifiers and the run's `artifacts/logs` directory, so an adapter that captures raw runtime stdio writes it into the run's own evidence directory; the directory is created by the adapter only when a session is actually opened, so a refused run leaves nothing behind.
+
+Model and reasoning effort configured on a runtime reach `openSession`, which for Codex applies them as process-level `-c` overrides (`thread/start` has no `effort` parameter). Pin a model in the agent configuration rather than inheriting the user's `~/.codex/config.toml` default, which may be incompatible with the installed CLI.
+
+Usage (FR060) is read back from the adapter after the turn: an adapter that reports token counts yields `status: "measured"` with those counts, and `costUsd` stays `null` with a source line saying cost is unavailable — no installed runtime reports a price, and zero is never substituted for one.

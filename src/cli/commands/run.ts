@@ -30,7 +30,7 @@ import {
 } from '../../core/run-direct.js';
 import { LockHeldError } from '../../storage/lock.js';
 import { openStateStore } from '../../storage/db.js';
-import { createStatePaths, resolveStateRoot } from '../../storage/paths.js';
+import { createStatePaths, PathsManifestSchema, resolveStateRoot } from '../../storage/paths.js';
 import { ProjectInspectionError } from '../../workspaces/project.js';
 import { CandidateWorkspaceError } from '../../workspaces/candidate.js';
 import { redactedJson } from '../../telemetry/redaction.js';
@@ -42,6 +42,8 @@ export interface RunCommandArgs {
   readonly task?: string;
   readonly taskFile?: string;
   readonly stateDir?: string;
+  /** Candidate workspace root; defaults to `<state-root>/workspaces`. */
+  readonly workspaceRoot?: string;
   readonly agent?: string;
   readonly checks?: ReadonlyArray<string>;
   readonly json: boolean;
@@ -133,7 +135,21 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
     );
   }
 
-  const paths = createStatePaths(resolveStateRoot(args.stateDir));
+  const paths = createStatePaths(resolveStateRoot(args.stateDir), args.workspaceRoot !== undefined ? { workspaceRoot: args.workspaceRoot } : {});
+  // The paths manifest is written once, on the state root's first use. An
+  // existing state root that records a different workspace root would make the
+  // manifest a lie, so say so instead of silently writing somewhere else.
+  if (args.workspaceRoot !== undefined && existsSync(paths.manifestPath)) {
+    const recorded = PathsManifestSchema.safeParse(JSON.parse(readFileSync(paths.manifestPath, 'utf8')));
+    if (recorded.success && path.resolve(recorded.data.workspaceRoot) !== paths.workspaceRoot) {
+      throw new CliError(
+        EXIT_CODES.invalidInput,
+        'workspace_root_mismatch',
+        `state root ${paths.root} already records workspace root ${recorded.data.workspaceRoot}; --workspace-root ${paths.workspaceRoot} disagrees with it`,
+        ['use a different --state-dir for a different workspace root, or drop --workspace-root'],
+      );
+    }
+  }
   let store;
   try {
     store = openStateStore(paths, { mode: 'mutating' });

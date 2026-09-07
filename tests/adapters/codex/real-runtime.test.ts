@@ -174,7 +174,7 @@ describe.skipIf(!ENABLED)('codex real runtime: execution boundary (FR042, no mod
     const workspaceA = repo('wf-codex-A-');
     const siblingB = plainDir('wf-codex-B-');
     const tmpdirEscape = plainDir('wf-codex-escape-');
-    const slashTmpEscape = realpathSync.native ? `/tmp/wf-codex-escape-${Math.random().toString(36).slice(2)}` : '/tmp/wf-codex-escape';
+    const slashTmpEscape = `/tmp/wf-codex-escape-${Math.random().toString(36).slice(2)}`;
     mkdirSync(slashTmpEscape, { recursive: true });
     roots.push(slashTmpEscape);
     const adapter = adapterFor();
