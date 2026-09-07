@@ -1,0 +1,33 @@
+$ node dist/cli/index.js run --repo $ROOT/repo-claude --agents $ROOT/agents.json --agent engineer-claude --allow-unconfined-writes --state-dir $ROOT/state-claude --task "$(cat $ROOT/task.txt)"
+# started 2026-09-07T13:12:24Z
+WARNING: no enforced write boundary — the claude-code adapter reports write_containment "unsupported" for 2.1.260 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from .workforce/checks.json at base 0c96effc4902
+acceptance fixtures (the worker must not rewrite these; new test files are fine): .workforce/checks.json, test, test/pagination.test.js
+run 01a07bff-9d26-7041-addb-9b75b69f8c9a
+repo /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/tmp.xN3o2UpVhK/repo-claude @ 0c96effc4902 (main)
+agent engineer-claude via claude-local (claude-code)
+write boundary: claude-code reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/tmp.xN3o2UpVhK/state-claude/workspaces/01a07bff-9d26-7041-addb-9b75b69f8c9a/01a07bff-9d26-7042-9aef-805f54f87eef/01a07bff-9d26-7043-8dbd-0fddc9ffb6af on branch workforce/01a07bff-9d26-7041-addb-9b75b69f8c9a/01a07bff-9d26-7042-9aef-805f54f87eef/01a07bff-9d26-7043-8dbd-0fddc9ffb6af
+  runtime session 01a07bff-9d74-7448-ae2e-c881c7ca2a6f started
+  turn started
+  runtime error: {"fatal":false,"message":"Failed to authenticate: OAuth session expired and could not be refreshed","errorClass":"authentication","runtimeError":"authenticatio…
+  turn completed
+  note: requested model "sonnet" but the runtime reports "claude-sonnet-5" ran
+  (1 further runtime event(s) kept verbatim as evidence, not shown here)
+worker stopped: process_tree_terminated (process group 58484 is empty after stdin close)
+candidate is identical to the base 0c96effc4902: the worker changed nothing
+running 1 acceptance check(s) against the frozen candidate
+  check node-tests-pass: failed (exit 1) in 81ms
+artifacts: /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/tmp.xN3o2UpVhK/state-claude/runs/01a07bff-9d26-7041-addb-9b75b69f8c9a/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+not accepted: criterion "node-tests-pass" failed with exit 1; the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done
+run 01a07bff-9d26-7041-addb-9b75b69f8c9a: failed
+task 01a07bff-9d26-7042-9aef-805f54f87eef: failed
+  FAIL node-tests-pass: failed with exit 1
+evidence and manifest: /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/tmp.xN3o2UpVhK/state-claude/runs/01a07bff-9d26-7041-addb-9b75b69f8c9a
+unresolved:
+  - this run had no enforced write boundary: the claude-code adapter reports write_containment "unsupported" for 2.1.260 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process It was allowed by an explicit --allow-unconfined-writes, so acceptance here means the configured criteria passed, not that the worker's effects were confined
+  - the worker produced no change to the repository
+# exit code: 4
+# finished 2026-09-07T13:12:26Z

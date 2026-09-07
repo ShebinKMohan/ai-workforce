@@ -436,6 +436,33 @@ export function runConformanceSuite(target: ConformanceTarget): void {
     // Usage (FR060)
     // -----------------------------------------------------------------------
 
+    /**
+     * FR006. Deliberately runs no turn: for Codex the effective values arrive
+     * in the `thread/start` response, and for Claude Code the session opens
+     * without them and fills them in from the turn's own init record — so
+     * "null until the runtime says otherwise" is the behaviour under test, and
+     * a real target is not charged for another turn to observe it.
+     */
+    it('exposes the settings the runtime reported through the shared contract method', async () => {
+      const session = await target.openQuick();
+      try {
+        const capability = session.adapter.capabilities().capabilities.model_selection.status;
+        if (capability === 'verified') {
+          expect(typeof session.adapter.effectiveSettings, 'an adapter whose runtime reports a model implements effectiveSettings').toBe('function');
+        }
+        if (typeof session.adapter.effectiveSettings !== 'function') return;
+        const effective = session.adapter.effectiveSettings(session.handle);
+        if (effective === null) return;
+        expect(effective.model === null || typeof effective.model === 'string').toBe(true);
+        expect(effective.effort === undefined || effective.effort === null || typeof effective.effort === 'string').toBe(true);
+        // A session that was never opened has nothing to report, and an
+        // unknown handle must not borrow another session's values.
+        expect(session.adapter.effectiveSettings({ ...session.handle, sessionId: 'no-such-session' })).toBeNull();
+      } finally {
+        await session.close();
+      }
+    });
+
     it('reports usage in the shared shape, or not at all — never a zero standing in for unknown', async () => {
       const session = await target.openQuick();
       try {

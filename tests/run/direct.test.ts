@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadAgentConfigFile } from '../../src/core/config.js';
-import { ClaudeCodeAdapter, FAKE_SCENARIO_ENV } from '../../src/adapters/index.js';
+import { ClaudeCodeAdapter, FakeAdapter, FAKE_SCENARIO_ENV, type RuntimeAdapter } from '../../src/adapters/index.js';
 import {
   checksFromFlags,
   resolveAcceptanceChecks,
@@ -634,6 +634,106 @@ describe('a writing profile needs a write boundary (plan sections 6, 8 and 9; FR
     const summary = readFileSync(result!.summaryPath, 'utf8');
     expect(summary).toContain('this run had no enforced write boundary');
     expect(summary).toContain('not enforced by the runtime');
+  });
+});
+
+describe('the manifest records what the runtime said ran, not only what was asked for (FR006, FR059)', () => {
+  async function runWithSettings(settings: { model?: string; effort?: string }): Promise<RunDirectResult> {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-effective-state-');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-effective-config-'), settings);
+    const scenarioPath = writeScenario(fixTheBugScenario());
+    const paths = createStatePaths(stateRoot);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    try {
+      const loaded = loadAgentConfigFile(configPath);
+      return await runDirect({
+        repoPath: fixture.path,
+        config: loaded.config,
+        configRaw: loaded.raw,
+        configPath: loaded.path,
+        requestText: REQUEST_TEXT,
+        requestSource: 'argument',
+        paths,
+        db: store.db,
+        stream: { line: () => {}, event: () => {} },
+        sessionEnv: { [FAKE_SCENARIO_ENV]: scenarioPath },
+      });
+    } finally {
+      store.close();
+    }
+  }
+
+  it('records the model and effort the runtime reported beside the ones requested', async () => {
+    const result = await runWithSettings({ model: 'fake-fast', effort: 'high' });
+    const runtime = result.manifest.runtime as Record<string, unknown>;
+
+    expect(runtime['model']).toBe('fake-fast');
+    // The values the runtime echoed back, read through the shared contract
+    // method — not the request repeated as if it had been confirmed.
+    expect(runtime['effectiveModel']).toBe('fake-fast');
+    expect(runtime['effectiveEffort']).toBe('high');
+    expect(runtime['effectiveSettingsSource']).toBe('runtime_reported');
+  });
+
+  it('records the runtime default when nothing was requested, which the requested field cannot express', async () => {
+    const result = await runWithSettings({});
+    const runtime = result.manifest.runtime as Record<string, unknown>;
+
+    expect(runtime['model']).toBeNull();
+    expect(runtime['effectiveModel']).toBe('fake-default');
+    expect(runtime['effectiveEffort']).toBe('medium');
+    expect(runtime['effectiveSettingsSource']).toBe('runtime_reported');
+  });
+
+  it('says the effective values are unreported rather than assuming the requested ones took effect', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-effective-none-state-');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-effective-none-config-'), { model: 'fake-fast' });
+    const scenarioPath = writeScenario(fixTheBugScenario());
+    const paths = createStatePaths(stateRoot);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    try {
+      const loaded = loadAgentConfigFile(configPath);
+      const result = await runDirect({
+        repoPath: fixture.path,
+        config: loaded.config,
+        configRaw: loaded.raw,
+        configPath: loaded.path,
+        requestText: REQUEST_TEXT,
+        requestSource: 'argument',
+        paths,
+        db: store.db,
+        stream: { line: () => {}, event: () => {} },
+        sessionEnv: { [FAKE_SCENARIO_ENV]: scenarioPath },
+        // A conforming adapter that simply does not implement the optional
+        // method — the case where nothing may be assumed about what ran.
+        adapterFactory: (runtimeRef) => {
+          const inner = new FakeAdapter({ scriptPath: runtimeRef.executable });
+          const withoutEffectiveSettings: RuntimeAdapter = {
+            id: inner.id,
+            probe: (executable) => inner.probe(executable),
+            capabilities: () => inner.capabilities(),
+            validateSettings: (requested) => inner.validateSettings(requested),
+            openSession: (sessionInput) => inner.openSession(sessionInput),
+            resumeSession: (resumeInput) => inner.resumeSession(resumeInput),
+            startTurn: (session, turnInput) => inner.startTurn(session, turnInput),
+            events: (turn) => inner.events(turn),
+            deliver: (session, delivery) => inner.deliver(session, delivery),
+            interrupt: (turn) => inner.interrupt(turn),
+            stopOwnedProcesses: (session) => inner.stopOwnedProcesses(session),
+            reconcile: (session) => inner.reconcile(session),
+          };
+          return withoutEffectiveSettings;
+        },
+      });
+      const runtime = result.manifest.runtime as Record<string, unknown>;
+      expect(runtime['model']).toBe('fake-fast');
+      expect(runtime['effectiveModel']).toBeNull();
+      expect(runtime['effectiveSettingsSource']).toBe('not_reported');
+    } finally {
+      store.close();
+    }
   });
 });
 

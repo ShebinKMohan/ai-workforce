@@ -24,6 +24,7 @@ import {
   type CapabilityReport,
   type DeliveryInput,
   type DeliveryReceipt,
+  type EffectiveRuntimeSettings,
   type InterruptionReceipt,
   type ObservedRuntimeState,
   type RequestedSettings,
@@ -109,6 +110,8 @@ interface FakeSession {
   exit: { code: number | null; signal: NodeJS.Signals | null } | null;
   stdoutRemainder: string;
   readonly stderrLines: string[];
+  /** What the runtime echoed back in `session_started`, not what was requested (FR006). */
+  effective: EffectiveRuntimeSettings;
 }
 
 interface FakeHandleRaw {
@@ -291,6 +294,7 @@ export class FakeAdapter implements RuntimeAdapter {
       exit: null,
       stdoutRemainder: '',
       stderrLines: [],
+      effective: { model: null, effort: null },
     };
     this.#wire(session);
 
@@ -301,6 +305,13 @@ export class FakeAdapter implements RuntimeAdapter {
       throw new AdapterError('fake', 'startup_failed', `fake runtime did not report session_started within ${this.#options.startupTimeoutMs}ms${stderr ? ` (stderr: ${stderr})` : ''}`);
     }
     const reported = started.payload['sessionId'];
+    // The fake runtime echoes the --model/--effort it was actually given, so
+    // the effective values come from the runtime's own report, never from the
+    // request (FR006).
+    session.effective = {
+      model: typeof started.payload['model'] === 'string' ? (started.payload['model'] as string) : null,
+      effort: typeof started.payload['effort'] === 'string' ? (started.payload['effort'] as string) : null,
+    };
     const sessionId = typeof reported === 'string' && reported.length > 0 ? reported : pendingId;
     const finalSession: FakeSession = Object.assign(session, { sessionId, handle: { ...session.handle, sessionId } });
     // Re-key events (and their raw references) already buffered under the pending id.
@@ -585,6 +596,11 @@ export class FakeAdapter implements RuntimeAdapter {
       at: nowIso(),
       ...(treeDead ? {} : { detail: `process group ${pid} still has members after ${signals.join('+')}` }),
     };
+  }
+
+  /** What the fake runtime echoed back for this session, as opposed to what was requested (FR006). */
+  effectiveSettings(handle: SessionHandle): EffectiveRuntimeSettings | null {
+    return this.#sessions.get(handle.sessionId)?.effective ?? null;
   }
 
   async reconcile(handle: SessionHandle): Promise<ObservedRuntimeState> {

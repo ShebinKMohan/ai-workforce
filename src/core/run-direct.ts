@@ -1146,6 +1146,15 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       else if (event.kind === 'error' && event.payload['fatal'] === true) turnConclusion = 'runtime_exited';
     }
     runtimeSpan.end();
+    // FR006: the runtime's own word on what ran. Printed only when it differs
+    // from what was configured — the case a person needs to see, because the
+    // run path passes an unlisted model through unvalidated.
+    {
+      const reportedSettings = effectiveSettingsFor(adapter, session);
+      if (reportedSettings.effectiveModel !== null && binding.runtime.model !== undefined && reportedSettings.effectiveModel !== binding.runtime.model) {
+        stream.line(`  note: requested model "${binding.runtime.model}" but the runtime reports "${reportedSettings.effectiveModel}" ran`);
+      }
+    }
     evidence = summarizeTurnEvidence(runtimeEvents);
     if (evidence.rawEvents > 0) {
       // Say how much was not shown rather than printing every unnormalized
@@ -1438,6 +1447,10 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       modelStatus: settings.model.status,
       effort: settings.effort.requested,
       effortStatus: settings.effort.status,
+      // What the runtime itself said took effect, beside what was requested.
+      // They differ whenever a value was passed through unvalidated
+      // (`supported_unverified`) or the provider substituted one.
+      ...effectiveSettingsFor(adapter, session),
       sessionId: session?.sessionId ?? null,
       turnId: turn?.turnId ?? null,
       turnConclusion,
@@ -1777,6 +1790,37 @@ function usageFor(adapter: RuntimeAdapter, session: SessionHandle | null): Usage
   return { ...USAGE_UNAVAILABLE, source: `${adapter.id}: no usage was reported for this turn` };
 }
 
+const EffectiveRuntimeSettingsSchema = z.object({
+  model: z.string().nullable().optional(),
+  effort: z.string().nullable().optional(),
+});
+
+/**
+ * FR006: record the model and effort the *runtime* reported for this session
+ * beside the ones the configuration asked for.
+ *
+ * `runtime.model` alone cannot answer "what actually ran": the run path does
+ * not call the runtime's model listing before dispatching, so a configured
+ * value reaches `openSession` as `supported_unverified` and is passed through
+ * unchanged. Both installed runtimes echo back what took effect, and the
+ * shared `effectiveSettings` contract method is how that reaches the manifest.
+ * An adapter that does not implement it, or a session that never opened,
+ * yields `not_reported` — never the requested value repeated as if confirmed.
+ */
+function effectiveSettingsFor(
+  adapter: RuntimeAdapter,
+  session: SessionHandle | null,
+): { effectiveModel: string | null; effectiveEffort: string | null; effectiveSettingsSource: 'runtime_reported' | 'not_reported' } {
+  const unreported = { effectiveModel: null, effectiveEffort: null, effectiveSettingsSource: 'not_reported' as const };
+  if (session === null || typeof adapter.effectiveSettings !== 'function') return unreported;
+  const parsed = EffectiveRuntimeSettingsSchema.safeParse(adapter.effectiveSettings(session));
+  if (!parsed.success) return unreported;
+  const model = parsed.data.model ?? null;
+  const effort = parsed.data.effort ?? null;
+  if (model === null && effort === null) return unreported;
+  return { effectiveModel: model, effectiveEffort: effort, effectiveSettingsSource: 'runtime_reported' };
+}
+
 function transitionRunSafely(db: DatabaseSync, runId: string, to: 'failed' | 'interrupted' | 'ready_for_review'): void {
   try {
     transitionRun(db, runId, to);
@@ -1835,6 +1879,12 @@ export function renderSummary(manifest: RunManifest): string {
     lines.push('- Candidate: none was frozen');
   }
   lines.push(`- Agent: \`${String((manifest.agent as Record<string, unknown>)['id'])}\` (snapshot \`${String((manifest.agent as Record<string, unknown>)['snapshotHash']).slice(0, 12)}\`) on adapter \`${String((manifest.runtime as Record<string, unknown>)['adapter'])}\``);
+  const runtime = manifest.runtime as Record<string, unknown>;
+  lines.push(
+    runtime['effectiveSettingsSource'] === 'runtime_reported'
+      ? `- Model: requested \`${String(runtime['model'] ?? 'runtime default')}\`, and the runtime reported \`${String(runtime['effectiveModel'] ?? 'nothing')}\` in effect${runtime['effectiveEffort'] === null || runtime['effectiveEffort'] === undefined ? '' : ` at effort \`${String(runtime['effectiveEffort'])}\``}`
+      : `- Model: requested \`${String(runtime['model'] ?? 'runtime default')}\`; the runtime reported no effective value, so what ran is not confirmed`,
+  );
   const containment = (manifest.evidence['containment'] ?? null) as Record<string, unknown> | null;
   if (containment !== null) {
     lines.push(

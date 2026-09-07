@@ -568,6 +568,11 @@ describe.skipIf(!REAL || !credentials.usable)(`claude-code model turns (${creden
   });
 });
 
-describe.skipIf(REAL)('claude-code real-runtime checks', () => {
-  it.skip('skipped — set WORKFORCE_REAL_RUNTIMES=1 to run against the installed claude executable', () => undefined);
-});
+// Defined only when the gate is off, so that a run WITH the gate on does not
+// report a skip whose stated reason is "set WORKFORCE_REAL_RUNTIMES=1" — a
+// recorded suite must not contradict the command that produced it.
+if (!REAL) {
+  describe('claude-code real-runtime checks', () => {
+    it.skip('skipped — set WORKFORCE_REAL_RUNTIMES=1 to run against the installed claude executable', () => undefined);
+  });
+}

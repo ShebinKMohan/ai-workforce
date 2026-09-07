@@ -310,6 +310,28 @@ export interface TurnUsageReport {
   readonly detail: string;
 }
 
+/**
+ * What the *runtime itself* reported as in effect for a session, as opposed to
+ * what the configuration requested (FR006: "preserve unknown effective values
+ * honestly").
+ *
+ * Both installed runtimes echo the settings that actually took effect — Codex
+ * in its `thread/start` response, Claude Code in the `system.init` record of
+ * each turn — and both adapters already captured them. Until this contract
+ * shape existed they captured them into adapter-shaped accessors the
+ * coordinator could not read, so a manifest could only ever repeat the model
+ * the *configuration* asked for. A requested value that the provider silently
+ * substituted, or an unknown value the adapter passed through unvalidated
+ * (`supported_unverified`), is exactly the case where the two differ.
+ *
+ * `effort` is optional because not every runtime reports one back: Claude Code
+ * 2.1.260 accepts `--effort` but names no effort in its init record.
+ */
+export interface EffectiveRuntimeSettings {
+  readonly model: string | null;
+  readonly effort?: string | null;
+}
+
 export interface ObservedRuntimeState {
   readonly adapter: AdapterId;
   readonly sessionId: string;
@@ -354,6 +376,15 @@ export interface RuntimeAdapter {
    * so an adapter-shaped one is invisible to the manifest.
    */
   lastTurnUsage?(session: SessionHandle): TurnUsageReport | null;
+  /**
+   * The settings the runtime reported for this session (FR006). Optional: an
+   * adapter whose runtime echoes nothing back omits it, and the coordinator
+   * then records the effective values as unreported rather than assuming the
+   * requested ones took effect. Same rule as `lastTurnUsage`: the coordinator
+   * reads only this method, so an adapter-shaped accessor stays invisible to
+   * the manifest.
+   */
+  effectiveSettings?(session: SessionHandle): EffectiveRuntimeSettings | null;
 }
 
 export class AdapterError extends Error {

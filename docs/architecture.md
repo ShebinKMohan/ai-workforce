@@ -1,6 +1,6 @@
-# Architecture — WP01 foundation, WP02–WP04 integrated
+# Architecture — WP01 foundation, WP02–WP05 integrated
 
-This document describes the module boundaries laid down by WP01 and the invariants each module enforces. `docs/plan.md` remains the specification; this file records how the code is organized to satisfy it. WP02 (discovery), WP03 (Codex adapter) and WP04 (workspaces, candidate runs and the contained check runner) are merged into `main` and build on these types without redesigning them; later packages (WP05 Claude Code, WP06 coordination) do the same.
+This document describes the module boundaries laid down by WP01 and the invariants each module enforces. `docs/plan.md` remains the specification; this file records how the code is organized to satisfy it. WP02 (discovery), WP03 (Codex adapter), WP04 (workspaces, candidate runs and the contained check runner) and WP05 (the Claude Code adapter and the shared conformance suite) are merged into `main` and build on these types without redesigning them; later packages (WP06 coordination onwards) do the same.
 
 ## Package shape
 
@@ -9,7 +9,7 @@ One ESM TypeScript package (`workforce`), strict mode, Node 22+ with the built-i
 ```
 src/core        pure contracts, ids, lifecycle state machine, snapshots, config loading
 src/storage     state root layout, SQLite schema/migrations, transactions, lock, operations, events, artifacts
-src/adapters    RuntimeAdapter contract, the deterministic fake adapter and the Codex app-server adapter (claude-code arrives in WP05)
+src/adapters    RuntimeAdapter contract, the deterministic fake adapter, the Codex app-server adapter and the Claude Code CLI adapter
 src/discovery   executable resolution, bounded passive probes, readiness and capability reports
 src/workspaces  project inspection, candidate worktrees, snapshots
 src/verification contained acceptance-check runner
@@ -44,7 +44,7 @@ Dependency direction is one way: `cli → telemetry/adapters/storage → core`. 
 
 ## adapters
 
-`types.ts` is the contract from plan section 6: `probe`, `capabilities`, `validateSettings`, `openSession`, `resumeSession`, `startTurn`, `events`, `deliver`, `interrupt`, `stopOwnedProcesses`, `reconcile`. Concrete types cover readiness (installed / adapter-supported / controllable / authentication / ready, with `probeKind: 'passive' | 'live'`), capabilities (`unsupported | supported_unverified | verified`, each with the tested version and OS) together with the model/effort values the adapter offers and their provenance (`reported` by the runtime or `configured` by the adapter), session handles carrying a full `ProcessIdentity`, a `ResumeInput.previousProcess` the adapter must verify before spawning a successor, normalized `RuntimeEvent`s (kind, spawn token, per-process sequence, timestamp, payload, `rawRef`), receipts that distinguish `queued` from `submitted_to_active_turn` (and name the `holder` of a queued message — the adapter that will flush it, or the runtime that acknowledged it), `requested` from `observed`, and `requested` from `process_tree_terminated` from `unknown`, an optional `lastTurnUsage` reporting the turn's tokens and cost in one shape with `measured` separated from `unavailable`, and an `ObservedRuntimeState` that says how the recorded identity compares with what runs now.
+`types.ts` is the contract from plan section 6: `probe`, `capabilities`, `validateSettings`, `openSession`, `resumeSession`, `startTurn`, `events`, `deliver`, `interrupt`, `stopOwnedProcesses`, `reconcile`. Concrete types cover readiness (installed / adapter-supported / controllable / authentication / ready, with `probeKind: 'passive' | 'live'`), capabilities (`unsupported | supported_unverified | verified`, each with the tested version and OS) together with the model/effort values the adapter offers and their provenance (`reported` by the runtime or `configured` by the adapter), session handles carrying a full `ProcessIdentity`, a `ResumeInput.previousProcess` the adapter must verify before spawning a successor, normalized `RuntimeEvent`s (kind, spawn token, per-process sequence, timestamp, payload, `rawRef`), receipts that distinguish `queued` from `submitted_to_active_turn` (and name the `holder` of a queued message — the adapter that will flush it, or the runtime that acknowledged it), `requested` from `observed`, and `requested` from `process_tree_terminated` from `unknown`, an optional `lastTurnUsage` reporting the turn's tokens and cost in one shape with `measured` separated from `unavailable`, an optional `effectiveSettings` reporting the model and effort the *runtime* said were in effect, and an `ObservedRuntimeState` that says how the recorded identity compares with what runs now.
 
 Settings (FR006): `validateSettings` reports each of model and effort as `runtime_default`, `supported`, `supported_unverified` (the runtime accepts values the adapter cannot list; they are passed through unchanged and the effective value is recorded from what the runtime reports) or `unsupported`. `validateBindingSettings(adapter, binding)` is the hook the CLI calls before recording intent; an adapter's `openSession` refuses a binding that is not ok instead of mapping it silently.
 
@@ -81,17 +81,19 @@ Settings (FR006): `validateSettings` reports each of model and effort as `runtim
 13. Run-level facts veto acceptance whatever the receipts say: an observed write outside the granted paths, a runtime that died mid-turn, and a candidate identical to its base. Each appears in `acceptance.reasons`, so a refusal always says why.
 14. An interruption is bounded: the coordinator persists the intent, requests runtime interruption, waits `INTERRUPT_ACKNOWLEDGEMENT_MS` for an observed end of turn, then terminates the process group it owns. `runTimeoutMinutes` starts the same sequence on its own, so an unresponsive runtime cannot hold the coordinator open.
 
-## Deliberately not in WP01
+## Deliberately not here yet
 
-The Claude Code adapter (WP05), the coordination bridge (WP06), routing and handoff (WP07), integration and repair (WP08), cancellation/resume and reconciliation (WP09) and JSON-schema exports under `schemas/` (added when an external consumer needs them).
+The coordination bridge (WP06), routing and handoff (WP07), integration and repair (WP08), cancellation/resume and reconciliation (WP09) and JSON-schema exports under `schemas/` (added when an external consumer needs them).
 
-## Adapter registry (WP02–WP04 integration)
+## Adapter registry (WP02–WP05 integration)
 
-`src/core/run-direct.ts` holds the run path's single adapter registry. `createAdapter(runtime, context)` maps a configured runtime's `adapter` field onto an implementation: `fake` for the deterministic test runtime, `codex` for `src/adapters/codex`, and a refusal naming WP05 for `claude-code`. The `context` carries the attempt's identifiers and the run's `artifacts/logs` directory, so an adapter that captures raw runtime stdio writes it into the run's own evidence directory; the directory is created by the adapter only when a session is actually opened, so a refused run leaves nothing behind.
+`src/core/run-direct.ts` holds the run path's single adapter registry. `createAdapter(runtime, context)` maps a configured runtime's `adapter` field onto an implementation: `fake` for the deterministic test runtime, `codex` for `src/adapters/codex`, `claude-code` for `src/adapters/claude-code`, and a refusal for anything else. The `context` carries the attempt's identifiers and the run's `artifacts/logs` directory, so an adapter that captures raw runtime stdio writes it into the run's own evidence directory; the directory is created by the adapter only when a session is actually opened, so a refused run leaves nothing behind. Nothing else in the direct path changed when the second real runtime arrived, which is what the shared conformance suite in `tests/adapters/conformance` exists to keep true.
 
 Model and reasoning effort configured on a runtime reach `openSession`, which for Codex applies them as process-level `-c` overrides (`thread/start` has no `effort` parameter). Pin a model in the agent configuration rather than inheriting the user's `~/.codex/config.toml` default, which may be incompatible with the installed CLI.
 
-Usage (FR060) is read back from the adapter after the turn: an adapter that reports token counts yields `status: "measured"` with those counts, and `costUsd` stays `null` with a source line saying cost is unavailable — no installed runtime reports a price, and zero is never substituted for one.
+Usage (FR060) is read back from the adapter after the turn through `RuntimeAdapter.lastTurnUsage`: an adapter that reports token counts yields `status: "measured"` with those counts, and `costUsd` is whatever the adapter says was actually measured — Codex's app server reports no price at all, so cost stays `null` with a source line saying so, while Claude Code reports `total_cost_usd` and the adapter discards it when the turn made no provider call. Zero is never substituted for an unknown.
+
+Effective settings (FR006) come back the same way, through `RuntimeAdapter.effectiveSettings`. Both real runtimes echo what actually took effect — Codex in the `thread/start` response, Claude Code in each turn's `system.init` record — and the manifest records it as `runtime.effectiveModel` / `effectiveEffort` / `effectiveSettingsSource` beside the requested values. This matters because the run path does not consult a runtime's model listing before dispatching, so a configured value is passed through as `supported_unverified`: `sonnet` is recorded as having run as `claude-sonnet-5`. An adapter that does not implement the method yields `not_reported`, never the requested value repeated as if confirmed. Both optional methods are on the shared contract deliberately: the coordinator reads only the contract, so an adapter-shaped accessor is invisible to the manifest.
 
 ## R0 demonstration evidence
 
@@ -107,3 +109,19 @@ deterministic fake runtime that reproduce the ways a run could report a candidat
 nothing, hanging, and losing the state-root lock — and show the refusal each one now meets.
 `docs/evidence/r0/2026-09-07-initial/` keeps the superseded first recording, whose central claim an
 independent verification found to be false.
+
+## AT03 demonstration evidence
+
+`docs/evidence/at03/` holds the two-runtime demonstration: the same `ts-bug` task, one agent per
+runtime in one `agents.json`, run once through each installed executable. Codex reached `accepted`
+(exit 0) on a candidate whose patch was proved outside the coordinator to fix the bug. Claude Code
+did **not**: on this machine the installed `claude` holds no usable credential
+(`account.tokenSource: "none"`), so every turn ends in ~50 ms with `authentication_failed` and the
+run correctly refused acceptance with exit 4. That half of AT03 is blocked on an interactive
+`claude auth login`, not on this code, and the README says so in its first paragraph rather than
+substituting a passing-looking result.
+
+The same directory records what *is* established for the Claude Code path: the real coordinator and
+the real `ClaudeCodeAdapter`, driven by the recorded-replay binary, reach `accepted` on the same
+task, and refuse the acceptance-surface attack (a worker that rewrites the acceptance suite) with a
+`compromised` criterion and exit 4.

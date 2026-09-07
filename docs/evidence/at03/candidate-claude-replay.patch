@@ -1,0 +1,36 @@
+diff --git a/src/pagination.js b/src/pagination.js
+index dc7ea16b15343c8d2469a61ac6ea5b09f8555e78..c53a5ae12b22e73b7c19a3ca9a7eb8ae4cd62024 100644
+--- a/src/pagination.js
++++ b/src/pagination.js
+@@ -2,27 +2,17 @@
+  * Pagination helpers for the search endpoint.
+  */
+ 
+-/**
+- * Number of pages needed to display `total` items at `pageSize` per page.
+- *
+- * BUG: a partial final page is dropped, so 7 items at 3 per page report 2
+- * pages instead of 3 and the last page is never requested.
+- */
++/** Number of pages needed to display `total` items at `pageSize` per page. */
+ export function pageCount(total, pageSize) {
+   if (pageSize <= 0) throw new RangeError('pageSize must be greater than zero');
+   if (total <= 0) return 0;
+-  return Math.floor(total / pageSize);
++  return Math.ceil(total / pageSize);
+ }
+ 
+-/**
+- * The items on a 1-based `page`.
+- *
+- * BUG: the end offset is one item short, so every page returns pageSize - 1
+- * items and one item per page is never shown.
+- */
++/** The items on a 1-based `page`, including the remainder on the final page. */
+ export function paginate(items, page, pageSize) {
+   if (pageSize <= 0) throw new RangeError('pageSize must be greater than zero');
+   if (page < 1) throw new RangeError('page is 1-based');
+   const start = (page - 1) * pageSize;
+-  return items.slice(start, start + pageSize - 1);
++  return items.slice(start, start + pageSize);
+ }
