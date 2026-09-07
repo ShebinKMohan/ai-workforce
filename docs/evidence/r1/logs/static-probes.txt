@@ -1,0 +1,64 @@
+# Static reachability probes for the R1 gate (recorded 2026-09-07T18:18:27Z)
+
+$ git -C "<repo>" rev-parse HEAD
+d4ebd13a7cf2b57bb3aba9c4e6f648e2efb5b286
+
+$ grep -rn "handoff" src --include=*.ts | grep -v src/routing/handoff.ts
+src/recovery/fallback.ts:17: * carries a handoff packet describing the work already done, and the actual
+src/recovery/fallback.ts:122:  readonly handoffVersion: 1;
+src/recovery/fallback.ts:166:    handoffVersion: 1,
+src/recovery/fallback.ts:259:  readonly handoff: HandoffPacket | null;
+src/recovery/fallback.ts:271:  readonly handoff?: HandoffPacket | null;
+src/recovery/fallback.ts:294:    handoff: input.handoff ?? null,
+src/recovery/fallback.ts:310:      handoffCandidateRevision: evidence.handoff?.candidateRevision ?? null,
+src/recovery/fallback.ts:311:      usageCostStatus: evidence.handoff?.usage.costStatus ?? null,
+src/routing/index.ts:2: * Routing, planning and handoff (WP07).
+src/routing/index.ts:6: * (`schedule`), how one attempt hands work to another runtime (`handoff`) and
+src/routing/index.ts:12:export * from './handoff.js';
+
+$ grep -rn "buildHandoffPacket\|applyHandoffPacket\|parseHandoffPacket" src --include=*.ts
+src/recovery/fallback.ts:164:export function buildHandoffPacket(input: BuildHandoffInput): HandoffPacket {
+src/routing/handoff.ts:170:export function parseHandoffPacket(input: unknown): HandoffPacket {
+src/routing/handoff.ts:177:export function buildHandoffPacket(input: HandoffPacketInput): HandoffPacket {
+src/routing/handoff.ts:178:  return parseHandoffPacket(input);
+src/routing/handoff.ts:219:export function applyHandoffPacket(packet: HandoffPacket, options: ApplyHandoffOptions = {}): HandoffBrief {
+
+$ grep -rn "clarify\|assessClarification\|partitionOnClarification" src --include=*.ts | grep -v src/routing/clarify.ts
+src/routing/index.ts:7: * when a question is worth asking (`clarify`).
+src/routing/index.ts:13:export * from './clarify.js';
+
+$ grep -rn "chooseFallback\|recordFallback\|fallback" src/core src/cli --include=*.ts
+(no matches)
+
+$ grep -rn "dependencies" src/cli/commands/run.ts
+src/cli/commands/run.ts:308: * the tasks, in the order they wrote them, with no invented dependencies and
+
+$ sed -n "/decomposeRequest/,/^}/p" src/cli/commands/run.ts | tail -8
+export function decomposeRequest(text: string): PlannedTaskInput[] {
+  const deliverables = extractDeliverables(text);
+  if (deliverables.length < 2) return [];
+  return deliverables.map((objective, index) => ({ key: `t${index + 1}`, objective }));
+}
+
+$ grep -n "one task at a time" -A3 -B6 src/core/run-planned.ts
+
+$ grep -rn "task_request" src --include=*.ts | grep -v src/coordination
+(no matches: nothing consumes a queued delegation request)
+
+$ grep -n "not safe" -B6 -A6 src/core/run-planned.ts   # how a dispatched batch is executed
+270-    let failedKey: string | null = null;
+271-    for (;;) {
+272-      const batch = scheduler.dispatch();
+273-      if (batch.length === 0) break;
+274-      stream.event({ type: 'schedule.dispatch', runId, tasks: batch, activeTurns: scheduler.activeTurns, activeWriters: scheduler.activeWriters });
+275-      // The scheduler's caps bound the batch. The batch is then executed one
+276:      // task at a time: `git worktree add` against one repository is not safe
+277-      // to run concurrently, so the concurrency limits bound what may be in
+278-      // flight rather than what runs at the same instant.
+279-      for (const key of batch) {
+280-        const task = byKey.get(key)!;
+281-        const result = await runTaskWithRepair({
+282-          input,
+
+$ grep -n "taskText = slot" src/core/run-direct.ts   # a planned worker sees only its extracted objective line
+946:  const taskText = slot?.objective ?? input.requestText;

@@ -1,0 +1,204 @@
+{
+  "manifestVersion": 1,
+  "runId": "01a07d16-c328-76d3-ada4-97071a5a7c19",
+  "taskId": "01a07d16-c328-76d4-b7ed-67224bf2ecb3",
+  "attemptId": "01a07d16-c328-76d5-af12-389c5b966bfe",
+  "outcome": "interrupted",
+  "createdAt": "2026-09-07T18:17:18.901Z",
+  "request": {
+    "text": "Create eight markdown files under docs/: docs/n01.md through docs/n08.md.\nEach file must begin with a markdown title line (\"# N01\" and so on) and then a\nparagraph of at least four sentences describing that section. Write them one at\na time and re-read each file after writing it to confirm its contents.\n",
+    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/at07-task.txt",
+    "contextRefs": []
+  },
+  "project": {
+    "canonicalPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/repo",
+    "requestedPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/repo",
+    "repositoryIdentity": {
+      "rootCommit": "8eb478726d7a5b14752ae481a80bc12e3b492230",
+      "rootCommits": [
+        "8eb478726d7a5b14752ae481a80bc12e3b492230"
+      ],
+      "originUrl": null,
+      "identityHash": "65bee211fa3a64b57f2efe67475ce49ecbb94a629b2414693d8bb8f57202fc9d"
+    },
+    "branch": "main",
+    "detachedHead": false,
+    "hasSubmodules": false,
+    "projectId": "01a07d16-c336-7429-b71b-514cee723beb"
+  },
+  "base": {
+    "mode": "head",
+    "revision": "c3b2d04d19782aa6e5d07329456b43ca226ffd1d",
+    "uncommittedChangesExcluded": null,
+    "note": "the checkout was clean; the committed HEAD is the complete base"
+  },
+  "candidate": {
+    "created": true,
+    "branch": "workforce/01a07d16-c328-76d3-ada4-97071a5a7c19/01a07d16-c328-76d4-b7ed-67224bf2ecb3/01a07d16-c328-76d5-af12-389c5b966bfe",
+    "revision": "c5dce7d40d8a80307aedf607d4d5e2e299311f10",
+    "patchHash": "483c337e67b1e67aa0141d40630b928d8df0667170e18299611568a0c4beab91",
+    "patchBytes": 2445,
+    "checkpointCreated": true,
+    "changedFiles": [
+      {
+        "status": "A",
+        "path": "docs/n01.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/n02.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/n03.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/n04.md"
+      },
+      {
+        "status": "A",
+        "path": "docs/n05.md"
+      }
+    ],
+    "workspacePath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/ws-at07b/01a07d16-c328-76d3-ada4-97071a5a7c19/01a07d16-c328-76d4-b7ed-67224bf2ecb3/01a07d16-c328-76d5-af12-389c5b966bfe",
+    "patchArtifactId": "01a07d17-e70f-72f3-9054-e6dbc493cbf2"
+  },
+  "agent": {
+    "id": "engineer-codex",
+    "snapshotHash": "b940c0463236061e7b04e075f9364e675675bf192f26aecbb6fe437a10e216ee",
+    "policy": "local-development",
+    "instructionsCharacters": 71,
+    "limits": {
+      "maxActiveTurns": 2,
+      "maxActiveWriters": 2,
+      "maxTasksPerRun": 8,
+      "maxDelegationDepth": 2,
+      "maxRepairAttempts": 1,
+      "maxTransientRetries": 1,
+      "runTimeoutMinutes": 20
+    }
+  },
+  "runtime": {
+    "adapter": "codex",
+    "runtimeId": "codex-local",
+    "executable": "/opt/homebrew/bin/codex",
+    "model": "gpt-5.6-sol",
+    "modelStatus": "supported_unverified",
+    "effort": "low",
+    "effortStatus": "supported_unverified",
+    "effectiveModel": "gpt-5.6-sol",
+    "effectiveEffort": "low",
+    "effectiveSettingsSource": "runtime_reported",
+    "sessionId": "01a07d16-c77e-7d41-9baf-b7f3c6ab9773",
+    "turnId": "01a07d16-c905-71b2-8e2b-d106ec39a671",
+    "turnConclusion": "interrupted",
+    "stopReceipt": {
+      "sessionId": "01a07d16-c77e-7d41-9baf-b7f3c6ab9773",
+      "state": "process_tree_terminated",
+      "processId": 75515,
+      "signal": null,
+      "at": "2026-09-07T18:18:33.487Z"
+    },
+    "interruptReason": "signal"
+  },
+  "requirements": [
+    {
+      "criterionId": "check-1",
+      "description": "--check \"node scripts/check.mjs lint\"",
+      "required": true,
+      "status": "no_evidence",
+      "outcome": null,
+      "receiptId": null,
+      "detail": "no verifier-executed check produced evidence for this criterion"
+    }
+  ],
+  "checks": [],
+  "acceptance": {
+    "accepted": false,
+    "requiredTotal": 1,
+    "requiredPassed": 0,
+    "reasons": [
+      "criterion \"check-1\" has no verifier-executed evidence"
+    ]
+  },
+  "evidence": {
+    "checkSource": "cli_flags",
+    "checkSourceDetail": "1 check(s) from --check flags",
+    "runtimeClaimedDone": false,
+    "runtimeReportedTurnFailure": null,
+    "sessionIdentityMismatches": [],
+    "runtimeReportedFileChanges": [
+      "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/ws-at07b/01a07d16-c328-76d3-ada4-97071a5a7c19/01a07d16-c328-76d4-b7ed-67224bf2ecb3/01a07d16-c328-76d5-af12-389c5b966bfe/docs/n01.md",
+      "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/ws-at07b/01a07d16-c328-76d3-ada4-97071a5a7c19/01a07d16-c328-76d4-b7ed-67224bf2ecb3/01a07d16-c328-76d5-af12-389c5b966bfe/docs/n02.md",
+      "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/ws-at07b/01a07d16-c328-76d3-ada4-97071a5a7c19/01a07d16-c328-76d4-b7ed-67224bf2ecb3/01a07d16-c328-76d5-af12-389c5b966bfe/docs/n03.md",
+      "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/ws-at07b/01a07d16-c328-76d3-ada4-97071a5a7c19/01a07d16-c328-76d4-b7ed-67224bf2ecb3/01a07d16-c328-76d5-af12-389c5b966bfe/docs/n04.md",
+      "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/ws-at07b/01a07d16-c328-76d3-ada4-97071a5a7c19/01a07d16-c328-76d4-b7ed-67224bf2ecb3/01a07d16-c328-76d5-af12-389c5b966bfe/docs/n05.md"
+    ],
+    "runtimeDeniedFileChanges": [],
+    "writesOutsideGrantedPaths": [],
+    "writeObservation": {
+      "basis": "runtime_reported_tool_events",
+      "enforcedWriteBoundary": true,
+      "complete": true,
+      "note": "The runtime enforces a write boundary (write_containment \"verified\"), so a write outside the granted paths would have been refused whether or not it was reported; every entry is a write the codex runtime itself reported through a tool event; the coordinator does not watch the filesystem, so this list can only be as complete as the runtime's reporting. An empty list therefore means no such write succeeded."
+    },
+    "deniedWritesOutsideGrantedPaths": [],
+    "unconfirmedWritesOutsideGrantedPaths": [],
+    "runtimeToolCalls": 0,
+    "runtimeCommands": 6,
+    "runtimeErrors": 0,
+    "acceptanceFixturePaths": [
+      ".workforce/checks.json",
+      "scripts/check.mjs"
+    ],
+    "acceptanceFixtureMutations": [],
+    "acceptanceFixtureAdditions": [],
+    "acceptanceDefinitionChanges": [],
+    "unnormalizedRuntimeEvents": 80,
+    "verificationCopyStrategy": null,
+    "note": "acceptance is decided from verifier-executed check receipts, the integrity of the fixtures those receipts executed, and the run-level blockers listed under acceptance.reasons; the runtime-reported fields above are context, not evidence of correctness",
+    "containment": {
+      "policy": "local-development",
+      "profileWrites": true,
+      "adapter": "codex",
+      "writeContainment": "verified",
+      "writeContainmentNote": "workspace-write with explicit writableRoots plus excludeSlashTmp and excludeTmpdirEnvVar: writes inside the granted root succeed while writes to a sibling workspace, to /tmp and to $TMPDIR are denied, network is denied, and read-only denies every write. Checked both through command/exec and through a model-driven turn asked to write outside its workspace",
+      "statusTestedVersion": "0.147.0",
+      "statusOs": "darwin",
+      "enforcedWriteBoundary": true,
+      "unconfinedWritesAcknowledged": false,
+      "unenforceable": []
+    },
+    "containmentNote": "Write confinement for this run is what the codex adapter reports as write_containment \"verified\" (established against 0.147.0 on darwin): workspace-write with explicit writableRoots plus excludeSlashTmp and excludeTmpdirEnvVar: writes inside the granted root succeed while writes to a sibling workspace, to /tmp and to $TMPDIR are denied, network is denied, and read-only denies every write. Checked both through command/exec and through a model-driven turn asked to write outside its workspace Any write seen outside the granted paths is listed above and blocks acceptance. The candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Neither installed runtime confines reads at all — a worker can read files outside the repository, and this run did not prevent that. Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, but with this user's own filesystem privileges: repository test code could still read or write anything this user can, including the coordinator state root. An enforced execution boundary for tool and test subprocesses (FR042) is an R1 gate; acceptance compensates only by refusing evidence whose fixtures the candidate changed."
+  },
+  "timing": {
+    "dispatchMs": 144,
+    "startupMs": 1423,
+    "runtimeMs": 73104,
+    "validationMs": 89,
+    "elapsedMs": 74789
+  },
+  "usage": {
+    "status": "measured",
+    "inputTokens": 80298,
+    "outputTokens": 1870,
+    "costUsd": null,
+    "source": "codex: thread/tokenUsage/updated reports token counts for this thread; the app server reports no currency cost, so cost is unavailable rather than zero (cost unavailable, reported as null rather than zero)"
+  },
+  "unresolved": [
+    "the run was interrupted before acceptance; resume creates a new attempt generation for this task"
+  ],
+  "artifacts": [
+    {
+      "type": "candidate_patch",
+      "path": "candidate.patch",
+      "sha256": "483c337e67b1e67aa0141d40630b928d8df0667170e18299611568a0c4beab91"
+    },
+    {
+      "type": "runtime_event_log",
+      "path": "logs/runtime-events.jsonl",
+      "sha256": "71e53366dbfbd6c20f22d3510933a3d0e3242eeb8d0a3c4f063d4dc7c5b7c832"
+    }
+  ]
+}

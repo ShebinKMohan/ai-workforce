@@ -1,0 +1,4 @@
+Create eight markdown files under docs/: docs/n01.md through docs/n08.md.
+Each file must begin with a markdown title line ("# N01" and so on) and then a
+paragraph of at least four sentences describing that section. Write them one at
+a time and re-read each file after writing it to confirm its contents.
