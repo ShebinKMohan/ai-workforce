@@ -668,6 +668,7 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
         resume: resumeId ?? undefined,
         includeDeltas: this.#options.includeDeltas,
       }),
+      ...(input.extraArgs ?? []),
     ];
 
     const pendingRaw: RawRecord[] = [];

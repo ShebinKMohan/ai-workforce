@@ -160,6 +160,16 @@ export interface SessionInput {
   readonly effort?: string;
   readonly systemInstructions: string;
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Extra argv entries spliced into the runtime's own command line, used by the
+   * coordinator to attach a session to the run's coordination bridge
+   * (`--mcp-config` for Claude Code, `-c mcp_servers.*` for Codex).
+   *
+   * Additive and optional: an adapter that cannot take extra arguments ignores
+   * it, and the coordinator then records the session as running without a
+   * bridge rather than assuming one attached.
+   */
+  readonly extraArgs?: ReadonlyArray<string>;
 }
 
 export interface ResumeInput extends SessionInput {

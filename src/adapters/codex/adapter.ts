@@ -468,7 +468,7 @@ export class CodexAdapter implements RuntimeAdapter {
 
     const rpc = new CodexRpcClient({
       executablePath: this.#options.executablePath,
-      args: [...this.#options.appServerArgs, ...this.#options.configOverrides, ...configOverrideArgs(overrides)],
+      args: [...this.#options.appServerArgs, ...this.#options.configOverrides, ...configOverrideArgs(overrides), ...(input.extraArgs ?? [])],
       cwd: input.cwd,
       requestTimeoutMs: this.#options.requestTimeoutMs,
       stopTimeoutMs: this.#options.stopTimeoutMs,

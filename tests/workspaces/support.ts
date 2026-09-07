@@ -250,7 +250,7 @@ export function longRunningScenario(ms = 10_000): FakeScenario {
 }
 
 /** Write an agent configuration bound to the deterministic fake runtime. */
-export function writeFakeAgentsConfig(dir: string, options: { model?: string; effort?: string } = {}): string {
+export function writeFakeAgentsConfig(dir: string, options: { model?: string; effort?: string; planner?: boolean } = {}): string {
   const file = path.join(dir, 'agents.json');
   writeFileSync(
     file,
@@ -267,6 +267,9 @@ export function writeFakeAgentsConfig(dir: string, options: { model?: string; ef
         },
         defaults: {
           workerAgent: 'engineer',
+          // The router refuses the planned path without a configured planner,
+          // so a test that exercises it has to declare one.
+          ...(options.planner === true ? { plannerAgent: 'planner' } : {}),
           maxActiveTurns: 2,
           maxActiveWriters: 2,
           maxTasksPerRun: 8,
@@ -283,6 +286,17 @@ export function writeFakeAgentsConfig(dir: string, options: { model?: string; ef
             capabilities: ['coding', 'testing'],
             policy: 'local-development',
           },
+          ...(options.planner === true
+            ? [
+                {
+                  id: 'planner',
+                  runtime: 'fake-local',
+                  instructions: 'Break the request into independent tasks with explicit acceptance criteria.',
+                  capabilities: ['planning'],
+                  policy: 'analysis',
+                },
+              ]
+            : []),
         ],
       },
       null,

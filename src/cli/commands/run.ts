@@ -28,6 +28,9 @@ import {
   type RunDirectResult,
   type RunStream,
 } from '../../core/run-direct.js';
+import { runPlanned, type PlannedTaskInput, type RunPlannedResult } from '../../core/run-planned.js';
+import { decideRoute, extractDeliverables, type RouteDecision } from '../../routing/index.js';
+import { limitsFromDefaults } from '../../core/contracts.js';
 import { LockHeldError, LockLostError } from '../../storage/lock.js';
 import { openStateStore } from '../../storage/db.js';
 import { createStatePaths, PathsManifestSchema, resolveStateRoot } from '../../storage/paths.js';
@@ -52,6 +55,8 @@ export interface RunCommandArgs {
    * configuration default (plan section 8).
    */
   readonly allowUnconfinedWrites?: boolean;
+  /** `--path direct|planned`: override what the router decided. */
+  readonly path?: string;
   readonly json: boolean;
 }
 
@@ -168,6 +173,67 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
     throw error;
   }
 
+  // ---- Routing (FR021) -------------------------------------------------
+  // The direct path is the default and stays the default. The planned path is
+  // taken only when the request itself carries more than one deliverable AND
+  // the router says so, because a decomposition nobody asked for is a way to
+  // turn one bounded task into several unbounded ones.
+  if (args.path !== undefined && args.path !== 'direct' && args.path !== 'planned') {
+    throw new CliError(EXIT_CODES.invalidInput, 'invalid_path', `--path must be "direct" or "planned", not "${args.path}"`);
+  }
+  const route = decideRoute({
+    request: {
+      text: task.text,
+      ...(args.path === 'direct' || args.path === 'planned' ? { forcePath: args.path } : {}),
+    },
+    project: { repoPath: repo },
+    agents: loaded.config.agents.map((agent) => ({ id: agent.id, capabilities: [...agent.capabilities], policy: agent.policy })),
+    limits: { maxTasksPerRun: limitsFromDefaults(loaded.config.defaults).maxTasksPerRun },
+    defaults: {
+      workerAgent: loaded.config.defaults.workerAgent,
+      ...(loaded.config.defaults.plannerAgent !== undefined ? { plannerAgent: loaded.config.defaults.plannerAgent } : {}),
+    },
+  });
+  deps.reporter.info(`route: ${route.path} — ${route.reason}`);
+
+  const plannedTasks = route.path === 'planned' ? decomposeRequest(task.text) : [];
+  if (route.path === 'planned' && plannedTasks.length < 2) {
+    // The router wanted a plan but the request does not yield one that can be
+    // built without a planner runtime. Say so and take the proven path rather
+    // than inventing a decomposition.
+    deps.reporter.info('note: no plan with more than one task could be derived from the request without a planner runtime; running the direct path');
+  }
+
+  if (route.path === 'planned' && plannedTasks.length >= 2) {
+    let planned: RunPlannedResult;
+    try {
+      planned = await runPlanned({
+        repoPath: repo,
+        config: loaded.config,
+        configRaw: loaded.raw,
+        configPath: loaded.path,
+        requestText: task.text,
+        requestSource: task.source,
+        tasks: plannedTasks,
+        paths,
+        db: store.db,
+        stream: createRunStream(deps.reporter, deps.streams),
+        ...(store.lock !== null ? { ownership: store.lock } : {}),
+        ...(args.agent !== undefined ? { agentId: args.agent } : {}),
+        ...(args.checks !== undefined ? { checkFlags: args.checks } : {}),
+        ...(args.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
+        ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+        ...(deps.adapterFactory !== undefined ? { adapterFactory: deps.adapterFactory } : {}),
+        ...(deps.sessionEnv !== undefined ? { sessionEnv: deps.sessionEnv } : {}),
+      });
+    } catch (error) {
+      throw toCliError(error);
+    } finally {
+      store.close();
+    }
+    return plannedCommandResult(planned, paths.root, route);
+  }
+
   let result: RunDirectResult;
   try {
     result = await runDirect({
@@ -218,6 +284,9 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
     unresolved: result.manifest.unresolved,
   };
 
+  data['route'] = { path: 'direct', reason: route.reason, signals: route.signals };
+  data['coordination'] = result.coordination;
+
   const lines: string[] = [
     `run ${result.runId}: ${result.outcome}`,
     `task ${result.taskId}: ${result.taskState}`,
@@ -229,6 +298,60 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
     for (const item of result.manifest.unresolved) lines.push(`  - ${item}`);
   }
 
+  return { command: 'run', exitCode, data, lines };
+}
+
+/**
+ * Turn a multi-deliverable request into tasks, without a planner runtime.
+ *
+ * This is deliberately literal: the deliverables the user enumerated become
+ * the tasks, in the order they wrote them, with no invented dependencies and
+ * no invented scope. It is not a planner, and it does not pretend to be one —
+ * when a request does not enumerate its deliverables, it yields nothing and
+ * the run takes the direct path.
+ */
+export function decomposeRequest(text: string): PlannedTaskInput[] {
+  const deliverables = extractDeliverables(text);
+  if (deliverables.length < 2) return [];
+  return deliverables.map((objective, index) => ({ key: `t${index + 1}`, objective }));
+}
+
+function plannedCommandResult(planned: RunPlannedResult, stateRoot: string, route: RouteDecision): CommandResult {
+  const exitCode: ExitCode =
+    planned.outcome === 'accepted' ? EXIT_CODES.verifiedCandidate : planned.outcome === 'interrupted' ? EXIT_CODES.interrupted : EXIT_CODES.executionFailure;
+  const combined =
+    planned.combination === null || planned.combination.status === 'refused'
+      ? null
+      : { revision: planned.combination.combinedRevision, order: planned.combination.order, acceptance: planned.combination.acceptance };
+  const data: Record<string, unknown> = {
+    runId: planned.runId,
+    path: 'planned',
+    route: { path: route.path, reason: route.reason, signals: route.signals },
+    outcome: planned.outcome,
+    runState: planned.runState,
+    accepted: planned.accepted,
+    reason: planned.reason,
+    stateRoot,
+    runDir: planned.runDir,
+    manifest: planned.manifestPath,
+    base: planned.baseRevision,
+    tasks: planned.tasks.map((task) => ({ key: task.key, taskId: task.taskId, objective: task.objective, accepted: task.accepted, repairsUsed: task.repairsUsed, attempts: task.attempts.length })),
+    combined,
+    review: planned.review,
+    unresolved: planned.unresolved,
+  };
+  const lines: string[] = [
+    `run ${planned.runId}: ${planned.outcome} (planned, ${planned.tasks.length} tasks)`,
+    ...planned.tasks.map((task) => `  ${statusLabel(task.accepted ? 'passed' : 'failed')} ${task.key}: ${task.objective}${task.repairsUsed > 0 ? ` (after ${task.repairsUsed} repair(s))` : ''}`),
+  ];
+  if (combined !== null) {
+    lines.push(`combined candidate ${combined.revision.slice(0, 12)}: ${combined.acceptance.accepted ? 'accepted' : 'not accepted'} — ${combined.acceptance.reason}`);
+  }
+  lines.push(`evidence and manifest: ${planned.runDir}`);
+  if (planned.unresolved.length > 0) {
+    lines.push('unresolved:');
+    for (const item of planned.unresolved) lines.push(`  - ${item}`);
+  }
   return { command: 'run', exitCode, data, lines };
 }
 
@@ -252,7 +375,11 @@ function toCliError(error: unknown): CliError {
       error.code === 'unknown_agent' ||
       error.code === 'unsupported_runtime_setting' ||
       error.code === 'write_boundary_unsupported' ||
-      error.code === 'no_acceptance_checks';
+      error.code === 'no_acceptance_checks' ||
+      error.code === 'empty_plan' ||
+      error.code === 'duplicate_task_key' ||
+      error.code === 'unknown_dependency' ||
+      error.code === 'task_budget_exceeded';
     return new CliError(invalid ? EXIT_CODES.invalidInput : EXIT_CODES.executionFailure, error.code, error.message);
   }
   if (error instanceof ProjectInspectionError) {

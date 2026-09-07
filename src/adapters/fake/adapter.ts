@@ -150,6 +150,7 @@ export class FakeAdapter implements RuntimeAdapter {
   readonly #options: Required<Pick<FakeAdapterOptions, 'scriptPath' | 'nodeExecutable' | 'startupTimeoutMs' | 'stopTimeoutMs' | 'interruptTimeoutMs'>> &
     Pick<FakeAdapterOptions, 'scenarioPath' | 'onRawLine'>;
   readonly #sessions = new Map<string, FakeSession>();
+  readonly #extraArgs = new Map<string, ReadonlyArray<string>>();
 
   constructor(options: FakeAdapterOptions = {}) {
     this.#options = {
@@ -322,7 +323,17 @@ export class FakeAdapter implements RuntimeAdapter {
       finalSession.buffer[i] = { ...buffered, sessionId, rawRef };
     }
     this.#sessions.set(sessionId, finalSession);
+    // The test runtime records the coordinator's bridge argv rather than
+    // forwarding it: the fake script speaks no MCP, and a test asserting that
+    // a session was attached to the bridge should assert what the coordinator
+    // asked for, not what a stub would have ignored.
+    this.#extraArgs.set(sessionId, [...(input.extraArgs ?? [])]);
     return finalSession.handle;
+  }
+
+  /** Extra argv the coordinator asked to splice into this session's command line. */
+  extraArgsFor(sessionId: string): ReadonlyArray<string> {
+    return this.#extraArgs.get(sessionId) ?? [];
   }
 
   #rawRef(session: FakeSession, suffix: string | number): string {

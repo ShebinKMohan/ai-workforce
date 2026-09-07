@@ -4,28 +4,32 @@
  *
  * WP01 wired argument parsing, configuration validation (exit 2 on invalid
  * input) and state-root resolution. WP02 implements `doctor` (passive runtime
- * discovery), WP04 implements `run` (the R0 direct path) and `status`.
- * `resume` arrives with WP09 and currently reports "not implemented".
+ * discovery), WP04 implements `run` and `status`, and WP09 implements
+ * `resume`.
+ *
+ * `run` now chooses its own route: the direct path for one bounded task (the
+ * proven R0 path, unchanged), the planned path when the request enumerates
+ * several deliverables and a planner is configured. `--path` overrides the
+ * choice in either direction.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { ContractValidationError } from '../core/contracts.js';
 import { loadAgentConfigFile, type LoadedAgentConfig } from '../core/config.js';
-import { computeAgentSnapshot } from '../core/snapshot.js';
-import { resolveStateRoot } from '../storage/paths.js';
 import { commandDoctor as runDoctor } from './commands/doctor.js';
 import { commandRun } from './commands/run.js';
 import { commandStatus } from './commands/status.js';
+import { commandResume as runResume } from './commands/resume.js';
 import { CliError, EXIT_CODES, Reporter, type CommandResult, type ExitCode, type Streams } from './output.js';
 
 export const USAGE = `workforce — coordinate installed coding runtimes on one engineering task
 
 Usage:
   workforce doctor [--connect] [--codex-path <file>] [--claude-path <file>] [--agents <file>] [--state-dir <dir>] [--json]
-  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--check "<cmd> [args]"]... [--allow-unconfined-writes] [--state-dir <dir>] [--workspace-root <dir>] [--json]
+  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--path direct|planned] [--check "<cmd> [args]"]... [--allow-unconfined-writes] [--state-dir <dir>] [--workspace-root <dir>] [--json]
   workforce status <run-id> [--state-dir <dir>] [--json]
-  workforce resume <run-id> --agents <file> [--state-dir <dir>] [--json]
+  workforce resume <run-id> [--agents <file>] [--state-dir <dir>] [--json]
 
 Options:
   --repo <path>        Git repository to work on (its checkout is never modified)
@@ -33,6 +37,13 @@ Options:
   --task <text>        task request text
   --task-file <file>   read the task request from a file
   --agent <id>         worker agent to dispatch (default: defaults.workerAgent)
+  --path direct|planned
+                       override the route. The default is decided from the
+                       request: one bounded task takes the direct path, an
+                       enumerated set of deliverables takes the planned path,
+                       whose approved artifacts are combined and re-checked
+                       against the combined candidate before anything is
+                       accepted.
   --check "<cmd> ..."  acceptance check, repeatable. Executed with an argument
                        array, never through a shell. Without it the checks come
                        from .workforce/checks.json at the base revision, or are
@@ -72,6 +83,7 @@ interface ParsedArgs {
   readonly stateDir?: string;
   readonly workspaceRoot?: string;
   readonly agent?: string;
+  readonly path?: string;
   readonly checks?: ReadonlyArray<string>;
   readonly allowUnconfinedWrites: boolean;
   readonly json: boolean;
@@ -100,6 +112,7 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     ...(values['state-dir'] !== undefined ? { stateDir: values['state-dir'] } : {}),
     ...(values['workspace-root'] !== undefined ? { workspaceRoot: values['workspace-root'] } : {}),
     ...(values.agent !== undefined ? { agent: values.agent } : {}),
+    ...(values.path !== undefined ? { path: values.path } : {}),
     ...(values.check !== undefined ? { checks: values.check } : {}),
     allowUnconfinedWrites: values['allow-unconfined-writes'] === true,
     json: values.json === true,
@@ -118,6 +131,7 @@ const OPTIONS = {
   'state-dir': { type: 'string' },
   'workspace-root': { type: 'string' },
   agent: { type: 'string' },
+  path: { type: 'string' },
   check: { type: 'string', multiple: true },
   'allow-unconfined-writes': { type: 'boolean', default: false },
   json: { type: 'boolean', default: false },
@@ -140,22 +154,6 @@ function loadConfigOrFail(file: string): LoadedAgentConfig {
   }
 }
 
-function configSummary(loaded: LoadedAgentConfig): Record<string, unknown> {
-  const { config } = loaded;
-  return {
-    path: loaded.path,
-    schemaVersion: config.schemaVersion,
-    runtimes: Object.entries(config.runtimes).map(([id, runtime]) => ({ id, adapter: runtime.adapter, executable: runtime.executable, model: runtime.model ?? null, effort: runtime.effort ?? null })),
-    agents: config.agents.map((agent) => ({ id: agent.id, runtime: agent.runtime, policy: agent.policy, capabilities: agent.capabilities, snapshotHash: computeAgentSnapshot(config, agent.id).hash })),
-    defaults: config.defaults,
-  };
-}
-
-function notImplemented(command: string, data: Record<string, unknown>, lines: string[], nextPackage: string): CommandResult {
-  const message = `${command} is not implemented in WP01 (arrives with ${nextPackage})`;
-  return { command, exitCode: EXIT_CODES.executionFailure, data: { ...data, status: 'not_implemented', message }, lines: [...lines, message] };
-}
-
 function requireRunId(args: ParsedArgs, command: string): string {
   const runId = args.positionals[0];
   if (runId === undefined || runId.length === 0) throw new CliError(EXIT_CODES.invalidInput, 'missing_run_id', `${command} requires a <run-id> argument`);
@@ -174,17 +172,27 @@ function commandDoctor(args: ParsedArgs): Promise<CommandResult> {
   });
 }
 
-function commandResume(args: ParsedArgs): CommandResult {
-  const runId = requireRunId(args, 'resume');
-  const stateRoot = resolveStateRoot(args.stateDir);
-  const data: Record<string, unknown> = { stateRoot, runId };
-  const lines = [`state root: ${stateRoot}`, `run: ${runId}`];
-  if (args.agents !== undefined) {
-    const loaded = loadConfigOrFail(args.agents);
-    data['config'] = configSummary(loaded);
-    lines.push(`agent configuration: ${loaded.path} (valid)`);
-  }
-  return notImplemented('resume', data, lines, 'WP09 recovery');
+/**
+ * WP09 recovery: reconcile what the run actually left behind, plan what may be
+ * reconnected, replaced, preserved or isolated, and hold the coordinator lock
+ * while doing it.
+ *
+ * The plan is reported, not executed: no continuation is injected here, so
+ * `resume` never claims to have re-dispatched work it did not. Validating the
+ * configuration first keeps an invalid `--agents` an exit-2 invocation.
+ */
+function commandResume(args: ParsedArgs, signal?: AbortSignal): Promise<CommandResult> {
+  requireRunId(args, 'resume');
+  if (args.agents !== undefined) loadConfigOrFail(args.agents);
+  return runResume(
+    {
+      positionals: args.positionals,
+      json: args.json,
+      ...(args.stateDir !== undefined ? { stateDir: args.stateDir } : {}),
+      ...(args.agents !== undefined ? { agents: args.agents } : {}),
+    },
+    signal !== undefined ? { signal } : {},
+  );
 }
 
 export async function runCli(argv: ReadonlyArray<string>, streams: Streams = process, signal?: AbortSignal): Promise<ExitCode> {
@@ -209,7 +217,7 @@ export async function runCli(argv: ReadonlyArray<string>, streams: Streams = pro
       case 'status':
         return reporter.result(commandStatus(args));
       case 'resume':
-        return reporter.result(commandResume(args));
+        return reporter.result(await commandResume(args, signal));
       default:
         throw new CliError(EXIT_CODES.invalidInput, 'unknown_command', `unknown command "${args.command}"`, ['commands: doctor, run, status, resume']);
     }

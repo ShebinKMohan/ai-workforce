@@ -969,6 +969,12 @@ export interface PersistChecksInput {
   readonly attemptId?: string | null;
   readonly receipts: ReadonlyArray<CheckReceipt>;
   readonly now?: string;
+  /**
+   * Artifact path prefix, default `checks`. Artifacts are immutable and keyed
+   * by run, so a run with more than one task must scope its check artifacts per
+   * attempt or the second task collides with the first.
+   */
+  readonly pathPrefix?: string;
 }
 
 export interface PersistedCheck {
@@ -991,7 +997,7 @@ export function persistCheckReceipts(db: DatabaseSync, paths: StatePaths, input:
 
   for (const receipt of input.receipts) {
     const slug = safeSegment(receipt.criterionId);
-    const base = `checks/${slug}`;
+    const base = `${input.pathPrefix ?? 'checks'}/${slug}`;
     const stdout = existsSync(receipt.stdoutPath) ? readFileSync(receipt.stdoutPath) : Buffer.alloc(0);
     const stderr = existsSync(receipt.stderrPath) ? readFileSync(receipt.stderrPath) : Buffer.from(receipt.stderrTail, 'utf8');
     const provenance = {

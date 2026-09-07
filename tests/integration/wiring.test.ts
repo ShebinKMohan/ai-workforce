@@ -254,8 +254,74 @@ describe('state and workspace roots reach the coordinator', () => {
   });
 });
 
+describe('the CLI routes between the direct and planned paths', () => {
+  it('keeps a single bounded request on the direct path', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-route-direct-'), 'state');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-route-direct-config-'));
+    useScenario();
+
+    const run = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
+    expect(run.code).toBe(EXIT_CODES.verifiedCandidate);
+    const document = JSON.parse(run.stdout.trimEnd().split('\n').at(-1) as string) as {
+      runId: string;
+      accepted: boolean;
+      route: { path: string };
+      coordination: { attached: boolean };
+    };
+    // R0's proven path, unchanged: one task, accepted, and now also attached to
+    // the coordination bridge.
+    expect(document.route.path).toBe('direct');
+    expect(document.accepted).toBe(true);
+    expect(document.coordination.attached).toBe(true);
+  }, 120_000);
+
+  it('takes the planned path when asked, and refuses to combine artifacts that collide', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-route-planned-'), 'state');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-route-planned-config-'), { planner: true });
+    // Every task in this run gets the same scenario, so both write the same
+    // lines of the same file. That is exactly the case the integration owner
+    // must refuse rather than silently keep one of them.
+    useScenario();
+
+    const run = await invoke([
+      'run',
+      '--repo',
+      fixture.path,
+      '--agents',
+      configPath,
+      '--task',
+      'Two fixes are needed:\n- Fix the off-by-one in the page count\n- Fix the off-by-one in the slice bounds',
+      '--path',
+      'planned',
+      '--state-dir',
+      stateDir,
+      '--json',
+    ]);
+    const document = JSON.parse(run.stdout.trimEnd().split('\n').at(-1) as string) as {
+      runId: string;
+      path: string;
+      accepted: boolean;
+      tasks: ReadonlyArray<{ key: string; accepted: boolean }>;
+      combined: unknown;
+      unresolved: ReadonlyArray<string>;
+    };
+    expect(document.path).toBe('planned');
+    expect(document.tasks).toHaveLength(2);
+    // Both tasks passed on their own branches...
+    expect(document.tasks.every((task) => task.accepted)).toBe(true);
+    // ...and the run is still not accepted, because the combined candidate was
+    // never built. Per-task acceptance is not run acceptance (AT13).
+    expect(document.accepted).toBe(false);
+    expect(document.combined).toBeNull();
+    expect(run.code).toBe(EXIT_CODES.executionFailure);
+    expect(document.unresolved.join(' ')).toMatch(/could not be combined/);
+  }, 180_000);
+});
+
 describe('the CLI dispatches every implemented command', () => {
-  it('runs doctor, run and status against one state root and still reports resume as unimplemented', async () => {
+  it('runs doctor, run, status and resume against one state root', async () => {
     const fixture = await useFixture('ts-bug');
     const stateDir = path.join(tempDir('workforce-dispatch-'), 'state');
     const configPath = writeFakeAgentsConfig(tempDir('workforce-dispatch-config-'));
@@ -277,9 +343,16 @@ describe('the CLI dispatches every implemented command', () => {
     expect(statusDocument.run.id).toBe(runDocument.runId);
     expect(statusDocument.run.state).toBe('ready_for_review');
 
-    const resume = await invoke(['resume', runDocument.runId, '--state-dir', stateDir]);
-    expect(resume.code).toBe(EXIT_CODES.executionFailure);
-    expect(resume.stdout).toContain('not implemented');
+    // WP09 replaced the WP01 stub: resume now reconciles the run and reports a
+    // plan. This run already reached ready_for_review, so the honest answer is
+    // that there is nothing to resume — not a re-dispatch, and not a failure.
+    const resume = await invoke(['resume', runDocument.runId, '--state-dir', stateDir, '--json']);
+    expect(resume.code).toBe(EXIT_CODES.verifiedCandidate);
+    const resumeDocument = JSON.parse(resume.stdout) as { runId: string; status: string; plan: { runState: string; complete: boolean } };
+    expect(resumeDocument.runId).toBe(runDocument.runId);
+    expect(resumeDocument.status).toBe('already_finished');
+    expect(resumeDocument.plan.runState).toBe('ready_for_review');
+    expect(resumeDocument.plan.complete).toBe(true);
   });
 });
 

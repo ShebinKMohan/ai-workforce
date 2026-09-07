@@ -57,6 +57,7 @@ import {
   upsertAgentSnapshot,
 } from '../storage/records.js';
 import { appendEvent } from '../storage/events.js';
+import { createCoordinationBridge, type AttemptBridgeConfig, type CoordinationBridge } from '../coordination/index.js';
 import { projectEventsJsonl, recordRuntimeEvent, summarizeTurnEvidence, type TurnEvidence } from '../telemetry/events.js';
 import { PhaseTimer, USAGE_UNAVAILABLE, type UsageReport } from '../telemetry/timing.js';
 import {
@@ -677,6 +678,10 @@ export interface PromptInput {
   readonly workspace: CandidateWorkspace;
   readonly inspection: ProjectInspection;
   readonly contract: TaskContract;
+  /** What completed dependencies produced, when this task has any. */
+  readonly briefing?: string;
+  /** Messages waiting for this task, delivered at the safe boundary before the turn. */
+  readonly inbox?: ReadonlyArray<string>;
 }
 
 /**
@@ -700,6 +705,16 @@ export function composeTaskPrompt(input: PromptInput): string {
   }
   if (input.contextRefs.length > 0) {
     lines.push(`Context references supplied with the request: ${input.contextRefs.join(', ')}.`);
+  }
+  if (input.briefing !== undefined && input.briefing.trim().length > 0) {
+    lines.push('');
+    lines.push('--- what the tasks you depend on produced ---');
+    lines.push(input.briefing.trimEnd());
+  }
+  if (input.inbox !== undefined && input.inbox.length > 0) {
+    lines.push('');
+    lines.push('--- messages waiting for this task ---');
+    for (const message of input.inbox) lines.push(`- ${message}`);
   }
   lines.push('');
   lines.push('Changed-file rules:');
@@ -775,6 +790,38 @@ export interface RunDirectInput {
    * issue — it never becomes silent.
    */
   readonly allowUnconfinedWrites?: boolean;
+  /**
+   * Coordination bridge for this run. A multi-task run owns one bridge and
+   * passes it to every task; a single-task run leaves this undefined and
+   * `runDirect` starts and closes its own.
+   */
+  readonly coordination?: CoordinationBridge | null;
+  /**
+   * Start no coordination bridge at all. The worker then has no channel to ask
+   * the coordinator anything, which is the honest state for a run whose state
+   * root cannot host a socket.
+   */
+  readonly coordinationEnabled?: boolean;
+  /**
+   * Run this attempt as one task of an already-created run (the planned path).
+   *
+   * When set, the run row, the run-level request/contract files and the run
+   * lifecycle transitions belong to the caller: this function creates only the
+   * task and attempt, and reports the task's own outcome without deciding the
+   * run's.
+   */
+  readonly slot?: RunTaskSlot;
+}
+
+/** One task's identity inside a run the caller already created. */
+export interface RunTaskSlot {
+  readonly runId: string;
+  readonly taskId: string;
+  readonly attemptId: string;
+  /** What this task is for; replaces the raw request text in the contract and prompt. */
+  readonly objective: string;
+  /** Context from completed dependencies, appended to the prompt. */
+  readonly briefing?: string;
 }
 
 export type RunOutcome = 'accepted' | 'failed' | 'interrupted';
@@ -829,6 +876,17 @@ export interface RunDirectResult {
   readonly runDir: string;
   readonly evidence: TurnEvidence | null;
   readonly stopReceipt: StopReceipt | null;
+  /** Was this worker session attached to the coordination bridge, and what it exchanged. */
+  readonly coordination: CoordinationAttachment;
+}
+
+export interface CoordinationAttachment {
+  readonly attached: boolean;
+  readonly socketPath: string | null;
+  /** Why no bridge was attached; null when one was. */
+  readonly reason: string | null;
+  readonly messagesDelivered: number;
+  readonly messagesRecorded: number;
 }
 
 export class RunSetupError extends Error {
@@ -880,9 +938,12 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // Identities are minted before the adapter so the adapter can be told where
   // its raw capture belongs. They are values only; no directory is created
   // until the run is past every refusal below.
-  const runId = newId();
-  const taskId = newId();
-  const attemptId = newId();
+  const slot = input.slot;
+  const runId = slot?.runId ?? newId();
+  const taskId = slot?.taskId ?? newId();
+  const attemptId = slot?.attemptId ?? newId();
+  // A planned task carries its own objective; the raw request stays the run's.
+  const taskText = slot?.objective ?? input.requestText;
   const adapter = (input.adapterFactory ?? createAdapter)(
     { id: binding.runtime.id, adapter: binding.runtime.adapter, executable: binding.runtime.executable },
     { runId, taskId, attemptId, logsDir: path.join(paths.runArtifactsDir(runId), 'logs') },
@@ -955,27 +1016,37 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     baseMode: 'head',
     submittedAt: createdAt,
   });
-  const contract = buildContract(input.requestText, resolvedChecks.checks, fixturePaths);
+  const contract = buildContract(taskText, resolvedChecks.checks, fixturePaths);
 
   const project = registerProject(db, { inspection, dataLocation: paths.root, checks: resolvedChecks.checks, now: createdAt });
-  insertRun(db, { request, policy, limits, projectId: project.id, baseRevision, now: createdAt });
-  insertTask(db, { id: taskId, runId, contract, ownerAgentId: agentId, contextRefs, now: createdAt });
+  // A planned task joins a run its caller already created; creating the run row
+  // again would be a second run claiming the same id.
+  if (slot === undefined) insertRun(db, { request, policy, limits, projectId: project.id, baseRevision, now: createdAt });
+  // A repair is a new attempt of an existing task, so the task row may already
+  // be there. Inserting it again would be a second task claiming the same id.
+  if (slot === undefined || !taskExists(db, taskId)) {
+    insertTask(db, { id: taskId, runId, contract, ownerAgentId: agentId, contextRefs, now: createdAt });
+  }
   upsertAgentSnapshot(db, snapshot, createdAt);
   const workspacePath = paths.workspaceDir(runId, taskId, attemptId);
   insertAttempt(db, { id: attemptId, taskId, agentSnapshotHash: snapshot.hash, runtimeId: binding.runtime.id, workspacePath, now: createdAt });
 
-  writeFileSync(paths.runRequestPath(runId), `${JSON.stringify(request, null, 2)}\n`, { mode: 0o600 });
-  writeFileSync(paths.runContractPath(runId), `${JSON.stringify(contract, null, 2)}\n`, { mode: 0o600 });
-  writeFileSync(
-    paths.runConfigSnapshotPath(runId),
-    `${JSON.stringify({ configPath: input.configPath, agentId, snapshotHash: snapshot.hash, binding, raw: JSON.parse(input.configRaw) as unknown }, null, 2)}\n`,
-    { mode: 0o600 },
-  );
+  if (slot === undefined) {
+    // Run-level documents. A planned task must not overwrite the run's request
+    // and contract with its own slice of them.
+    writeFileSync(paths.runRequestPath(runId), `${JSON.stringify(request, null, 2)}\n`, { mode: 0o600 });
+    writeFileSync(paths.runContractPath(runId), `${JSON.stringify(contract, null, 2)}\n`, { mode: 0o600 });
+    writeFileSync(
+      paths.runConfigSnapshotPath(runId),
+      `${JSON.stringify({ configPath: input.configPath, agentId, snapshotHash: snapshot.hash, binding, raw: JSON.parse(input.configRaw) as unknown }, null, 2)}\n`,
+      { mode: 0o600 },
+    );
+  }
 
   appendEvent(db, {
     runId,
     taskId,
-    type: 'run.created',
+    type: slot === undefined ? 'run.created' : 'task.created',
     payload: {
       repoPath: projectRoot,
       baseRevision,
@@ -988,7 +1059,9 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     },
     timestamp: createdAt,
   });
-  transitionRun(db, runId, 'running');
+  if (slot === undefined) transitionRun(db, runId, 'running');
+  // `failed -> ready` is the repair path: a task that failed its checks is made
+  // ready again for a new attempt with a new candidate.
   transitionTask(db, taskId, 'ready');
 
   stream.line(`run ${runId}`);
@@ -1039,6 +1112,27 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   let turnConclusion: 'completed' | 'turn_failed' | 'interrupted' | 'runtime_exited' | 'no_turn' = 'no_turn';
   const runtimeEvents: RuntimeEvent[] = [];
   let receipts: CheckReceipt[] = [];
+
+  // ---- 5b. Coordination bridge (FR031, FR034) ----------------------------
+  // The worker's only channel back to the coordinator. A run that cannot start
+  // one is not failed for it: the worker simply has no channel, which the
+  // result reports rather than hides.
+  let bridge: CoordinationBridge | null = input.coordination ?? null;
+  let ownsBridge = false;
+  let bridgeConfig: AttemptBridgeConfig | null = null;
+  let bridgeReason: string | null = null;
+  let messagesDelivered = 0;
+  if (input.coordinationEnabled === false) {
+    bridgeReason = 'coordination was disabled for this run';
+  } else if (bridge === null) {
+    try {
+      bridge = await createCoordinationBridge({ stateRoot: paths.root, runId, db });
+      ownsBridge = true;
+    } catch (error) {
+      bridgeReason = `the coordination bridge could not start: ${(error as Error).message}`;
+      stream.line(`note: ${bridgeReason}; the worker runs without a coordination channel`);
+    }
+  }
 
   // Stopping the worker (plan section 9): request runtime interruption, wait a
   // bounded time for the runtime to acknowledge, then terminate the process
@@ -1159,6 +1253,30 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     const scenario = process.env[FAKE_SCENARIO_ENV];
     if (adapter.id === 'fake' && scenario !== undefined && sessionEnv[FAKE_SCENARIO_ENV] === undefined) sessionEnv[FAKE_SCENARIO_ENV] = scenario;
 
+    // Attach this attempt to the bridge. The token is minted per attempt and
+    // names the attempt, so a worker can only speak as the task it is running.
+    let bridgeArgs: ReadonlyArray<string> = [];
+    if (bridge !== null) {
+      try {
+        bridgeConfig = bridge.mcpConfigFor(attemptId);
+        bridgeArgs = coordinationArgsFor(adapter.id, bridgeConfig);
+        if (bridgeArgs.length === 0 && adapter.id !== 'fake') {
+          bridgeReason = `the ${adapter.id} adapter has no known way to take an MCP server on its command line`;
+        }
+        appendEvent(db, {
+          runId,
+          taskId,
+          attemptId,
+          type: 'coordination.attached',
+          payload: { socketPath: bridgeConfig.socketPath, serverName: bridgeConfig.serverName, adapter: adapter.id, argumentCount: bridgeArgs.length },
+        });
+        stream.line(`coordination: worker tools on ${bridgeConfig.socketPath}`);
+      } catch (error) {
+        bridgeReason = `this attempt could not be attached to the coordination bridge: ${(error as Error).message}`;
+        stream.line(`note: ${bridgeReason}`);
+      }
+    }
+
     session = await adapter.openSession({
       cwd: workspace.path,
       allowedWritePaths: grants,
@@ -1167,6 +1285,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       ...(binding.runtime.model !== undefined ? { model: binding.runtime.model } : {}),
       ...(binding.runtime.effort !== undefined ? { effort: binding.runtime.effort } : {}),
       ...(Object.keys(sessionEnv).length > 0 ? { env: sessionEnv } : {}),
+      ...(bridgeArgs.length > 0 ? { extraArgs: bridgeArgs } : {}),
     });
     startupSpan.end();
 
@@ -1174,7 +1293,26 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     appendEvent(db, { runId, taskId, attemptId, type: 'session.opened', payload: { adapter: adapter.id, sessionId: session.sessionId, processId: session.processId ?? null } });
     stream.event({ type: 'session.opened', adapter: adapter.id, sessionId: session.sessionId, processId: session.processId ?? null });
 
-    const prompt = composeTaskPrompt({ requestText: input.requestText, contextRefs, workspace, inspection, contract });
+    // A safe boundary before the turn: anything a dependency left for this task
+    // is in the prompt, not racing the turn that is about to start.
+    const inbox = bridge === null ? [] : deliverableMessages(bridge, taskId);
+    const prompt = composeTaskPrompt({
+      requestText: taskText,
+      contextRefs,
+      workspace,
+      inspection,
+      contract,
+      ...(slot?.briefing !== undefined ? { briefing: slot.briefing } : {}),
+      ...(inbox.length > 0 ? { inbox: inbox.map((message) => message.text) } : {}),
+    });
+    for (const message of inbox) {
+      try {
+        bridge?.acknowledge(message.id);
+        messagesDelivered += 1;
+      } catch {
+        // An un-acknowledgeable message stays deliverable; it is not a run failure.
+      }
+    }
     const runtimeSpan = timer.begin('runtime');
     turn = await adapter.startTurn(session, { prompt, contextRefs });
     // One transition records session, process identity and turn together:
@@ -1204,6 +1342,22 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       else if (event.kind === 'error' && event.payload['fatal'] === true) turnConclusion = 'runtime_exited';
     }
     runtimeSpan.end();
+
+    // A safe boundary after the turn: deliver anything that arrived while it
+    // ran. The adapter either submits it to a live turn or queues it and says
+    // who is holding it; either way the coordinator stops guessing.
+    if (bridge !== null && session !== null) {
+      for (const message of deliverableMessages(bridge, taskId)) {
+        try {
+          const receipt = await adapter.deliver(session, { messageId: message.id, body: message.text });
+          bridge.acknowledge(message.id);
+          messagesDelivered += 1;
+          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivered', payload: { messageId: message.id, state: receipt.state } });
+        } catch (error) {
+          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivery_failed', payload: { messageId: message.id, message: (error as Error).message } });
+        }
+      }
+    }
     // FR006: the runtime's own word on what ran. Printed only when it differs
     // from what was configured — the case a person needs to see, because the
     // run path passes an unlisted model through unvalidated.
@@ -1294,7 +1448,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     receipts = await runChecks({
       candidate: { repoRoot: projectRoot, revision: candidateSnapshot.candidateRevision, patchHash: candidateSnapshot.patchHash },
       checks: resolvedChecks.checks,
-      outputRoot: path.join(runDir, 'verification'),
+      outputRoot: slot === undefined ? path.join(runDir, 'verification') : path.join(runDir, 'verification', attemptId),
       ...(input.keepCheckCopies !== undefined ? { keepCopies: input.keepCheckCopies } : {}),
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
       onReceipt: (receipt) => {
@@ -1306,7 +1460,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   } catch (error) {
     if (!(error instanceof InterruptedError)) {
       // Preserve the failure honestly: the attempt failed, the run failed, the workspace is kept.
-      transitionRunSafely(db, runId, 'failed');
+      if (slot === undefined) transitionRunSafely(db, runId, 'failed');
       transitionTaskSafely(db, taskId, 'failed');
       transitionAttemptSafely(db, attemptId, 'failed', { outcome: { error: (error as Error).message } });
       recordReceiptSafely(db, operation.id, 'failed', { error: (error as Error).message });
@@ -1317,6 +1471,20 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   } finally {
     clearTimeout(deadlineTimer);
     input.signal?.removeEventListener('abort', onAbort);
+    // Revoke this attempt's token whoever owns the bridge; close only a bridge
+    // this call started, because a planned run's bridge outlives one task.
+    try {
+      bridgeConfig?.revoke();
+    } catch {
+      // Already revoked or already closed; nothing to keep open.
+    }
+    if (ownsBridge && bridge !== null) {
+      try {
+        await bridge.close();
+      } catch {
+        // The socket is gone either way; a close failure is not a run outcome.
+      }
+    }
   }
 
   // ---- 10. Persist evidence and decide acceptance ------------------------
@@ -1330,12 +1498,23 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     appendEvent(db, { runId, taskId, attemptId, type: 'run.ownership_lost', payload: { message: (error as Error).message } });
     transitionAttemptSafely(db, attemptId, 'failed', { outcome: { turnConclusion, ownershipLost: true }, uncertain: true });
     transitionTaskSafely(db, taskId, 'failed');
-    transitionRunSafely(db, runId, 'failed');
+    if (slot === undefined) transitionRunSafely(db, runId, 'failed');
     recordReceiptSafely(db, operation.id, 'failed', { ownershipLost: true, candidateRevision: candidateSnapshot?.candidateRevision ?? null });
     projectEventsJsonl(db, paths, runId);
     throw error;
   }
-  const persistedChecks = receipts.length > 0 ? persistCheckReceipts(db, paths, { runId, taskId, attemptId, receipts }) : [];
+  // A run with more than one task (or one task with repairs) writes several
+  // sets of check artifacts, and artifacts are immutable per run: scope them by
+  // attempt so the second set does not collide with the first. The direct path
+  // keeps the flat `checks/` layout it has always had.
+  // Artifacts are immutable and keyed by run. The direct path is the only task
+  // in its run, so it keeps the flat layout it has always had; a planned task
+  // scopes its own artifacts under its attempt so tasks never collide.
+  const artifactPrefix = slot === undefined ? '' : `tasks/${attemptId}/`;
+  const persistedChecks =
+    receipts.length > 0
+      ? persistCheckReceipts(db, paths, { runId, taskId, attemptId, receipts, ...(slot === undefined ? {} : { pathPrefix: `checks/${attemptId}` }) })
+      : [];
 
   // Did the candidate rewrite the code its own criteria execute? The check
   // definitions are pinned to the base revision, but their fixtures are in the
@@ -1409,7 +1588,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       taskId,
       attemptId,
       type: 'candidate_patch',
-      relativePath: 'candidate.patch',
+      relativePath: `${artifactPrefix}candidate.patch`,
       bytes: readFileSync(candidateSnapshot.patchPath),
       baseRevision: candidateSnapshot.baseRevision,
       candidateRevision: candidateSnapshot.candidateRevision,
@@ -1427,7 +1606,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
         taskId,
         attemptId,
         type: 'runtime_event_log',
-        relativePath: 'logs/runtime-events.jsonl',
+        relativePath: `${artifactPrefix}logs/runtime-events.jsonl`,
         bytes: `${runtimeEvents.map((event) => JSON.stringify(event)).join('\n')}\n`,
         provenance: { producer: 'runDirect', adapter: adapter.id, sessionId: session?.sessionId ?? null, note: 'normalized adapter events for this attempt' },
       }),
@@ -1447,7 +1626,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     );
     transitionAttemptSafely(db, attemptId, 'interrupted', { outcome: { turnConclusion, interrupted: true }, uncertain: turnConclusion === 'no_turn' });
     transitionTaskSafely(db, taskId, 'cancelled');
-    transitionRunSafely(db, runId, 'interrupted');
+    if (slot === undefined) transitionRunSafely(db, runId, 'interrupted');
     recordReceiptSafely(db, operation.id, 'completed', { interrupted: true, turnConclusion, candidateRevision: candidateSnapshot?.candidateRevision ?? null });
   } else {
     transitionAttemptSafely(db, attemptId, turnConclusion === 'runtime_exited' || turnConclusion === 'turn_failed' ? 'failed' : 'completed', {
@@ -1462,11 +1641,13 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     if (acceptance.accepted) {
       outcome = 'accepted';
       transitionTask(db, taskId, 'accepted');
-      transitionRun(db, runId, 'ready_for_review');
+      // A planned run is not ready for review because one of its tasks is: the
+      // caller decides that after the combined candidate is checked.
+      if (slot === undefined) transitionRun(db, runId, 'ready_for_review');
     } else {
       outcome = 'failed';
       transitionTask(db, taskId, 'failed');
-      transitionRun(db, runId, 'failed');
+      if (slot === undefined) transitionRun(db, runId, 'failed');
     }
   }
 
@@ -1632,7 +1813,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     taskId,
     attemptId,
     type: 'result',
-    relativePath: 'result.json',
+    relativePath: `${artifactPrefix}result.json`,
     bytes: `${JSON.stringify(manifest, null, 2)}\n`,
     baseRevision,
     candidateRevision: candidateSnapshot?.candidateRevision ?? null,
@@ -1643,7 +1824,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     taskId,
     attemptId,
     type: 'summary',
-    relativePath: 'summary.md',
+    relativePath: `${artifactPrefix}summary.md`,
     bytes: renderSummary(manifest),
     baseRevision,
     candidateRevision: candidateSnapshot?.candidateRevision ?? null,
@@ -1688,7 +1869,44 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     runDir,
     evidence,
     stopReceipt,
+    coordination: {
+      attached: bridgeConfig !== null,
+      socketPath: bridgeConfig?.socketPath ?? null,
+      reason: bridgeConfig !== null ? null : (bridgeReason ?? 'no coordination bridge was started for this run'),
+      messagesDelivered,
+      messagesRecorded: bridge === null ? 0 : safeMessageCount(bridge),
+    },
   };
+}
+
+/**
+ * The runtime's own way of taking an MCP server on its command line. An
+ * adapter with no such flag gets nothing spliced rather than a guess.
+ */
+export function coordinationArgsFor(adapterId: string, config: AttemptBridgeConfig): ReadonlyArray<string> {
+  if (adapterId === 'claude-code') return config.claudeArgs;
+  if (adapterId === 'codex') return config.codexArgs;
+  return [];
+}
+
+/** The task's bounded inbox, flattened to id and text. A read failure is an empty inbox, never a run failure. */
+function deliverableMessages(bridge: CoordinationBridge, taskId: string): ReadonlyArray<{ id: string; text: string }> {
+  try {
+    return bridge.deliverableFor(taskId).map((message) => ({
+      id: message.id,
+      text: `[${message.type} from ${message.senderTaskId ?? 'coordinator'}] ${message.body}`,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function safeMessageCount(bridge: CoordinationBridge): number {
+  try {
+    return bridge.messages().length;
+  } catch {
+    return 0;
+  }
 }
 
 class InterruptedError extends Error {
@@ -1920,6 +2138,11 @@ function effectiveSettingsFor(
   const effort = parsed.data.effort ?? null;
   if (model === null && effort === null) return unreported;
   return { effectiveModel: model, effectiveEffort: effort, effectiveSettingsSource: 'runtime_reported' };
+}
+
+/** Is this task already in the store? A repair reuses its task row. */
+function taskExists(db: DatabaseSync, taskId: string): boolean {
+  return db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(taskId) !== undefined;
 }
 
 function transitionRunSafely(db: DatabaseSync, runId: string, to: 'failed' | 'interrupted' | 'ready_for_review'): void {
