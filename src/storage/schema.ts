@@ -3,7 +3,8 @@
  *
  * Large logs and patches live in the artifact store; the database holds
  * references and hashes. JSON columns are validated on read at the boundary
- * that consumes them.
+ * that consumes them. An attempt records its worker process as pid, start
+ * time and spawn token so a restarted coordinator never acts on a reused pid.
  */
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -93,6 +94,8 @@ const V1_STATEMENTS: ReadonlyArray<string> = [
     runtime_id TEXT,
     runtime_version TEXT,
     process_id INTEGER,
+    process_started_at_ms INTEGER,
+    process_spawn_token TEXT,
     session_id TEXT,
     turn_id TEXT,
     workspace_path TEXT,

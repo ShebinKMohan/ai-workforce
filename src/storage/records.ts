@@ -18,6 +18,7 @@ import {
   type WaitReason,
 } from '../core/contracts.js';
 import { newId, nowIso } from '../core/ids.js';
+import type { ProcessIdentity } from '../core/process.js';
 import { assertTransition, validateWaitReason } from '../core/state.js';
 import { withTransaction } from './tx.js';
 
@@ -62,6 +63,8 @@ export interface AttemptRow {
   runtime_id: string | null;
   runtime_version: string | null;
   process_id: number | null;
+  process_started_at_ms: number | null;
+  process_spawn_token: string | null;
   session_id: string | null;
   turn_id: string | null;
   workspace_path: string | null;
@@ -242,21 +245,39 @@ export function getAttempt(db: DatabaseSync, id: string): AttemptRow {
   return row;
 }
 
+/** The recorded worker process identity of an attempt, when one was recorded. */
+export function attemptProcessIdentity(attempt: AttemptRow): ProcessIdentity | null {
+  if (attempt.process_id === null || attempt.process_spawn_token === null) return null;
+  return { pid: attempt.process_id, startedAtMs: attempt.process_started_at_ms, spawnToken: attempt.process_spawn_token };
+}
+
+export interface AttemptRuntimeDetails {
+  readonly sessionId?: string;
+  /** Prefer `process`: a pid alone cannot be verified after a coordinator restart. */
+  readonly processId?: number;
+  readonly process?: ProcessIdentity;
+  readonly turnId?: string;
+  readonly version?: string;
+}
+
 export function transitionAttempt(
   db: DatabaseSync,
   id: string,
   to: AttemptState,
-  options: { outcome?: unknown; uncertain?: boolean; runtime?: { sessionId?: string; processId?: number; turnId?: string; version?: string }; now?: string } = {},
+  options: { outcome?: unknown; uncertain?: boolean; runtime?: AttemptRuntimeDetails; now?: string } = {},
 ): AttemptRow {
   const now = options.now ?? nowIso();
   return withTransaction(db, () => {
     const attempt = getAttempt(db, id);
     assertTransition('attempt', attempt.state, to);
     const terminal = to === 'completed' || to === 'failed' || to === 'cancelled' || to === 'superseded';
+    const process = options.runtime?.process;
     db.prepare(
       `UPDATE attempts SET state = ?, outcome_json = COALESCE(?, outcome_json), interrupted = CASE WHEN ? = 'interrupted' THEN 1 ELSE interrupted END,
          uncertain_outcome = CASE WHEN ? THEN 1 ELSE uncertain_outcome END,
-         session_id = COALESCE(?, session_id), process_id = COALESCE(?, process_id), turn_id = COALESCE(?, turn_id), runtime_version = COALESCE(?, runtime_version),
+         session_id = COALESCE(?, session_id), process_id = COALESCE(?, process_id),
+         process_started_at_ms = COALESCE(?, process_started_at_ms), process_spawn_token = COALESCE(?, process_spawn_token),
+         turn_id = COALESCE(?, turn_id), runtime_version = COALESCE(?, runtime_version),
          started_at = CASE WHEN ? = 'running' AND started_at IS NULL THEN ? ELSE started_at END,
          ended_at = CASE WHEN ? THEN ? ELSE ended_at END, updated_at = ?
        WHERE id = ?`,
@@ -266,7 +287,9 @@ export function transitionAttempt(
       to,
       options.uncertain === true ? 1 : 0,
       options.runtime?.sessionId ?? null,
-      options.runtime?.processId ?? null,
+      process?.pid ?? options.runtime?.processId ?? null,
+      process?.startedAtMs ?? null,
+      process?.spawnToken ?? null,
       options.runtime?.turnId ?? null,
       options.runtime?.version ?? null,
       to,

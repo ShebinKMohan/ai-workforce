@@ -4,7 +4,8 @@
  * <state-root>/
  *   manifest.json            paths manifest (state root, workspace root, database)
  *   state.sqlite             authoritative logical state
- *   coordinator.lock         mutating coordinator ownership
+ *   coordinator.lock         holder info (pid, start time, token) written by the current mutating coordinator
+ *   coordinator.lock.sqlite  kernel-arbitrated ownership (a held BEGIN IMMEDIATE); never deleted
  *   runs/<run-id>/request.json | contract.json | config-snapshot.json | events.jsonl | artifacts/...
  * <workspace-root>/<run-id>/<task-id>/<attempt-id>/
  *

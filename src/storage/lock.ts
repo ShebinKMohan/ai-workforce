@@ -1,18 +1,32 @@
 /**
  * Coordinator lock: one mutating coordinator per state root.
  *
- * The lock file records pid, process start time, hostname, a random token
- * and the acquisition time. Ownership is judged by process identity (pid AND
- * start time on the same host), never by a heartbeat timeout, so a live
- * coordinator can never have its ownership stolen. A stale lock (holder
- * provably dead, or pid reused by a process with a different start time) is
- * reclaimed. Read-only status inspection never touches this file.
+ * Ownership is arbitrated by the kernel, not by a file that has to be
+ * unlinked by path: `<lock>.sqlite` is a tiny SQLite database and the holder
+ * keeps a `BEGIN IMMEDIATE` transaction open on it for its whole lifetime.
+ * SQLite implements that transaction with an OS file lock, so a second
+ * coordinator (another process or another connection in this process) gets
+ * SQLITE_BUSY immediately, and the lock disappears the instant the holder
+ * dies, even from SIGKILL. There is no stale lock to reclaim and therefore
+ * no reclaim race; a live coordinator can never have its ownership stolen.
+ *
+ * `<lock>` itself (`coordinator.lock`) is the human-readable companion the
+ * winner writes after winning: pid, process start time, hostname, a random
+ * token and the acquisition time. It is what "held by pid N" diagnostics and
+ * `readLockInfo` read; it is never what decides ownership. The arbiter file
+ * is never deleted: unlinking a file another process may have open would
+ * silently detach that process's lock.
+ *
+ * Read-only status inspection never touches either file.
  */
-import { execFileSync } from 'node:child_process';
-import { closeSync, fsyncSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, fsyncSync, openSync, renameSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
 import os from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import { nowIso, randomToken } from '../core/ids.js';
+import { START_TIME_TOLERANCE_MS, isProcessAlive, matchProcessIdentity, observeProcessStartMs, parseElapsed, type ProcessIdentityStatus } from '../core/process.js';
+
+export { START_TIME_TOLERANCE_MS, isProcessAlive, observeProcessStartMs, parseElapsed };
 
 export const LockInfoSchema = z.strictObject({
   lockVersion: z.literal(1),
@@ -32,7 +46,7 @@ export class LockHeldError extends Error {
   constructor(lockPath: string, holder: LockInfo | null, reason: string) {
     super(
       holder === null
-        ? `coordinator lock ${lockPath} is held (${reason}); remove it only if no coordinator is running`
+        ? `coordinator lock ${lockPath} is held by another coordinator (${reason}); use "workforce status" for read-only inspection`
         : `coordinator lock ${lockPath} is held by pid ${holder.pid} on ${holder.hostname} since ${holder.acquiredAt} (${reason}); use "workforce status" for read-only inspection`,
     );
     this.name = 'LockHeldError';
@@ -44,55 +58,21 @@ export class LockHeldError extends Error {
 export interface CoordinatorLock {
   readonly path: string;
   readonly info: LockInfo;
-  /** Remove the lock file if it still carries our token. Idempotent. */
+  /** Release ownership (closes the arbiter connection) and remove the info file if it still carries our token. Idempotent. */
   release(): void;
 }
 
-/** Start-time tolerance: `ps` reports elapsed time with one-second granularity. */
-export const START_TIME_TOLERANCE_MS = 10_000;
-
-/** Parse `ps -o etime=` output (`[[dd-]hh:]mm:ss`) into milliseconds. */
-export function parseElapsed(etime: string): number | null {
-  const trimmed = etime.trim();
-  const match = /^(?:(\d+)-)?(?:(\d{1,2}):)?(\d{1,2}):(\d{2})$/.exec(trimmed);
-  if (match === null) return null;
-  const days = Number(match[1] ?? 0);
-  const hours = Number(match[2] ?? 0);
-  const minutes = Number(match[3]);
-  const seconds = Number(match[4]);
-  return (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
+/** Path of the kernel-arbitrated lock database that sits beside the info file. */
+export function lockArbiterPath(lockPath: string): string {
+  return `${lockPath}.sqlite`;
 }
 
-/** Observe a process start time via `ps`. Returns null when the process is gone or `ps` is unavailable. */
-export function observeProcessStartMs(pid: number, now: number = Date.now()): number | null {
-  try {
-    const out = execFileSync('ps', ['-o', 'etime=', '-p', String(pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5_000 });
-    const elapsed = parseElapsed(out);
-    return elapsed === null ? null : now - elapsed;
-  } catch {
-    return null;
-  }
-}
+export type HolderStatus = ProcessIdentityStatus;
 
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
-export type HolderStatus = 'alive' | 'dead' | 'pid_reused' | 'unverifiable';
-
-/** Decide whether the recorded holder still owns the lock. Unverifiable holders are treated as alive. */
+/** Decide whether the recorded holder process still exists. Unverifiable holders are treated as alive by callers. */
 export function classifyHolder(info: LockInfo, now: number = Date.now()): HolderStatus {
   if (info.hostname !== os.hostname()) return 'unverifiable';
-  if (!isProcessAlive(info.pid)) return 'dead';
-  if (info.processStartedAtMs === null) return 'unverifiable';
-  const observed = observeProcessStartMs(info.pid, now);
-  if (observed === null) return 'unverifiable';
-  return Math.abs(observed - info.processStartedAtMs) <= START_TIME_TOLERANCE_MS ? 'alive' : 'pid_reused';
+  return matchProcessIdentity({ pid: info.pid, startedAtMs: info.processStartedAtMs }, now);
 }
 
 export function readLockInfo(lockPath: string): LockInfo | null {
@@ -110,21 +90,37 @@ export function readLockInfo(lockPath: string): LockInfo | null {
   }
 }
 
-function writeExclusive(lockPath: string, info: LockInfo): boolean {
-  let fd: number;
+const SQLITE_BUSY = 5;
+
+function isBusy(error: unknown): boolean {
+  const err = error as { errcode?: unknown; message?: unknown };
+  return err.errcode === SQLITE_BUSY || (typeof err.message === 'string' && /database is locked/i.test(err.message));
+}
+
+/** Open the arbiter and take the write lock, or return null when another coordinator holds it. Never waits. */
+function tryOpenArbiter(lockPath: string): DatabaseSync | null {
+  const db = new DatabaseSync(lockArbiterPath(lockPath), { timeout: 0 });
   try {
-    fd = openSync(lockPath, 'wx', 0o600);
+    db.exec('BEGIN IMMEDIATE');
+    return db;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    db.close();
+    if (isBusy(error)) return null;
     throw error;
   }
+}
+
+/** Replace the info file atomically: the arbiter already decided ownership, so no O_EXCL is needed here. */
+function writeInfo(lockPath: string, info: LockInfo): void {
+  const tempPath = `${lockPath}.${info.token}.tmp`;
+  const fd = openSync(tempPath, 'wx', 0o600);
   try {
     writeSync(fd, `${JSON.stringify(info)}\n`);
     fsyncSync(fd);
   } finally {
     closeSync(fd);
   }
-  return true;
+  renameSync(tempPath, lockPath);
 }
 
 export interface AcquireLockOptions {
@@ -136,6 +132,21 @@ export interface AcquireLockOptions {
 export function acquireCoordinatorLock(lockPath: string, options: AcquireLockOptions = {}): CoordinatorLock {
   const pid = options.pid ?? process.pid;
   const now = options.now ?? Date.now();
+
+  const arbiter = tryOpenArbiter(lockPath);
+  if (arbiter === null) {
+    const holder = readLockInfo(lockPath);
+    if (holder === null) throw new LockHeldError(lockPath, null, 'the holder has not recorded its identity yet');
+    const status = classifyHolder(holder, now);
+    const reason =
+      status === 'alive'
+        ? 'holder process is alive'
+        : status === 'unverifiable'
+          ? 'holder liveness cannot be verified from this host'
+          : 'the recorded holder is gone; a newer coordinator holds the lock and has not recorded its identity yet';
+    throw new LockHeldError(lockPath, holder, reason);
+  }
+
   const info: LockInfo = {
     lockVersion: 1,
     pid,
@@ -144,40 +155,33 @@ export function acquireCoordinatorLock(lockPath: string, options: AcquireLockOpt
     token: randomToken(16),
     acquiredAt: nowIso(now),
   };
-
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (writeExclusive(lockPath, info)) {
-      let released = false;
-      return {
-        path: lockPath,
-        info,
-        release: () => {
-          if (released) return;
-          released = true;
-          const current = readLockInfo(lockPath);
-          if (current !== null && current.token === info.token) {
-            try {
-              unlinkSync(lockPath);
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-            }
-          }
-        },
-      };
-    }
-
-    const holder = readLockInfo(lockPath);
-    if (holder === null) throw new LockHeldError(lockPath, null, 'lock file exists but is unreadable');
-    const status = classifyHolder(holder, now);
-    if (status === 'alive') throw new LockHeldError(lockPath, holder, 'holder process is alive');
-    if (status === 'unverifiable') throw new LockHeldError(lockPath, holder, 'holder liveness cannot be verified from this host');
-    // dead or pid reused: reclaim only the exact file we inspected
-    try {
-      const recheck = readLockInfo(lockPath);
-      if (recheck !== null && recheck.token === holder.token) unlinkSync(lockPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
+  try {
+    writeInfo(lockPath, info);
+  } catch (error) {
+    arbiter.close();
+    throw error;
   }
-  throw new LockHeldError(lockPath, readLockInfo(lockPath), 'could not reclaim a stale lock after repeated attempts');
+
+  let released = false;
+  return {
+    path: lockPath,
+    info,
+    release: () => {
+      if (released) return;
+      released = true;
+      try {
+        // While we still hold the arbiter no other coordinator can have written its info, so this only ever removes ours.
+        const current = readLockInfo(lockPath);
+        if (current !== null && current.token === info.token) {
+          try {
+            unlinkSync(lockPath);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          }
+        }
+      } finally {
+        arbiter.close();
+      }
+    },
+  };
 }

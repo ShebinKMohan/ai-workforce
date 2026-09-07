@@ -3,42 +3,125 @@
  *
  * SQLite is authoritative. `events.jsonl` is a regenerable projection with
  * redaction applied; projecting twice appends nothing new.
+ *
+ * Idempotency key: `<adapter>:<session>:<spawnToken>:<sequence>`. The spawn
+ * token names the process instance, so a resumed session (a new process
+ * numbering its events from 1 again) never collides with the events the
+ * previous process already stored; replaying the same process's stream is a
+ * no-op.
+ *
+ * Row size: a payload above `MAX_EVENT_PAYLOAD_BYTES` (tool output, diffs,
+ * malformed raw lines with file contents) is published to the artifact store
+ * as `events/<adapter>/<session>/<spawnToken>-<sequence>.json` and the row
+ * keeps a truncated summary plus the artifact id in `payloadRef`. The
+ * artifact path is deterministic, so a replay after a crash between
+ * publication and the event insert reuses the published bytes.
  */
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import type { RuntimeEvent } from '../adapters/types.js';
+import { findArtifactByPath, writeArtifact } from '../storage/artifacts.js';
 import { ensureRunDir, type StatePaths } from '../storage/paths.js';
-import { appendEvent, listEvents, type AppendEventInput, type AppendEventResult, type EventRecord } from '../storage/events.js';
+import { MAX_EVENT_PAYLOAD_BYTES, appendEvent, findEventByKey, listEvents, payloadByteLength, type AppendEventInput, type AppendEventResult, type EventRecord } from '../storage/events.js';
+import { withTransaction } from '../storage/tx.js';
 import { redactValue } from './redaction.js';
 
 export interface EventContext {
   readonly runId: string;
   readonly taskId?: string | null;
   readonly attemptId?: string | null;
+  /** Needed to spill oversized payloads into the run's artifact store. */
+  readonly paths: StatePaths;
 }
 
-/** Map a normalized runtime event to an application event row. Idempotent per (session, sequence). */
-export function runtimeEventToAppend(event: RuntimeEvent, ctx: EventContext): AppendEventInput {
+export const RUNTIME_EVENT_PAYLOAD_ARTIFACT_TYPE = 'runtime_event_payload';
+
+export function runtimeEventIdempotencyKey(event: RuntimeEvent): string {
+  return `${event.adapter}:${event.sessionId}:${event.spawnToken}:${event.sequence}`;
+}
+
+/** Map a normalized runtime event to an application event row. Idempotent per (adapter, session, spawn token, sequence). */
+export function runtimeEventToAppend(event: RuntimeEvent, ctx: Pick<EventContext, 'runId' | 'taskId' | 'attemptId'>): AppendEventInput {
   return {
     runId: ctx.runId,
     taskId: ctx.taskId ?? null,
     attemptId: ctx.attemptId ?? null,
     type: `runtime.${event.kind}`,
-    payload: {
-      adapter: event.adapter,
-      sessionId: event.sessionId,
-      turnId: event.turnId,
-      runtimeSequence: event.sequence,
-      ...event.payload,
-    },
-    payloadRef: event.rawRef,
-    idempotencyKey: `${event.adapter}:${event.sessionId}:${event.sequence}`,
+    payload: { ...baseFields(event), ...event.payload },
+    payloadRef: null,
+    idempotencyKey: runtimeEventIdempotencyKey(event),
     timestamp: event.timestamp,
   };
 }
 
+function baseFields(event: RuntimeEvent): Record<string, unknown> {
+  return {
+    adapter: event.adapter,
+    sessionId: event.sessionId,
+    turnId: event.turnId,
+    spawnToken: event.spawnToken,
+    runtimeSequence: event.sequence,
+    rawRef: event.rawRef,
+  };
+}
+
+function safeSegment(value: string): string {
+  const cleaned = value.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^[._-]+/, '');
+  return cleaned.length === 0 ? '_' : cleaned.slice(0, 128);
+}
+
+const INLINE_FIELD_BUDGET = 256;
+const PREVIEW_CHARS = 200;
+
+/** Keep short fields, truncate long strings, drop large structures; the full payload lives in the artifact. */
+function truncatePayload(event: RuntimeEvent, artifactId: string, bytes: number): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...baseFields(event), payloadTruncated: true, payloadBytes: bytes, payloadArtifactId: artifactId };
+  for (const [key, value] of Object.entries(event.payload)) {
+    if (key in out) continue;
+    const json = JSON.stringify(value) ?? 'null';
+    if (Buffer.byteLength(json, 'utf8') <= INLINE_FIELD_BUDGET) {
+      out[key] = value;
+    } else if (typeof value === 'string') {
+      out[key] = `${value.slice(0, PREVIEW_CHARS)}… [truncated: ${Buffer.byteLength(value, 'utf8')} bytes in artifact ${artifactId}]`;
+    } else {
+      out[key] = `[omitted: ${Buffer.byteLength(json, 'utf8')} bytes in artifact ${artifactId}]`;
+    }
+  }
+  if (payloadByteLength(out) > MAX_EVENT_PAYLOAD_BYTES) {
+    return { ...baseFields(event), payloadTruncated: true, payloadBytes: bytes, payloadArtifactId: artifactId, payloadKeys: Object.keys(event.payload).slice(0, 64) };
+  }
+  return out;
+}
+
+/**
+ * Persist a runtime event durably. Small payloads go straight into the row;
+ * large ones are published as an artifact first (inside the same
+ * transaction as the event insert) and the row references the artifact.
+ */
 export function recordRuntimeEvent(db: DatabaseSync, event: RuntimeEvent, ctx: EventContext): AppendEventResult {
-  return appendEvent(db, runtimeEventToAppend(event, ctx));
+  const input = runtimeEventToAppend(event, ctx);
+  const bytes = payloadByteLength(input.payload);
+  if (bytes <= MAX_EVENT_PAYLOAD_BYTES) return appendEvent(db, input);
+
+  return withTransaction(db, () => {
+    const existing = findEventByKey(db, ctx.runId, input.idempotencyKey!);
+    if (existing !== null) return { event: existing, appended: false };
+
+    const relativePath = `events/${safeSegment(event.adapter)}/${safeSegment(event.sessionId)}/${safeSegment(event.spawnToken)}-${event.sequence}.json`;
+    const artifact =
+      findArtifactByPath(db, ctx.runId, relativePath) ??
+      writeArtifact(db, ctx.paths, {
+        runId: ctx.runId,
+        taskId: ctx.taskId ?? null,
+        attemptId: ctx.attemptId ?? null,
+        type: RUNTIME_EVENT_PAYLOAD_ARTIFACT_TYPE,
+        relativePath,
+        bytes: JSON.stringify(event.payload),
+        provenance: { ...baseFields(event), kind: event.kind, timestamp: event.timestamp, producer: 'recordRuntimeEvent' },
+        now: event.timestamp,
+      });
+    return appendEvent(db, { ...input, payload: truncatePayload(event, artifact.id, bytes), payloadRef: artifact.id });
+  });
 }
 
 /** Evidence summary of one turn's events: what the runtime claimed versus what was observed. */

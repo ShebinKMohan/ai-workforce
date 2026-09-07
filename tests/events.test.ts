@@ -1,10 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { RuntimeEvent } from '../src/adapters/types.js';
+import { nowIso } from '../src/core/ids.js';
+import { findArtifactByPath, listArtifacts, readArtifact, writeArtifact } from '../src/storage/artifacts.js';
 import { openDatabase, openStateStore } from '../src/storage/db.js';
-import { appendEvent, lastEventSequence, listEvents, replayEvents } from '../src/storage/events.js';
+import { EventPayloadTooLargeError, MAX_EVENT_PAYLOAD_BYTES, appendEvent, lastEventSequence, listEvents, replayEvents } from '../src/storage/events.js';
 import { SchemaTooNewError, getSchemaVersion } from '../src/storage/migrations.js';
-import { projectEventsJsonl } from '../src/telemetry/events.js';
+import { projectEventsJsonl, recordRuntimeEvent, runtimeEventIdempotencyKey } from '../src/telemetry/events.js';
 import { openTempState, seedRunAndTask, type TempState } from './helpers/state.js';
 
 let state: TempState;
@@ -80,6 +83,64 @@ describe('event log', () => {
     expect(lines[0]).toContain('[REDACTED]');
     // the database keeps the raw value: redaction is a projection concern
     expect(JSON.stringify(listEvents(db, run.id)[0]!.payload)).toContain('abc123secret');
+  });
+});
+
+describe('event row size', () => {
+  function bigEvent(sequence: number, output: string): RuntimeEvent {
+    return { kind: 'tool_result', adapter: 'fake', sessionId: 'fake-s1', turnId: 't1', spawnToken: 'spawn0001', sequence, timestamp: nowIso(), payload: { tool: 'shell', ok: true, output, nested: { lines: output.split('\n') } }, rawRef: `fake:fake-s1:spawn0001:${sequence}` };
+  }
+
+  it('refuses oversized payloads in appendEvent and spills runtime payloads to the artifact store instead', () => {
+    const { run, task } = seedRunAndTask(state);
+    const { db } = state.store;
+    const output = 'x'.repeat(100 * 1024);
+    expect(() => appendEvent(db, { runId: run.id, type: 'runtime.tool_result', payload: { output } })).toThrow(EventPayloadTooLargeError);
+    expect(listEvents(db, run.id)).toEqual([]);
+
+    const event = bigEvent(4, output);
+    const ctx = { runId: run.id, taskId: task.id, paths: state.paths };
+    const first = recordRuntimeEvent(db, event, ctx);
+    expect(first.appended).toBe(true);
+    const stored = first.event;
+    expect(Buffer.byteLength(JSON.stringify(stored.payload))).toBeLessThanOrEqual(MAX_EVENT_PAYLOAD_BYTES);
+    expect(stored.payload).toMatchObject({ adapter: 'fake', sessionId: 'fake-s1', spawnToken: 'spawn0001', runtimeSequence: 4, rawRef: event.rawRef, tool: 'shell', ok: true, payloadTruncated: true, payloadBytes: expect.any(Number) });
+    expect(String(stored.payload['output'])).toMatch(/^x{200}… \[truncated: 102400 bytes in artifact /);
+    expect(String(stored.payload['nested'])).toMatch(/^\[omitted: \d+ bytes in artifact /);
+    expect(stored.payloadRef).not.toBeNull();
+
+    // The full payload is an artifact with a verified hash, referenced from the row.
+    const artifact = readArtifact(db, state.paths, stored.payloadRef!);
+    expect(artifact.record.type).toBe('runtime_event_payload');
+    expect(artifact.record.relativePath).toBe('events/fake/fake-s1/spawn0001-4.json');
+    expect(JSON.parse(artifact.bytes.toString('utf8'))).toEqual(event.payload);
+
+    // Replaying the same runtime event is a no-op for both the row and the artifact.
+    const again = recordRuntimeEvent(db, event, ctx);
+    expect(again.appended).toBe(false);
+    expect(again.event.id).toBe(stored.id);
+    expect(listArtifacts(db, run.id)).toHaveLength(1);
+
+    // Small events still land inline with no artifact.
+    const small = recordRuntimeEvent(db, { ...bigEvent(5, 'short'), sequence: 5, rawRef: 'fake:fake-s1:spawn0001:5' }, ctx);
+    expect(small.event.payloadRef).toBeNull();
+    expect(small.event.payload).toMatchObject({ output: 'short' });
+    expect(small.event.payload).not.toHaveProperty('payloadTruncated');
+    expect(listArtifacts(db, run.id)).toHaveLength(1);
+  });
+
+  it('reuses bytes published before a crash between artifact receipt and event insert', () => {
+    const { run } = seedRunAndTask(state);
+    const { db } = state.store;
+    const event = bigEvent(9, 'y'.repeat(50 * 1024));
+    const relativePath = 'events/fake/fake-s1/spawn0001-9.json';
+    const published = writeArtifact(db, state.paths, { runId: run.id, type: 'runtime_event_payload', relativePath, bytes: JSON.stringify(event.payload), provenance: { producer: 'earlier attempt' } });
+    const result = recordRuntimeEvent(db, event, { runId: run.id, paths: state.paths });
+    expect(result.appended).toBe(true);
+    expect(result.event.payloadRef).toBe(published.id);
+    expect(result.event.idempotencyKey).toBe(runtimeEventIdempotencyKey(event));
+    expect(findArtifactByPath(db, run.id, relativePath)?.id).toBe(published.id);
+    expect(listArtifacts(db, run.id)).toHaveLength(1);
   });
 });
 

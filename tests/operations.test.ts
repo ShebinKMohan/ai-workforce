@@ -4,7 +4,7 @@ import { computeAgentSnapshot } from '../src/core/snapshot.js';
 import { validateAgentConfig } from '../src/core/contracts.js';
 import { readFileSync } from 'node:fs';
 import { listEvents } from '../src/storage/events.js';
-import { OperationStateError, StaleGenerationError, listOpenOperations, markDispatched, markUncertain, recordIntent, recordReceipt } from '../src/storage/operations.js';
+import { OperationStateError, StaleGenerationError, getOperation, listOpenOperations, markDispatched, markUncertain, recordIntent, recordReceipt } from '../src/storage/operations.js';
 import { beginNewGeneration, getAttempt, getTask, insertAttempt, transitionTask, upsertAgentSnapshot } from '../src/storage/records.js';
 import { withTransaction } from '../src/storage/tx.js';
 import { openTempState, seedRunAndTask, type TempState } from './helpers/state.js';
@@ -68,6 +68,43 @@ describe('operations: intent -> dispatched -> receipt', () => {
     expect(fresh.generation).toBe(2);
     expect(() => recordReceipt(db, fresh.id, { outcome: 'completed', receipt: {}, generation: 1 })).toThrow(StaleGenerationError);
     expect(recordReceipt(db, fresh.id, { outcome: 'completed', receipt: {}, generation: 2 }).state).toBe('completed');
+  });
+
+  it('refuses intent and dispatch for a superseded generation before any effect starts', () => {
+    const { run, task } = seedRunAndTask(state);
+    const db = state.store.db;
+    expect(beginNewGeneration(db, task.id)).toBe(2);
+
+    // A replayed plan carrying the old generation cannot even record intent.
+    expect(() => recordIntent(db, { runId: run.id, taskId: task.id, kind: 'spawn_worker', intent: {}, generation: 1 })).toThrow(StaleGenerationError);
+    expect(listOpenOperations(db, run.id)).toEqual([]);
+    const intentRejected = listEvents(db, run.id).find((e) => e.type === 'operation.intent_rejected');
+    expect(intentRejected?.payload).toMatchObject({ kind: 'spawn_worker', reportedGeneration: 1, currentGeneration: 2, reason: 'stale_generation' });
+
+    // Intent recorded at the current generation, then superseded before dispatch: the dispatch is refused and the intent closed.
+    const op = recordIntent(db, { runId: run.id, taskId: task.id, kind: 'spawn_worker', intent: {}, generation: 2 });
+    expect(op.generation).toBe(2);
+    expect(beginNewGeneration(db, task.id)).toBe(3);
+    let thrown: unknown;
+    try {
+      markDispatched(db, op.id, { pid: 4242 });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(StaleGenerationError);
+    expect((thrown as StaleGenerationError).checkpoint).toBe('dispatch');
+    const closed = getOperation(db, op.id);
+    expect(closed.state).toBe('failed');
+    expect(closed.dispatchedAt).toBeNull();
+    expect(closed.receipt).toEqual({ reason: 'stale_generation', currentGeneration: 3 });
+    expect(listOpenOperations(db, run.id)).toEqual([]);
+    expect(listEvents(db, run.id).map((e) => e.type)).not.toContain('operation.dispatched');
+    expect(listEvents(db, run.id).find((e) => e.type === 'operation.dispatch_rejected')?.payload).toMatchObject({ operationId: op.id, reportedGeneration: 2, currentGeneration: 3 });
+
+    // The current generation still works end to end.
+    const fresh = recordIntent(db, { runId: run.id, taskId: task.id, kind: 'spawn_worker', intent: {} });
+    expect(fresh.generation).toBe(3);
+    expect(markDispatched(db, fresh.id).state).toBe('dispatched');
   });
 
   it('keeps uncertain outcomes open until reconciliation resolves them', () => {

@@ -3,7 +3,8 @@
  * Deterministic fake coding runtime for tests.
  *
  * Protocol (fake/1):
- *   argv: [--scenario <file>] [--session <id>] [--version]
+ *   argv: [--scenario <file>] [--session <id>] [--model <id>] [--effort <level>] [--version]
+ *   The effective model/effort (explicit or the runtime default) is echoed in session_started.
  *   stdin  : JSON lines  {"cmd":"turn","turnId","prompt"} | {"cmd":"deliver","messageId","body"}
  *                        {"cmd":"interrupt","turnId"} | {"cmd":"shutdown"}
  *   stdout : JSON lines  {"event":<name>, ...fields}
@@ -44,6 +45,14 @@ const scenarioPath = argValue('--scenario');
 const sessionId = argValue('--session') ?? `fake-${randomUUID()}`;
 const resumed = argValue('--session') !== null;
 const cwd = process.cwd();
+const SUPPORTED_MODELS = ['fake-default', 'fake-fast'];
+const SUPPORTED_EFFORTS = ['low', 'medium', 'high'];
+const model = argValue('--model') ?? 'fake-default';
+const effort = argValue('--effort') ?? 'medium';
+if (!SUPPORTED_MODELS.includes(model) || !SUPPORTED_EFFORTS.includes(effort)) {
+  process.stderr.write(`unsupported model/effort: ${model}/${effort}\n`);
+  process.exit(64);
+}
 
 let scenario = { scenarioVersion: 1, steps: [{ action: 'claim_done', message: 'done' }] };
 if (scenarioPath !== null) {
@@ -200,7 +209,7 @@ function handleCommand(line) {
   }
 }
 
-emit('session_started', { turnId: null, sessionId, pid: process.pid, resumed, protocol: 'fake/1', cwd, scenario: scenarioPath });
+emit('session_started', { turnId: null, sessionId, pid: process.pid, resumed, protocol: 'fake/1', cwd, scenario: scenarioPath, model, effort });
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
 rl.on('line', handleCommand);
 rl.on('close', () => {

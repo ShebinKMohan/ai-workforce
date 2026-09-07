@@ -2,9 +2,11 @@
  * FakeAdapter: drives fixtures/fake-runtime/fake-runtime.mjs through the
  * RuntimeAdapter contract. It is the deterministic runtime for lifecycle,
  * containment and recovery tests, and the reference for real adapters:
- * owned process groups, normalized events with raw references, partial and
- * malformed line tolerance, receipts that distinguish requested from
- * observed, and reconciliation from process identity.
+ * owned process groups, a spawn token per process instance, normalized
+ * events with raw references, partial and malformed line tolerance,
+ * receipts that distinguish requested from observed, settings validated
+ * before anything is spawned, and reconciliation from full process identity
+ * (pid + start time + spawn token), never from a reusable pid alone.
  */
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { realpathSync, statSync } from 'node:fs';
@@ -12,24 +14,29 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { newId, nowIso } from '../../core/ids.js';
+import { isProcessAlive, isProcessGroupAlive, matchProcessIdentity, newSpawnToken, observeProcessIdentity, type ProcessIdentity, type ProcessIdentityStatus } from '../../core/process.js';
 import { isWithin } from '../../storage/paths.js';
 import {
   AdapterError,
   CAPABILITY_NAMES,
+  validateSettingsAgainst,
   type CapabilityName,
   type CapabilityReport,
   type DeliveryInput,
   type DeliveryReceipt,
   type InterruptionReceipt,
   type ObservedRuntimeState,
+  type RequestedSettings,
   type ResumeInput,
   type RuntimeAdapter,
   type RuntimeCapabilities,
   type RuntimeEvent,
   type RuntimeEventKind,
   type RuntimeReadiness,
+  type RuntimeSettingsSupport,
   type SessionHandle,
   type SessionInput,
+  type SettingsValidation,
   type StopReceipt,
   type TurnHandle,
   type TurnInput,
@@ -37,6 +44,25 @@ import {
 
 export const FAKE_RUNTIME_VERSION = 'fake-runtime/1';
 export const FAKE_SCENARIO_ENV = 'WORKFORCE_FAKE_SCENARIO';
+
+/** What the fake runtime accepts; mirrors fixtures/fake-runtime/fake-runtime.mjs, which exits 64 on anything else. */
+export const FAKE_SETTINGS: RuntimeSettingsSupport = {
+  model: {
+    offered: [
+      { value: 'fake-default', provenance: 'reported', note: 'runtime default' },
+      { value: 'fake-fast', provenance: 'reported' },
+    ],
+    exhaustive: true,
+  },
+  effort: {
+    offered: [
+      { value: 'low', provenance: 'configured' },
+      { value: 'medium', provenance: 'configured', note: 'runtime default' },
+      { value: 'high', provenance: 'configured' },
+    ],
+    exhaustive: true,
+  },
+};
 
 export function defaultFakeRuntimeScript(): string {
   return fileURLToPath(new URL('../../../fixtures/fake-runtime/fake-runtime.mjs', import.meta.url));
@@ -73,7 +99,7 @@ interface FakeSession {
   readonly cwd: string;
   readonly allowedWritePaths: ReadonlyArray<string>;
   child: ChildProcess;
-  pid: number;
+  readonly identity: ProcessIdentity;
   handle: SessionHandle;
   readonly buffer: RuntimeEvent[];
   waiters: Array<() => void>;
@@ -112,22 +138,8 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
-function processGroupAlive(pgid: number): boolean {
-  try {
-    process.kill(-pgid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
+function requestedSettings(input: SessionInput): RequestedSettings {
+  return { ...(input.model !== undefined ? { model: input.model } : {}), ...(input.effort !== undefined ? { effort: input.effort } : {}) };
 }
 
 export class FakeAdapter implements RuntimeAdapter {
@@ -193,7 +205,11 @@ export class FakeAdapter implements RuntimeAdapter {
     for (const name of CAPABILITY_NAMES) capabilities[name] = report;
     capabilities.usage_reporting = { status: 'unsupported', testedVersion: FAKE_RUNTIME_VERSION, os: process.platform, note: 'fake runtime has no model usage' };
     capabilities.coordination_bridge = { status: 'unsupported', testedVersion: FAKE_RUNTIME_VERSION, os: process.platform, note: 'bridge arrives with WP06' };
-    return { adapter: 'fake', capabilities };
+    return { adapter: 'fake', capabilities, settings: FAKE_SETTINGS };
+  }
+
+  validateSettings(requested: RequestedSettings): SettingsValidation {
+    return validateSettingsAgainst('fake', FAKE_SETTINGS, requested);
   }
 
   async openSession(input: SessionInput): Promise<SessionHandle> {
@@ -202,17 +218,36 @@ export class FakeAdapter implements RuntimeAdapter {
 
   async resumeSession(input: ResumeInput): Promise<SessionHandle> {
     const existing = this.#sessions.get(input.sessionId);
-    if (existing !== undefined && existing.exit === null && processAlive(existing.pid)) {
-      throw new AdapterError('fake', 'session_active', `session ${input.sessionId} still has a live process ${existing.pid}; stop it before resuming`);
+    if (existing !== undefined && existing.exit === null && isProcessAlive(existing.identity.pid)) {
+      throw new AdapterError('fake', 'session_active', `session ${input.sessionId} still has a live process ${existing.identity.pid}; stop it before resuming`);
+    }
+    const previous = input.previousProcess ?? null;
+    if (previous !== null) {
+      // A restarted coordinator knows the old worker only by its recorded identity: verify it before spawning a second writer.
+      const status = matchProcessIdentity(previous);
+      if (status === 'alive') {
+        throw new AdapterError('fake', 'session_active', `session ${input.sessionId} is still driven by process ${previous.pid} (spawn ${previous.spawnToken}); stop it before resuming`);
+      }
+      if (status === 'unverifiable') {
+        throw new AdapterError('fake', 'session_unverifiable', `pid ${previous.pid} exists but cannot be verified as the previous process of session ${input.sessionId}; isolate a successor instead of resuming`);
+      }
     }
     return this.#spawnSession(input, input.sessionId);
   }
 
   async #spawnSession(input: SessionInput, resumeSessionId: string | null): Promise<SessionHandle> {
+    const settings = this.validateSettings(requestedSettings(input));
+    if (!settings.ok) {
+      const problems = [settings.model, settings.effort].filter((r) => r.status === 'unsupported').map((r) => r.message);
+      throw new AdapterError('fake', 'unsupported_setting', problems.join('; '));
+    }
+
     const scenarioPath = input.env?.[FAKE_SCENARIO_ENV] ?? this.#options.scenarioPath;
     const args = [this.#options.scriptPath];
     if (scenarioPath !== undefined) args.push('--scenario', scenarioPath);
     if (resumeSessionId !== null) args.push('--session', resumeSessionId);
+    if (input.model !== undefined) args.push('--model', input.model);
+    if (input.effort !== undefined) args.push('--effort', input.effort);
 
     // Workers get a minimal environment: never the coordinator's full env.
     const env: Record<string, string> = {};
@@ -222,6 +257,7 @@ export class FakeAdapter implements RuntimeAdapter {
     }
     Object.assign(env, input.env ?? {});
 
+    const spawnToken = newSpawnToken();
     const child = spawn(this.#options.nodeExecutable, args, {
       cwd: input.cwd,
       env,
@@ -230,6 +266,7 @@ export class FakeAdapter implements RuntimeAdapter {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     if (child.pid === undefined) throw new AdapterError('fake', 'spawn_failed', 'child process has no pid');
+    const identity = observeProcessIdentity(child.pid, spawnToken);
 
     const pendingId = resumeSessionId ?? `pending-${child.pid}`;
     const session: FakeSession = {
@@ -237,8 +274,8 @@ export class FakeAdapter implements RuntimeAdapter {
       cwd: input.cwd,
       allowedWritePaths: input.allowedWritePaths.map(canonicalPath),
       child,
-      pid: child.pid,
-      handle: { adapter: 'fake', sessionId: pendingId, processId: child.pid, raw: { kind: 'fake-session', cwd: input.cwd } satisfies FakeHandleRaw },
+      identity,
+      handle: { adapter: 'fake', sessionId: pendingId, processId: child.pid, process: identity, raw: { kind: 'fake-session', cwd: input.cwd } satisfies FakeHandleRaw },
       buffer: [],
       waiters: [],
       sequence: 0,
@@ -268,6 +305,10 @@ export class FakeAdapter implements RuntimeAdapter {
     }
     this.#sessions.set(sessionId, finalSession);
     return finalSession.handle;
+  }
+
+  #rawRef(session: FakeSession, suffix: string | number): string {
+    return `fake:${session.sessionId}:${session.identity.spawnToken}:${suffix}`;
   }
 
   #wire(session: FakeSession): void {
@@ -306,12 +347,12 @@ export class FakeAdapter implements RuntimeAdapter {
         exitCode: code,
         signal,
         expected: session.activeTurnId === null,
-      }, `fake:${session.sessionId}:exit`);
+      }, this.#rawRef(session, 'exit'));
       session.activeTurnId = null;
       this.#wake(session);
     });
     child.on('error', (error) => {
-      this.#push(session, 'error', session.activeTurnId, { fatal: true, reason: 'spawn_error', message: error.message }, `fake:${session.sessionId}:spawn`);
+      this.#push(session, 'error', session.activeTurnId, { fatal: true, reason: 'spawn_error', message: error.message }, this.#rawRef(session, 'spawn'));
       session.exit = { code: null, signal: null };
       this.#wake(session);
     });
@@ -319,7 +360,7 @@ export class FakeAdapter implements RuntimeAdapter {
 
   #ingestLine(session: FakeSession, line: string, partial: boolean): void {
     session.lineNo += 1;
-    const rawRef = `fake:${session.sessionId}:${session.lineNo}`;
+    const rawRef = this.#rawRef(session, session.lineNo);
     this.#options.onRawLine?.(session.sessionId, 'stdout', line);
     if (line.trim().length === 0) return;
 
@@ -355,7 +396,17 @@ export class FakeAdapter implements RuntimeAdapter {
 
   #push(session: FakeSession, kind: RuntimeEventKind, turnId: string | null, payload: Record<string, unknown>, rawRef: string): void {
     session.sequence += 1;
-    session.buffer.push({ kind, adapter: 'fake', sessionId: session.sessionId, turnId, sequence: session.sequence, timestamp: nowIso(), payload, rawRef });
+    session.buffer.push({
+      kind,
+      adapter: 'fake',
+      sessionId: session.sessionId,
+      turnId,
+      spawnToken: session.identity.spawnToken,
+      sequence: session.sequence,
+      timestamp: nowIso(),
+      payload,
+      rawRef,
+    });
     this.#wake(session);
   }
 
@@ -449,19 +500,42 @@ export class FakeAdapter implements RuntimeAdapter {
     return { turnId: turn.turnId, state: observed === null ? 'requested' : 'observed', at: observed === null ? requestedAt : nowIso() };
   }
 
+  /**
+   * Stop the session's process tree. A session spawned by this instance is
+   * ours by construction. Anything else (a handle reconstructed after a
+   * coordinator restart) is signalled only when its recorded identity still
+   * matches the running process; a reused pid is never signalled.
+   */
   async stopOwnedProcesses(handle: SessionHandle): Promise<StopReceipt> {
     const session = this.#sessions.get(handle.sessionId);
-    const pid = session?.pid ?? handle.processId ?? null;
-    if (pid === null) return { sessionId: handle.sessionId, state: 'unknown', processId: null, signal: null, at: nowIso(), detail: 'no process id recorded' };
-    if (session === undefined) {
-      // Not spawned by this instance (for example after a coordinator restart): act on the recorded process group.
-      return this.#terminateGroupByPid(handle.sessionId, pid);
+    if (session !== undefined) return this.#terminateGroup(session);
+
+    const identity = handle.process ?? null;
+    const at = nowIso();
+    if (identity === null) {
+      const pid = handle.processId ?? null;
+      return { sessionId: handle.sessionId, state: 'unknown', processId: pid, signal: null, at, detail: pid === null ? 'no process id recorded' : `pid ${pid} has no recorded start time or spawn token; refusing to signal a process by pid alone` };
     }
-    return this.#terminateGroup(session);
+    const status = matchProcessIdentity(identity);
+    switch (status) {
+      case 'pid_reused':
+        // A pid cannot be reassigned while its old process group still has members, so the owned tree is already gone.
+        return { sessionId: handle.sessionId, state: 'process_tree_terminated', processId: identity.pid, signal: null, at, detail: `pid ${identity.pid} now belongs to an unrelated process (start time mismatch); the owned process tree is already gone and nothing was signalled` };
+      case 'unverifiable':
+        return { sessionId: handle.sessionId, state: 'unknown', processId: identity.pid, signal: null, at, detail: `pid ${identity.pid} exists but cannot be verified as the owned process; nothing was signalled` };
+      case 'alive':
+      case 'dead':
+        // dead: the leader is gone but orphans may keep the group alive; the group id is still ours.
+        return this.#terminateGroupByPid(handle.sessionId, identity.pid);
+      default: {
+        const never: never = status;
+        throw new Error(`unexpected identity status ${String(never)}`);
+      }
+    }
   }
 
   async #terminateGroup(session: FakeSession): Promise<StopReceipt> {
-    const receipt = await this.#terminateGroupByPid(session.sessionId, session.pid, session);
+    const receipt = await this.#terminateGroupByPid(session.sessionId, session.identity.pid, session);
     if (session.child.stdin && !session.child.stdin.destroyed) session.child.stdin.destroy();
     return receipt;
   }
@@ -470,7 +544,7 @@ export class FakeAdapter implements RuntimeAdapter {
     const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGKILL'];
     let lastSignal: NodeJS.Signals | null = null;
     for (const signal of signals) {
-      if (!processGroupAlive(pid) && !processAlive(pid)) break;
+      if (!isProcessGroupAlive(pid) && !isProcessAlive(pid)) break;
       try {
         process.kill(-pid, signal);
         lastSignal = signal;
@@ -479,15 +553,15 @@ export class FakeAdapter implements RuntimeAdapter {
       }
       const deadline = Date.now() + this.#options.stopTimeoutMs;
       while (Date.now() < deadline) {
-        const childDone = session === undefined ? !processAlive(pid) : session.exit !== null;
-        if (childDone && !processGroupAlive(pid)) break;
+        const childDone = session === undefined ? !isProcessAlive(pid) : session.exit !== null;
+        if (childDone && !isProcessGroupAlive(pid)) break;
         await delay(25);
       }
     }
-    const treeDead = !processGroupAlive(pid) && !processAlive(pid) && (session === undefined || session.exit !== null);
+    const treeDead = !isProcessGroupAlive(pid) && !isProcessAlive(pid) && (session === undefined || session.exit !== null);
     return {
       sessionId,
-      state: lastSignal === null && treeDead ? 'process_tree_terminated' : treeDead ? 'process_tree_terminated' : lastSignal === null ? 'unknown' : 'requested',
+      state: treeDead ? 'process_tree_terminated' : lastSignal === null ? 'unknown' : 'requested',
       processId: pid,
       signal: lastSignal,
       at: nowIso(),
@@ -497,18 +571,42 @@ export class FakeAdapter implements RuntimeAdapter {
 
   async reconcile(handle: SessionHandle): Promise<ObservedRuntimeState> {
     const session = this.#sessions.get(handle.sessionId);
-    const pid = session?.pid ?? handle.processId ?? null;
+    const observedAt = nowIso();
+    if (session !== undefined) {
+      const status: ProcessIdentityStatus = session.exit !== null ? 'dead' : matchProcessIdentity(session.identity);
+      return {
+        adapter: 'fake',
+        sessionId: handle.sessionId,
+        processId: session.identity.pid,
+        process: session.identity,
+        processIdentityStatus: status,
+        processAlive: status === 'alive',
+        processGroupAlive: isProcessGroupAlive(session.identity.pid),
+        activeTurnId: session.activeTurnId,
+        exitCode: session.exit?.code ?? null,
+        signal: session.exit?.signal ?? null,
+        lastEventSequence: session.sequence,
+        observedAt,
+      };
+    }
+
+    const identity = handle.process ?? null;
+    const pid = identity?.pid ?? handle.processId ?? null;
+    const status = identity === null ? null : matchProcessIdentity(identity);
     return {
       adapter: 'fake',
       sessionId: handle.sessionId,
       processId: pid,
-      processAlive: pid === null ? 'unknown' : session?.exit !== null && session !== undefined ? false : processAlive(pid),
-      processGroupAlive: pid === null ? 'unknown' : processGroupAlive(pid),
-      activeTurnId: session?.activeTurnId ?? null,
-      exitCode: session?.exit?.code ?? null,
-      signal: session?.exit?.signal ?? null,
-      lastEventSequence: session?.sequence ?? 0,
-      observedAt: nowIso(),
+      process: identity,
+      processIdentityStatus: status,
+      // A pid alone proves nothing: without an identity, or with one we cannot compare, the answer is honestly unknown.
+      processAlive: status === null || status === 'unverifiable' ? 'unknown' : status === 'alive',
+      processGroupAlive: pid === null || status === 'pid_reused' ? (pid === null ? 'unknown' : false) : isProcessGroupAlive(pid),
+      activeTurnId: null,
+      exitCode: null,
+      signal: null,
+      lastEventSequence: 0,
+      observedAt,
     };
   }
 

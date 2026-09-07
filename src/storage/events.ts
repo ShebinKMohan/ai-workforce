@@ -5,10 +5,33 @@
  * BEGIN IMMEDIATE transaction that inserts the row, so two writers can never
  * interleave. An optional idempotency key makes ingestion replay-safe: the
  * same key returns the existing event instead of appending a duplicate.
+ *
+ * Rows stay small: a payload above `MAX_EVENT_PAYLOAD_BYTES` is refused here.
+ * Large payloads belong in the artifact store with only the artifact id in
+ * `payload_ref` (see `telemetry/events.ts`, which does that spill).
  */
 import type { DatabaseSync } from 'node:sqlite';
 import { newId, nowIso } from '../core/ids.js';
 import { withTransaction } from './tx.js';
+
+/** Upper bound for `payload_json` in one event row (plan section 8: large logs and patches go to the artifact store). */
+export const MAX_EVENT_PAYLOAD_BYTES = 16 * 1024;
+
+export class EventPayloadTooLargeError extends Error {
+  readonly bytes: number;
+  readonly limit: number;
+
+  constructor(type: string, bytes: number, limit: number) {
+    super(`event "${type}" payload is ${bytes} bytes, above the ${limit}-byte row limit; publish it as an artifact and reference it via payloadRef`);
+    this.name = 'EventPayloadTooLargeError';
+    this.bytes = bytes;
+    this.limit = limit;
+  }
+}
+
+export function payloadByteLength(payload: Record<string, unknown> | undefined): number {
+  return Buffer.byteLength(JSON.stringify(payload ?? {}), 'utf8');
+}
 
 export interface EventRecord {
   readonly id: string;
@@ -69,13 +92,19 @@ export interface AppendEventResult {
   readonly appended: boolean;
 }
 
+export function findEventByKey(db: DatabaseSync, runId: string, idempotencyKey: string): EventRecord | null {
+  const row = db.prepare('SELECT * FROM events WHERE run_id = ? AND idempotency_key = ?').get(runId, idempotencyKey) as EventRow | undefined;
+  return row === undefined ? null : toRecord(row);
+}
+
 export function appendEvent(db: DatabaseSync, input: AppendEventInput): AppendEventResult {
+  const payloadJson = JSON.stringify(input.payload ?? {});
+  const bytes = Buffer.byteLength(payloadJson, 'utf8');
+  if (bytes > MAX_EVENT_PAYLOAD_BYTES) throw new EventPayloadTooLargeError(input.type, bytes, MAX_EVENT_PAYLOAD_BYTES);
   return withTransaction(db, () => {
     if (input.idempotencyKey) {
-      const existing = db
-        .prepare('SELECT * FROM events WHERE run_id = ? AND idempotency_key = ?')
-        .get(input.runId, input.idempotencyKey) as EventRow | undefined;
-      if (existing !== undefined) return { event: toRecord(existing), appended: false };
+      const existing = findEventByKey(db, input.runId, input.idempotencyKey);
+      if (existing !== null) return { event: existing, appended: false };
     }
     const next = (db.prepare('SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM events WHERE run_id = ?').get(input.runId) as { next: number }).next;
     const id = newId();
@@ -89,7 +118,7 @@ export function appendEvent(db: DatabaseSync, input: AppendEventInput): AppendEv
       input.taskId ?? null,
       input.attemptId ?? null,
       input.type,
-      JSON.stringify(input.payload ?? {}),
+      payloadJson,
       input.payloadRef ?? null,
       input.idempotencyKey ?? null,
       input.timestamp ?? nowIso(),

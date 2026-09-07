@@ -7,7 +7,10 @@
  * `RuntimeEvent`s and must never crash on unknown raw fields.
  */
 import { z } from 'zod';
-import { AdapterIdSchema, PolicySchema, type AdapterId, type Policy } from '../core/contracts.js';
+import { AdapterIdSchema, PolicySchema, type AdapterId, type EffectiveAgentBinding, type Policy } from '../core/contracts.js';
+import { type ProcessIdentity, type ProcessIdentityStatus } from '../core/process.js';
+
+export type { ProcessIdentity, ProcessIdentityStatus };
 
 // ---------------------------------------------------------------------------
 // Readiness and capabilities (FR002, FR005)
@@ -43,6 +46,86 @@ export interface CapabilityReport {
 export interface RuntimeCapabilities {
   readonly adapter: AdapterId;
   readonly capabilities: Readonly<Record<CapabilityName, CapabilityReport>>;
+  /** Model and effort values the adapter offers, with their provenance (FR006). */
+  readonly settings: RuntimeSettingsSupport;
+}
+
+// ---------------------------------------------------------------------------
+// Model / effort settings (FR006): offer only reported or configured values,
+// validate requests, and preserve unknown effective values honestly.
+// ---------------------------------------------------------------------------
+
+export type SettingName = 'model' | 'effort';
+
+/** `reported`: the runtime itself listed the value; `configured`: the adapter knows it from documentation or explicit configuration. */
+export type SettingProvenance = 'reported' | 'configured';
+
+export interface OfferedSetting {
+  readonly value: string;
+  readonly provenance: SettingProvenance;
+  readonly note?: string;
+}
+
+export interface SettingSupport {
+  readonly offered: ReadonlyArray<OfferedSetting>;
+  /**
+   * True when values outside `offered` are known to be rejected by the runtime.
+   * False when the runtime accepts values the adapter cannot list (they are then
+   * `supported_unverified`, never silently mapped).
+   */
+  readonly exhaustive: boolean;
+}
+
+export interface RuntimeSettingsSupport {
+  readonly model: SettingSupport;
+  readonly effort: SettingSupport;
+}
+
+export type SettingStatus = 'runtime_default' | 'supported' | 'supported_unverified' | 'unsupported';
+
+export interface SettingReport {
+  readonly setting: SettingName;
+  /** The requested value; null when omitted (the runtime's own default applies and is reported after the fact). */
+  readonly requested: string | null;
+  readonly status: SettingStatus;
+  readonly provenance: SettingProvenance | null;
+  readonly offered: ReadonlyArray<string>;
+  readonly message: string;
+}
+
+export interface RequestedSettings {
+  readonly model?: string;
+  readonly effort?: string;
+}
+
+export interface SettingsValidation {
+  readonly adapter: AdapterId;
+  /** False when any requested setting is `unsupported`; such a binding must not reach dispatch. */
+  readonly ok: boolean;
+  readonly model: SettingReport;
+  readonly effort: SettingReport;
+}
+
+function reportSetting(setting: SettingName, support: SettingSupport, requested: string | undefined): SettingReport {
+  const offered = support.offered.map((o) => o.value);
+  if (requested === undefined) {
+    return { setting, requested: null, status: 'runtime_default', provenance: null, offered, message: `${setting} not configured; the runtime's own default applies and is recorded from what the runtime reports` };
+  }
+  const match = support.offered.find((o) => o.value === requested);
+  if (match !== undefined) {
+    return { setting, requested, status: 'supported', provenance: match.provenance, offered, message: `${setting} "${requested}" is ${match.provenance}${match.note ? ` (${match.note})` : ''}` };
+  }
+  if (support.exhaustive) {
+    return { setting, requested, status: 'unsupported', provenance: null, offered, message: `${setting} "${requested}" is not supported; offered: ${offered.length === 0 ? '(none)' : offered.map((o) => `"${o}"`).join(', ')}` };
+  }
+  return { setting, requested, status: 'supported_unverified', provenance: null, offered, message: `${setting} "${requested}" is not in the list the adapter can verify; it is passed through unchanged and the effective value is recorded from what the runtime reports` };
+}
+
+/** Validate requested settings against what an adapter offers. Adapters may use this to implement `validateSettings`. */
+export function validateSettingsAgainst(adapter: AdapterId, support: RuntimeSettingsSupport, requested: RequestedSettings): SettingsValidation {
+  const model = reportSetting('model', support.model, requested.model);
+  const effort = reportSetting('effort', support.effort, requested.effort);
+  return { adapter, ok: model.status !== 'unsupported' && effort.status !== 'unsupported', model, effort };
 }
 
 export type AuthenticationStatus = 'unknown' | 'logged_in' | 'logged_out' | 'not_required';
@@ -81,12 +164,21 @@ export interface SessionInput {
 
 export interface ResumeInput extends SessionInput {
   readonly sessionId: string;
+  /**
+   * Identity of the process that last drove this session, when the coordinator
+   * recorded one. The adapter refuses to resume while that process is still
+   * alive, so a resumed session never gets a second writer.
+   */
+  readonly previousProcess?: ProcessIdentity | null;
 }
 
 export interface SessionHandle {
   readonly adapter: AdapterId;
   readonly sessionId: string;
+  /** Convenience copy of `process.pid`; never enough on its own to act on a process. */
   readonly processId?: number;
+  /** Full process identity (pid, start time, spawn token); persist this so a restarted coordinator can verify before it signals. */
+  readonly process?: ProcessIdentity | null;
   /** Adapter-private data needed to drive the session (never persisted verbatim). */
   readonly raw: unknown;
 }
@@ -133,7 +225,9 @@ export const RuntimeEventSchema = z.strictObject({
   adapter: AdapterIdSchema,
   sessionId: z.string().min(1),
   turnId: z.string().min(1).nullable(),
-  /** Monotonic per session as observed by the adapter. */
+  /** Spawn token of the process instance that produced the event; a resumed session gets a new one, so sequences never collide across processes. */
+  spawnToken: z.string().min(1),
+  /** Monotonic per process instance (per spawn token) as observed by the adapter. */
   sequence: z.number().int().min(1),
   timestamp: z.string().datetime(),
   /** Normalized fields; unknown raw fields are preserved here rather than dropped. */
@@ -173,7 +267,10 @@ export interface ObservedRuntimeState {
   readonly adapter: AdapterId;
   readonly sessionId: string;
   readonly processId: number | null;
-  /** `unknown` when the adapter cannot observe the process (for example after a coordinator restart on another host). */
+  readonly process: ProcessIdentity | null;
+  /** How the recorded identity compares with what is running now; null when no identity was available. */
+  readonly processIdentityStatus: ProcessIdentityStatus | null;
+  /** `unknown` when the adapter cannot verify the process (no recorded identity, or an identity it cannot compare). */
   readonly processAlive: boolean | 'unknown';
   readonly processGroupAlive: boolean | 'unknown';
   readonly activeTurnId: string | null;
@@ -192,6 +289,8 @@ export interface RuntimeAdapter {
   /** Passive readiness probe: must not start a paid model turn or run repository hooks. */
   probe(executablePath: string): Promise<RuntimeReadiness>;
   capabilities(): RuntimeCapabilities;
+  /** Validate a model/effort request against offered values. `openSession` must refuse a binding this reports as not ok. */
+  validateSettings(requested: RequestedSettings): SettingsValidation;
   openSession(input: SessionInput): Promise<SessionHandle>;
   resumeSession(input: ResumeInput): Promise<SessionHandle>;
   startTurn(session: SessionHandle, input: TurnInput): Promise<TurnHandle>;
@@ -212,6 +311,17 @@ export class AdapterError extends Error {
     this.adapter = adapter;
     this.code = code;
   }
+}
+
+/** Validate an effective binding's runtime settings with the adapter it is bound to, before any intent is recorded. */
+export function validateBindingSettings(adapter: RuntimeAdapter, binding: EffectiveAgentBinding): SettingsValidation {
+  if (binding.runtime.adapter !== adapter.id) {
+    throw new AdapterError(adapter.id, 'adapter_mismatch', `binding for agent "${binding.agentId}" targets adapter "${binding.runtime.adapter}"`);
+  }
+  return adapter.validateSettings({
+    ...(binding.runtime.model !== undefined ? { model: binding.runtime.model } : {}),
+    ...(binding.runtime.effort !== undefined ? { effort: binding.runtime.effort } : {}),
+  });
 }
 
 /** True for the event kinds that end a turn's event stream. */

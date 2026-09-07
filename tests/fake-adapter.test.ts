@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSyn
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FAKE_RUNTIME_VERSION, FakeAdapter, defaultFakeRuntimeScript, type FakeAdapterOptions } from '../src/adapters/fake/adapter.js';
-import { AdapterError, RuntimeEventSchema, type RuntimeEvent, type SessionHandle, type TurnHandle } from '../src/adapters/types.js';
+import { AdapterError, RuntimeEventSchema, validateBindingSettings, type RuntimeEvent, type SessionHandle, type TurnHandle } from '../src/adapters/types.js';
+import { validateAgentConfig } from '../src/core/contracts.js';
+import { resolveAgentBinding } from '../src/core/snapshot.js';
 import { listEvents } from '../src/storage/events.js';
 import { recordRuntimeEvent, summarizeTurnEvidence } from '../src/telemetry/events.js';
 import { openTempState, seedRunAndTask, tempDir } from './helpers/state.js';
@@ -115,19 +117,146 @@ describe('fake adapter: session and turn lifecycle', () => {
     const evidence2 = summarizeTurnEvidence(await collect(f.adapter, turn2));
     expect(evidence2).toMatchObject({ claimedDone: true, completed: true, fileChanges: [], toolCalls: 0 });
 
-    // Persisting the stream is idempotent per (adapter, session, sequence).
+    // Persisting the stream is idempotent per (adapter, session, spawn token, sequence).
     const state = openTempState();
     try {
       const { run, task } = seedRunAndTask(state);
-      for (const event of events1) recordRuntimeEvent(state.store.db, event, { runId: run.id, taskId: task.id });
-      for (const event of events1) recordRuntimeEvent(state.store.db, event, { runId: run.id, taskId: task.id });
+      const ctx = { runId: run.id, taskId: task.id, paths: state.paths };
+      for (const event of events1) recordRuntimeEvent(state.store.db, event, ctx);
+      for (const event of events1) recordRuntimeEvent(state.store.db, event, ctx);
       const stored = listEvents(state.store.db, run.id);
       expect(stored).toHaveLength(events1.length);
       expect(stored.map((e) => e.type)).toEqual(events1.map((e) => `runtime.${e.kind}`));
-      expect(stored[3]!.payloadRef).toBe(events1[3]!.rawRef);
+      expect(stored[3]!.payload).toMatchObject({ rawRef: events1[3]!.rawRef, spawnToken: handle.process!.spawnToken, runtimeSequence: events1[3]!.sequence });
+      expect(stored[3]!.payloadRef).toBeNull();
+      expect(stored[3]!.idempotencyKey).toBe(`fake:${handle.sessionId}:${handle.process!.spawnToken}:${events1[3]!.sequence}`);
     } finally {
       state.cleanup();
     }
+  });
+
+  it('stores every event of a session resumed by a fresh coordinator instead of dropping them as duplicates', async () => {
+    const f = fixture({
+      scenarioVersion: 1,
+      steps: [{ action: 'edit_file', path: 'src/again.txt', content: 'again\n' }],
+    });
+    const handle = await open(f);
+    const events1 = await collect(f.adapter, await f.adapter.startTurn(handle, { prompt: 'first process' }));
+    const state = openTempState();
+    try {
+      const { run, task } = seedRunAndTask(state);
+      const ctx = { runId: run.id, taskId: task.id, paths: state.paths };
+      for (const event of events1) expect(recordRuntimeEvent(state.store.db, event, ctx).appended).toBe(true);
+      expect((await f.adapter.stopOwnedProcesses(handle)).state).toBe('process_tree_terminated');
+
+      // A new coordinator process: fresh adapter instance, session identity and previous process identity from the database.
+      const successor = new FakeAdapter({ scenarioPath: path.join(f.root, 'scenario.json') });
+      const resumed = await successor.resumeSession({ cwd: f.cwd, allowedWritePaths: [f.cwd], policy: 'local-development', systemInstructions: 'x', sessionId: handle.sessionId, previousProcess: handle.process ?? null });
+      sessions.push({ adapter: successor, handle: resumed });
+      expect(resumed.sessionId).toBe(handle.sessionId);
+      expect(resumed.process!.spawnToken).not.toBe(handle.process!.spawnToken);
+      const events2 = await collect(successor, await successor.startTurn(resumed, { prompt: 'second process' }));
+      expect(events2.map((e) => e.kind)).toContain('file_change');
+      expect(events2[0]!.sequence).toBe(1); // the new process numbers from 1 again...
+      for (const event of events2) expect(recordRuntimeEvent(state.store.db, event, ctx).appended).toBe(true); // ...and nothing is mistaken for a duplicate
+      const stored = listEvents(state.store.db, run.id);
+      expect(stored).toHaveLength(events1.length + events2.length);
+      expect(stored.filter((e) => e.type === 'runtime.file_change')).toHaveLength(2);
+      expect(new Set(stored.map((e) => e.idempotencyKey)).size).toBe(stored.length);
+    } finally {
+      state.cleanup();
+    }
+  });
+
+  it('acts on recorded process identity, never on a pid alone, after a coordinator restart', async () => {
+    const f = fixture({ scenarioVersion: 1, steps: [{ action: 'sleep', ms: 30_000 }] }, { stopTimeoutMs: 3_000 });
+    const handle = await open(f);
+    const identity = handle.process!;
+    expect(identity).toMatchObject({ pid: handle.processId, spawnToken: expect.stringMatching(/^[0-9a-f]{16}$/) });
+    expect(identity.startedAtMs).not.toBeNull();
+    const turn = await f.adapter.startTurn(handle, { prompt: 'keep busy' });
+    for await (const event of f.adapter.events(turn)) if (event.kind === 'command_exec') break;
+
+    const restarted = new FakeAdapter({ scenarioPath: path.join(f.root, 'scenario.json') });
+    const resume = { cwd: f.cwd, allowedWritePaths: [f.cwd], policy: 'local-development' as const, systemInstructions: 'x', sessionId: handle.sessionId };
+    // The old writer is still alive: resuming would create a second writer, so it is refused.
+    await expect(restarted.resumeSession({ ...resume, previousProcess: identity })).rejects.toMatchObject({ code: 'session_active' });
+
+    // A reused pid (same pid, different start time) is never signalled: the live process survives.
+    const reused = { adapter: 'fake' as const, sessionId: handle.sessionId, processId: identity.pid, process: { ...identity, startedAtMs: identity.startedAtMs! - 86_400_000 }, raw: null };
+    const stopReused = await restarted.stopOwnedProcesses(reused);
+    expect(stopReused).toMatchObject({ state: 'process_tree_terminated', signal: null, processId: identity.pid });
+    expect(stopReused.detail).toMatch(/unrelated process/);
+    expect(isAlive(identity.pid)).toBe(true);
+    expect(await restarted.reconcile(reused)).toMatchObject({ processAlive: false, processIdentityStatus: 'pid_reused', process: reused.process });
+
+    // A pid without identity is not enough to act on.
+    const pidOnly = { adapter: 'fake' as const, sessionId: handle.sessionId, processId: identity.pid, raw: null };
+    expect(await restarted.stopOwnedProcesses(pidOnly)).toMatchObject({ state: 'unknown', signal: null });
+    expect(await restarted.reconcile(pidOnly)).toMatchObject({ processAlive: 'unknown', processIdentityStatus: null });
+    expect(isAlive(identity.pid)).toBe(true);
+
+    // The recorded identity matches the running process: it is ours, and it is stopped as a group.
+    expect(await restarted.reconcile({ ...pidOnly, process: identity })).toMatchObject({ processAlive: true, processIdentityStatus: 'alive', processGroupAlive: true });
+    const stop = await restarted.stopOwnedProcesses({ ...pidOnly, process: identity });
+    expect(stop).toMatchObject({ state: 'process_tree_terminated', signal: 'SIGTERM', processId: identity.pid });
+    expect(await waitUntil(() => !isAlive(identity.pid), 3_000)).toBe(true);
+    expect(await restarted.reconcile({ ...pidOnly, process: identity })).toMatchObject({ processAlive: false, processIdentityStatus: 'dead' });
+
+    // Now the session can be resumed under the same identity by the restarted coordinator.
+    const resumed = await restarted.resumeSession({ ...resume, previousProcess: identity });
+    sessions.push({ adapter: restarted, handle: resumed });
+    expect(resumed.sessionId).toBe(handle.sessionId);
+    expect(resumed.process!.pid).not.toBe(identity.pid);
+  });
+
+  it('validates model and effort against offered values before spawning and records what the runtime reports', async () => {
+    const f = fixture({ scenarioVersion: 1, steps: [{ action: 'message', text: 'hi' }] });
+    const { adapter } = f;
+    expect(adapter.capabilities().settings.effort.offered.map((o) => o.value)).toEqual(['low', 'medium', 'high']);
+
+    const bad = adapter.validateSettings({ effort: 'yolo', model: 'gpt-2' });
+    expect(bad.ok).toBe(false);
+    expect(bad.effort).toMatchObject({ setting: 'effort', requested: 'yolo', status: 'unsupported', offered: ['low', 'medium', 'high'] });
+    expect(bad.effort.message).toContain('"low", "medium", "high"');
+    expect(bad.model.status).toBe('unsupported');
+
+    const defaults = adapter.validateSettings({});
+    expect(defaults.ok).toBe(true);
+    expect(defaults.model).toMatchObject({ requested: null, status: 'runtime_default', provenance: null });
+    expect(defaults.effort.status).toBe('runtime_default');
+
+    const good = adapter.validateSettings({ model: 'fake-fast', effort: 'high' });
+    expect(good.ok).toBe(true);
+    expect(good.model).toMatchObject({ status: 'supported', provenance: 'reported' });
+    expect(good.effort).toMatchObject({ status: 'supported', provenance: 'configured' });
+
+    // An unsupported setting never reaches a process: openSession refuses it instead of mapping it silently.
+    await expect(adapter.openSession({ cwd: f.cwd, allowedWritePaths: [f.cwd], policy: 'analysis', systemInstructions: 'x', effort: 'yolo' })).rejects.toMatchObject({ code: 'unsupported_setting' });
+
+    // Explicit settings are passed through and echoed; omitted ones come back as the runtime's own defaults.
+    const explicit = await adapter.openSession({ cwd: f.cwd, allowedWritePaths: [f.cwd], policy: 'analysis', systemInstructions: 'x', model: 'fake-fast', effort: 'high' });
+    sessions.push({ adapter, handle: explicit });
+    const started = (await collect(adapter, await adapter.startTurn(explicit, { prompt: 'go' }))).find((e) => e.kind === 'session_started');
+    expect(started?.payload).toMatchObject({ model: 'fake-fast', effort: 'high' });
+    const implicit = await open(f);
+    const startedDefault = (await collect(adapter, await adapter.startTurn(implicit, { prompt: 'go' }))).find((e) => e.kind === 'session_started');
+    expect(startedDefault?.payload).toMatchObject({ model: 'fake-default', effort: 'medium' });
+
+    // The binding-level hook used before intent is recorded.
+    const config = validateAgentConfig({
+      schemaVersion: 1,
+      runtimes: { 'fake-local': { adapter: 'fake', executable: defaultFakeRuntimeScript(), effort: 'yolo' }, 'codex-local': { adapter: 'codex', executable: 'codex' } },
+      defaults: { workerAgent: 'w', maxActiveTurns: 2, maxActiveWriters: 2, maxTasksPerRun: 8, maxDelegationDepth: 2, maxRepairAttempts: 2, maxTransientRetries: 2, runTimeoutMinutes: 30 },
+      agents: [
+        { id: 'w', runtime: 'fake-local', instructions: 'work', capabilities: [], policy: 'local-development' },
+        { id: 'ok', runtime: 'fake-local', instructions: 'work', capabilities: [], policy: 'local-development', effort: 'low' },
+        { id: 'other', runtime: 'codex-local', instructions: 'work', capabilities: [], policy: 'analysis' },
+      ],
+    });
+    expect(validateBindingSettings(adapter, resolveAgentBinding(config, 'w')).ok).toBe(false);
+    expect(validateBindingSettings(adapter, resolveAgentBinding(config, 'ok'))).toMatchObject({ ok: true, effort: { requested: 'low', status: 'supported' }, model: { status: 'runtime_default' } });
+    expect(() => validateBindingSettings(adapter, resolveAgentBinding(config, 'other'))).toThrow(/targets adapter "codex"/);
   });
 
   it('never crashes the stream on unknown event kinds, unknown fields or malformed lines', async () => {

@@ -209,6 +209,12 @@ export function getArtifact(db: DatabaseSync, id: string): ArtifactRecord {
   return toRecord(row);
 }
 
+/** Look up the receipt for a run-relative path; null when nothing was recorded under it. */
+export function findArtifactByPath(db: DatabaseSync, runId: string, relativePath: string): ArtifactRecord | null {
+  const row = db.prepare('SELECT * FROM artifacts WHERE run_id = ? AND relative_path = ?').get(runId, relativePath) as ArtifactRow | undefined;
+  return row === undefined ? null : toRecord(row);
+}
+
 export function listArtifacts(db: DatabaseSync, runId: string): ArtifactRecord[] {
   return (db.prepare('SELECT * FROM artifacts WHERE run_id = ? ORDER BY created_at, id').all(runId) as unknown as ArtifactRow[]).map(toRecord);
 }
