@@ -49,8 +49,11 @@ What *is* established for the Claude Code side, with the code path the product a
 
 ## Source revision that produced this evidence
 
-`dist/` was built with `npm run build` from the working tree that the commit adding this directory
-records. Nothing under `src/`, `fixtures/` or `tests/` changed between that build and this record;
+**Commit: `d05bbae` — "AT03 evidence: the same task accepted via Codex and Claude Code"**, whose
+parent is `2d9a910` ("Merge WP05 (Claude Code adapter) into main"). `dist/` was built with
+`npm run build` from that commit's `src/`, and nothing under `src/` or `fixtures/` changed between
+that build and these runs. (`tests/` gained one file-scoped hygiene fix afterwards, described at the
+end of this file; it cannot affect a `dist/` run.)
 `npm run typecheck`, `npm test` and the gated real-runtime suites were run against the same tree, and
 `checks.txt` is their verbatim output:
 
