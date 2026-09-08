@@ -1,0 +1,1 @@
+Three deliverables: a fast note, a note that depends on the fast one, and an unrelated slow note.

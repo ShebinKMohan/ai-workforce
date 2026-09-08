@@ -1,0 +1,93 @@
+{
+  "manifestVersion": 1,
+  "runId": "01a07d16-6ffc-7591-8880-b552c7fe1d28",
+  "path": "planned",
+  "createdAt": "2026-09-07T18:16:57.596Z",
+  "request": {
+    "text": "Two workers are running in this run and each of you has coordination tools for\ntalking to the coordinator and to peer tasks (send_message, read_inbox,\nack_message). Use them; do not guess, and do not ask a human.\n\n1. Create the file docs/glossary.md whose first line is \"# Glossary\". Choose exactly one\n   term for this project's release gate and define it in one sentence. Send the term you\n   chose to your peer task through your coordination tools before you finish.\n2. Create the file docs/usage.md whose first line is \"# Usage\". It must use, verbatim, the\n   single term the glossary task chose. You do not know that term: ask the peer task for it\n   through your coordination tools and read your inbox for the answer. Do not invent a term.\n",
+    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/at05-task.txt",
+    "contextRefs": []
+  },
+  "base": {
+    "revision": "c3b2d04d19782aa6e5d07329456b43ca226ffd1d",
+    "repoPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/repo"
+  },
+  "accepted": true,
+  "reason": "no review was performed; acceptance rests entirely on the executed checks",
+  "tasks": [
+    {
+      "key": "t1",
+      "taskId": "01a07d16-7000-77ef-972e-6ed6bfa96950",
+      "objective": "Create the file docs/glossary.md whose first line is \"# Glossary\". Choose exactly one",
+      "accepted": true,
+      "repairsUsed": 0,
+      "attempts": [
+        {
+          "attemptId": "01a07d16-7000-77f1-99e9-da9117b72f4f",
+          "outcome": "accepted",
+          "candidateRevision": "2b348bba112b52b3cab377cdfc8a8efab159f6b3"
+        }
+      ]
+    },
+    {
+      "key": "t2",
+      "taskId": "01a07d16-7000-77f0-9282-9f4b4b6b0305",
+      "objective": "Create the file docs/usage.md whose first line is \"# Usage\". It must use, verbatim, the",
+      "accepted": true,
+      "repairsUsed": 0,
+      "attempts": [
+        {
+          "attemptId": "01a07d17-048b-7581-9dc3-02a3502e2a16",
+          "outcome": "accepted",
+          "candidateRevision": "318f0e619cee9bd57ab986abc5e39d2d093e63ed"
+        }
+      ]
+    }
+  ],
+  "combination": {
+    "status": "combined",
+    "combinedRevision": "d093530ea40a6ae704816ac346157f8c239d4c6a",
+    "order": [
+      "01a07d16-7000-77f1-99e9-da9117b72f4f",
+      "01a07d17-048b-7581-9dc3-02a3502e2a16"
+    ],
+    "acceptance": {
+      "accepted": true,
+      "combinedRevision": "d093530ea40a6ae704816ac346157f8c239d4c6a",
+      "verdicts": [
+        {
+          "criterionId": "check-1",
+          "required": true,
+          "satisfied": true,
+          "receiptId": "01a07d17-db29-7546-a740-b0396f5b5849",
+          "outcome": "passed",
+          "reason": "\"check-1\" passed against the combined revision d093530ea40a6ae704816ac346157f8c239d4c6a"
+        }
+      ],
+      "unverifiedCriteria": [],
+      "ignoredReceiptIds": [
+        "01a07d17-0412-7669-8f6d-8f6a4ddaa6e5",
+        "01a07d17-da34-731c-9591-7cfdb1e68ccc"
+      ],
+      "reason": "every required criterion was executed against the combined revision d093530ea40a6ae704816ac346157f8c239d4c6a and passed"
+    },
+    "checks": [
+      {
+        "criterionId": "check-1",
+        "outcome": "passed",
+        "exitCode": 0
+      }
+    ]
+  },
+  "review": null,
+  "reviewDecision": {
+    "warranted": false,
+    "triggers": [],
+    "thresholds": {
+      "largeChangeLines": 400,
+      "manyFilesCount": 10
+    },
+    "reason": "the change is small, narrow and fully covered by executable checks"
+  },
+  "unresolved": []
+}

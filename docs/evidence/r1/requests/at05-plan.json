@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "key": "t1",
+      "objective": "Create the file docs/glossary.md and no other file. Line 1 must be exactly \"# Glossary\". Line 2 must be exactly \"Term: <WORD>\" where <WORD> is a single lowercase English noun that you invent freely right now. Do not use the words workforce, gate, term, glossary or usage. Nothing in this repository records your choice, so no other worker can discover it by reading files. A peer task is going to ask you which word you chose: call read_inbox, and when the question arrives answer it with send_message addressed to that peer's task id, stating the exact word. Keep polling read_inbox until you have answered the peer, then finish your own file and stop.",
+      "dependencies": []
+    },
+    {
+      "key": "t2",
+      "objective": "Create the file docs/usage.md and no other file. Line 1 must be exactly \"# Usage\". Line 2 must be exactly \"Uses term: <WORD>\" where <WORD> is the exact single word that peer task t1 invented for line 2 of docs/glossary.md. You cannot see t1's workspace and the word appears nowhere in this repository or in your own instructions, so the only way to learn it is to ask: call send_message with `to` set to t1's task id, asking which word it chose, then call read_inbox repeatedly until the answer arrives and use it verbatim. Never invent, guess or substitute a word; if you truly cannot get an answer, write \"Uses term: unanswered\" and say so.",
+      "dependencies": []
+    }
+  ]
+}

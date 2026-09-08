@@ -1,64 +1,74 @@
-# Static reachability probes for the R1 gate (recorded 2026-09-07T18:18:27Z)
+# Static probes taken for the 2026-09-08 R1 gate record (main @ df2bf97)
 
-$ git -C "<repo>" rev-parse HEAD
-d4ebd13a7cf2b57bb3aba9c4e6f648e2efb5b286
+$ grep -n "mkdir\|writeFileSync\|packetPath" src/recovery/continue.ts
+25:import { writeFileSync } from 'node:fs';
+50:  readonly packetPath: string | null;
+71:  if (options.enabled === false) return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: 'handoff disabled for this run' };
+72:  if (first.acceptance.accepted) return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: null };
+73:  if (first.outcome === 'interrupted') return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: 'the run was interrupted; an interruption is not handed to another runtime' };
+82:      packetPath: null,
+96:  let packetPath: string | null = null;
+98:    packetPath = path.join(first.runDir, 'handoff', `${first.attemptId}.json`);
+100:      writeFileSync(packetPath, serializeHandoffPacket(packet), { mode: 0o600 });
+104:      packetPath = null;
+124:      packetPath: null,
+131:    return { result: first, attempts, fallback: evidence, packet, packetPath, note: `no agent in the configuration is bound to runtime "${selection.selected.runtimeId}"` };
+154:  return { result: second, attempts, fallback: evidence, packet, packetPath, note: null };
 
-$ grep -rn "handoff" src --include=*.ts | grep -v src/routing/handoff.ts
-src/recovery/fallback.ts:17: * carries a handoff packet describing the work already done, and the actual
-src/recovery/fallback.ts:122:  readonly handoffVersion: 1;
-src/recovery/fallback.ts:166:    handoffVersion: 1,
-src/recovery/fallback.ts:259:  readonly handoff: HandoffPacket | null;
-src/recovery/fallback.ts:271:  readonly handoff?: HandoffPacket | null;
-src/recovery/fallback.ts:294:    handoff: input.handoff ?? null,
-src/recovery/fallback.ts:310:      handoffCandidateRevision: evidence.handoff?.candidateRevision ?? null,
-src/recovery/fallback.ts:311:      usageCostStatus: evidence.handoff?.usage.costStatus ?? null,
-src/routing/index.ts:2: * Routing, planning and handoff (WP07).
-src/routing/index.ts:6: * (`schedule`), how one attempt hands work to another runtime (`handoff`) and
-src/routing/index.ts:12:export * from './handoff.js';
+$ sed -n "163,181p" src/recovery/continue.ts   # candidatesFrom hardcodes readiness
+/** Every runtime the configuration defines, as fallback candidates. */
+function candidatesFrom(input: RunDirectInput, failedRuntimeId: string): ReadonlyArray<RuntimeCandidate> {
+  return Object.entries(input.config.runtimes).map(([runtimeId, runtime]): RuntimeCandidate => {
+    const agent = input.config.agents.find((candidate) => candidate.runtime === runtimeId);
+    return {
+      runtimeId,
+      adapter: runtime.adapter,
+      adapterSupported: runtime.adapter === 'codex' || runtime.adapter === 'claude-code' || runtime.adapter === 'fake',
+      // The configuration alone does not establish readiness. `workforce
+      // doctor` is what verifies a runtime, so an unverified one is offered as
+      // a candidate and refused by the selector's own gates when it must be.
+      ready: 'verified_ready',
+      writeContainment: runtime.adapter === 'codex' || runtime.adapter === 'fake' ? ('verified' as const) : ('unsupported' as const),
+      ...(agent?.model !== undefined ? { model: agent.model } : {}),
+      ...(agent?.effort !== undefined ? { effort: agent.effort } : {}),
+      ...(runtimeId === failedRuntimeId ? { note: 'this is the runtime whose attempt failed' } : {}),
+      ...(agent === undefined ? { note: `no agent in the configuration is bound to runtime "${runtimeId}"` } : {}),
+    };
+  });
 
-$ grep -rn "buildHandoffPacket\|applyHandoffPacket\|parseHandoffPacket" src --include=*.ts
-src/recovery/fallback.ts:164:export function buildHandoffPacket(input: BuildHandoffInput): HandoffPacket {
-src/routing/handoff.ts:170:export function parseHandoffPacket(input: unknown): HandoffPacket {
-src/routing/handoff.ts:177:export function buildHandoffPacket(input: HandoffPacketInput): HandoffPacket {
-src/routing/handoff.ts:178:  return parseHandoffPacket(input);
-src/routing/handoff.ts:219:export function applyHandoffPacket(packet: HandoffPacket, options: ApplyHandoffOptions = {}): HandoffBrief {
+$ grep -n "HTTP_STATUS_IN_RUNTIME_ERROR" -A3 src/core/run-direct.ts
+2054:const HTTP_STATUS_IN_RUNTIME_ERROR = /\b(?:unexpected status|status code|http(?:\s+status)?)\s+(\d{3})\b/i;
+2055-
+2056-function payloadString(payload: Record<string, unknown>, key: string): string | null {
 
-$ grep -rn "clarify\|assessClarification\|partitionOnClarification" src --include=*.ts | grep -v src/routing/clarify.ts
-src/routing/index.ts:7: * when a question is worth asking (`clarify`).
-src/routing/index.ts:13:export * from './clarify.js';
+$ sed -n "268,275p" src/cli/commands/run.ts   # the dropped no-handoff note
+    });
+    result = continued.result;
+    if (continued.fallback !== null) {
+      fallbackNote = describeFallback(continued.fallback);
+      deps.reporter.info(fallbackNote);
+      if (continued.note !== null) deps.reporter.info(`  ${continued.note}`);
+    }
+  } catch (error) {
 
-$ grep -rn "chooseFallback\|recordFallback\|fallback" src/core src/cli --include=*.ts
-(no matches)
+$ grep -n "deliverableMessages" src/core/run-direct.ts   # the only two delivery points
+1232:    const inbox = bridge === null ? [] : deliverableMessages(bridge, taskId);
+1294:      for (const message of deliverableMessages(bridge, taskId)) {
+1868:function deliverableMessages(bridge: CoordinationBridge, taskId: string): ReadonlyArray<{ id: string; text: string }> {
 
-$ grep -rn "dependencies" src/cli/commands/run.ts
-src/cli/commands/run.ts:308: * the tasks, in the order they wrote them, with no invented dependencies and
-
-$ sed -n "/decomposeRequest/,/^}/p" src/cli/commands/run.ts | tail -8
-export function decomposeRequest(text: string): PlannedTaskInput[] {
-  const deliverables = extractDeliverables(text);
-  if (deliverables.length < 2) return [];
-  return deliverables.map((objective, index) => ({ key: `t${index + 1}`, objective }));
-}
-
-$ grep -n "one task at a time" -A3 -B6 src/core/run-planned.ts
-
-$ grep -rn "task_request" src --include=*.ts | grep -v src/coordination
-(no matches: nothing consumes a queued delegation request)
-
-$ grep -n "not safe" -B6 -A6 src/core/run-planned.ts   # how a dispatched batch is executed
-270-    let failedKey: string | null = null;
-271-    for (;;) {
-272-      const batch = scheduler.dispatch();
-273-      if (batch.length === 0) break;
-274-      stream.event({ type: 'schedule.dispatch', runId, tasks: batch, activeTurns: scheduler.activeTurns, activeWriters: scheduler.activeWriters });
-275-      // The scheduler's caps bound the batch. The batch is then executed one
-276:      // task at a time: `git worktree add` against one repository is not safe
-277-      // to run concurrently, so the concurrency limits bound what may be in
-278-      // flight rather than what runs at the same instant.
-279-      for (const key of batch) {
-280-        const task = byKey.get(key)!;
-281-        const result = await runTaskWithRepair({
-282-          input,
-
-$ grep -n "taskText = slot" src/core/run-direct.ts   # a planned worker sees only its extracted objective line
-946:  const taskText = slot?.objective ?? input.requestText;
+$ sed -n "1290,1304p" src/core/run-direct.ts
+    // A safe boundary after the turn: deliver anything that arrived while it
+    // ran. The adapter either submits it to a live turn or queues it and says
+    // who is holding it; either way the coordinator stops guessing.
+    if (bridge !== null && session !== null) {
+      for (const message of deliverableMessages(bridge, taskId)) {
+        try {
+          const receipt = await adapter.deliver(session, { messageId: message.id, body: message.text });
+          bridge.acknowledge(message.id);
+          messagesDelivered += 1;
+          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivered', payload: { messageId: message.id, state: receipt.state } });
+        } catch (error) {
+          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivery_failed', payload: { messageId: message.id, message: (error as Error).message } });
+        }
+      }
+    }

@@ -1,0 +1,47 @@
+{
+  "manifestVersion": 1,
+  "runId": "01a07eb4-2c42-7230-98c0-435bde2dc368",
+  "path": "planned",
+  "createdAt": "2026-09-08T01:48:52.162Z",
+  "request": {
+    "text": "Create docs/alpha.md whose first line is \"# Alpha\" and whose second line is \"Status: reviewed\".\n",
+    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/at06-request.txt",
+    "contextRefs": []
+  },
+  "base": {
+    "revision": "5c51905f57ed9fbaa0aa76cf1dbda6621f922e25",
+    "repoPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/fx-at06"
+  },
+  "accepted": false,
+  "reason": "task \"t1\" did not reach acceptance, so there was nothing to integrate",
+  "tasks": [
+    {
+      "key": "t1",
+      "taskId": "01a07eb4-2c46-76fe-ad60-9d457127f0c4",
+      "objective": "Create the file docs/alpha.md and no other file. Line 1 must be exactly \"# Alpha\". Line 2 must be exactly \"Status: reviewed\".",
+      "accepted": false,
+      "repairsUsed": 2,
+      "attempts": [
+        {
+          "attemptId": "01a07eb4-2c46-76ff-b4d5-318c70cbc07f",
+          "outcome": "failed",
+          "candidateRevision": "012b3e4bd510e2c429cd67b2ceb18c7d84be1be3"
+        },
+        {
+          "attemptId": "01a07eb4-c91d-763e-857e-f96b94507a7b",
+          "outcome": "failed",
+          "candidateRevision": "8678556cbaf70ffe7170f86617b5b9b649abcc1c"
+        },
+        {
+          "attemptId": "01a07eb5-6c8b-74b8-8db4-857925e8a25b",
+          "outcome": "failed",
+          "candidateRevision": "b15e8f5f9164bef85a971a49d7094145b57b499a"
+        }
+      ]
+    }
+  ],
+  "combination": null,
+  "review": null,
+  "reviewDecision": null,
+  "unresolved": []
+}

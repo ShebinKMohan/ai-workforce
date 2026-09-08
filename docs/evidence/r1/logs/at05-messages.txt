@@ -1,0 +1,12 @@
+# 1 message row(s)
+{"id":"01a07eb1-4610-774f-96f6-f3231d622d49","run_id":"01a07eaf-bf2a-7194-8dd1-addf26fe883e","sender_task_id":"01a07eaf-bf2d-7373-b266-e91ac434a404","sender_attempt_id":"01a07eaf-bf2e-74f1-996c-ce23dad85ab0","recipient_task_id":"01a07eaf-bf2d-7374-8c45-66b54511f0b2","correlation_id":null,"idempotency_key":"01a07eaf-bf2d-7373-b266-e91ac434a404\u0000t1-word-lantern","type":"peer_message","body_json":"{\"subject\":\"Chosen word\",\"text\":\"lantern\"}","contract_version":1,"delivery_state":"submitted","created_at":"2026-09-08T01:45:42.160Z","submitted_at":"2026-09-08T01:45:42.160Z","acknowledged_at":null}
+# task attempt start/end (UTC)
+{"task_id":"01a07eaf-bf2d-7373-b266-e91ac434a404","id":"01a07eaf-bf2e-74f1-996c-ce23dad85ab0","started_at":"2026-09-08T01:44:03.516Z","ended_at":"2026-09-08T01:46:43.301Z"}
+{"task_id":"01a07eaf-bf2d-7374-8c45-66b54511f0b2","id":"01a07eaf-bf30-748b-ad1c-44fc2d48ba52","started_at":"2026-09-08T01:44:03.523Z","ended_at":"2026-09-08T01:44:59.056Z"}
+# turn lifecycle events
+2026-09-08T01:44:03.516Z turn.started 01a07eaf-bf2d-7373-b266-e91ac434a404
+2026-09-08T01:44:03.523Z turn.started 01a07eaf-bf2d-7374-8c45-66b54511f0b2
+2026-09-08T01:44:57.715Z runtime.turn_completed 01a07eaf-bf2d-7374-8c45-66b54511f0b2
+2026-09-08T01:44:58.750Z runtime.stopped 01a07eaf-bf2d-7374-8c45-66b54511f0b2
+2026-09-08T01:46:41.950Z runtime.turn_completed 01a07eaf-bf2d-7373-b266-e91ac434a404
+2026-09-08T01:46:42.983Z runtime.stopped 01a07eaf-bf2d-7373-b266-e91ac434a404

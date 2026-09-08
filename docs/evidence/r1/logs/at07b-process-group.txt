@@ -1,0 +1,6 @@
+--- after the interrupt, checked 2026-09-08T01:55:54Z ---
+coordinator 81134 alive?
+worker child 81291 alive?
+any process in group 81291:
+any process in group 81134:
+(no rows above = no surviving process group)

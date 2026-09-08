@@ -1,0 +1,7 @@
+coordinator pid 81134 started 2026-09-08T01:55:18.3NZ
+candidate workspace observed at 2026-09-08T01:55:18.3NZ: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/ws-at07b/01a07eba-11a6-76f7-82ac-f7ba7dc8396e/01a07eba-11a6-76f8-b66e-a6d4e47b2400/01a07eba-11a6-76f9-aef6-568de5cdf782
+observed 1 of 8 note file(s) in the candidate at 2026-09-08T01:55:46.3NZ
+index.md n01.md 
+coordinator child pids before SIGINT: 81291 
+sending SIGINT to 81134 at 2026-09-08T01:55:46.3NZ
+EXIT=130

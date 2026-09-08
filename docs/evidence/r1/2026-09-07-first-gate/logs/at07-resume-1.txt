@@ -1,0 +1,4 @@
+run 01a07d16-c328-76d3-ada4-97071a5a7c19: running (ownership epoch 1)
+reconciled 1 attempt, 0 open operations
+  replace 01a07d16-c328-76d5-af12-389c5b966bfe (task 01a07d16-c328-76d4-b7ed-67224bf2ecb3, gen 1 -> 2 as 01a07d18-5d43-73da-914e-dbb5ef29e6ab) — the recorded worker process 75515 is gone; session 01a07d16-c77e-7d41-9baf-b7f3c6ab9773 cannot be rejoined, so a new generation may take over
+state reconciled under this coordinator; execution continuation is not wired in this build

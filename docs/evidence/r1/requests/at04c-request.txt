@@ -1,0 +1,7 @@
+Create the file docs/handoff.md in the repository, and no other file.
+Line 1 must be exactly: # Handoff
+Line 2 must be exactly: Continued after: <CLASS> failure on <RUNTIME>
+where <CLASS> and <RUNTIME> are the failure class and the runtime id of the previous attempt
+exactly as they are stated in the "Findings from the previous attempt" section you were given.
+If you were given no such section, line 2 must be exactly: Continued after: none
+Do not guess: use only what your own briefing states.

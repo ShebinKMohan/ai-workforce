@@ -1,0 +1,5 @@
+# attempts after the interrupt, the resume and a second resume
+{"id":"01a07eba-11a6-76f9-aef6-568de5cdf782","generation":1,"state":"superseded","interrupted":1,"outcome_json":"{\"turnConclusion\":\"interrupted\",\"interrupted\":true}"}
+{"id":"01a07eba-b1bf-73da-9ef1-74f6e53dbad3","generation":2,"state":"completed","interrupted":0,"outcome_json":"{\"turnConclusion\":\"completed\",\"claimedDone\":true,\"changedFiles\":8}"}
++ workforce/01a07eba-11a6-76f7-82ac-f7ba7dc8396e/01a07eba-11a6-76f8-b66e-a6d4e47b2400/01a07eba-11a6-76f9-aef6-568de5cdf782
++ workforce/01a07eba-11a6-76f7-82ac-f7ba7dc8396e/01a07eba-11a6-76f8-b66e-a6d4e47b2400/01a07eba-b1bf-73da-9ef1-74f6e53dbad3

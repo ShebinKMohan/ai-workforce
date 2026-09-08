@@ -1,0 +1,9 @@
+### state-at04a
+runtime.failure_classified {"failureClass":"unknown","retryable":false,"signal":"none","userAction":null}
+### state-at04b
+runtime.failure_classified {"failureClass":"authentication","retryable":false,"signal":"HTTP 401","userAction":"the runtime is signed out or its stored credential expired; re-authenticate that runtime yourself (for example \"codex login\" or \"claude /login\") and run again — no retry can fix it"}
+runtime.fallback_selected {"fromRuntimeId":"codex-local","fromAdapter":"codex","toRuntimeId":"claude-local","toAdapter":"claude-code","failureClass":"authentication","reason":"claude-local (claude-code) is configured, verified ready and permitted by the \"local-development\" profile","refused":["codex-local: this is the runtime whose attempt failed"],"handoffCandidateRevision":null,"usageCostStatus":null}
+runtime.failure_classified {"failureClass":"authentication","retryable":false,"signal":"runtime tag \"authentication_failed\"","userAction":"the runtime is signed out or its stored credential expired; re-authenticate that runtime yourself (for example \"codex login\" or \"claude /login\") and run again — no retry can fix it"}
+### state-at04c
+runtime.failure_classified {"failureClass":"authentication","retryable":false,"signal":"runtime tag \"authentication_failed\"","userAction":"the runtime is signed out or its stored credential expired; re-authenticate that runtime yourself (for example \"codex login\" or \"claude /login\") and run again — no retry can fix it"}
+runtime.fallback_selected {"fromRuntimeId":"claude-local","fromAdapter":"claude-code","toRuntimeId":"codex-local","toAdapter":"codex","failureClass":"authentication","reason":"codex-local (codex) is configured, verified ready and permitted by the \"local-development\" profile","refused":[],"handoffCandidateRevision":null,"usageCostStatus":null}

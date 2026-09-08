@@ -1,0 +1,63 @@
+route: direct — the operator asked for the direct route
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a07eab-b124-7278-be08-622856f8c1a2
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/fx-at04b @ 5c51905f57ed (main)
+agent engineer-codex via codex-local (codex)
+write boundary: codex reports write_containment "verified"
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/ws-at04b/01a07eab-b124-7278-be08-622856f8c1a2/01a07eab-b124-7279-805f-5d6742fb0ef1/01a07eab-b124-727a-a739-58c49939a9b3 on branch workforce/01a07eab-b124-7278-be08-622856f8c1a2/01a07eab-b124-7279-805f-5d6742fb0ef1/01a07eab-b124-727a-a739-58c49939a9b3
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a07eab-79809ab1.sock
+  runtime session 01a07eab-b29c-7f53-9c78-673425b97f16 started
+  turn started
+  runtime error: {"fatal":false,"message":"Reconnecting... 2/5","errorClass":"unknown","willRetry":true}
+  runtime error: {"fatal":false,"message":"Reconnecting... 3/5","errorClass":"unknown","willRetry":true}
+  runtime error: {"fatal":false,"message":"Reconnecting... 4/5","errorClass":"unknown","willRetry":true}
+  runtime error: {"fatal":false,"message":"Reconnecting... 5/5","errorClass":"unknown","willRetry":true}
+  runtime error: {"fatal":false,"message":"Reconnecting... 1/5","errorClass":"unknown","willRetry":true}
+  runtime error: {"fatal":false,"message":"Reconnecting... 2/5","errorClass":"unknown","willRetry":true}
+  runtime error: {"fatal":false,"message":"Reconnecting... 3/5","errorClass":"unknown","willRetry":true}
+  runtime error: {"fatal":false,"message":"Reconnecting... 4/5","errorClass":"unknown","willRetry":true}
+  runtime error: {"fatal":false,"message":"Reconnecting... 5/5","errorClass":"unknown","willRetry":true}
+  runtime error: {"fatal":false,"message":"unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ra…
+  turn completed
+  (9 further runtime event(s) kept verbatim as evidence, not shown here)
+worker stopped: process_tree_terminated
+candidate is identical to the base 5c51905f57ed: the worker changed nothing
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 43ms
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/state-at04b/runs/01a07eab-b124-7278-be08-622856f8c1a2/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+not accepted: the runtime's own terminal record says the turn failed (status "failed", error class "unknown", error "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses, cf-ray: a37a3e1b3f54dc0a-MAA, request id: req_e17ee0d4f51e4b939281af7ea5fea8e8"); a candidate produced by a failed turn is not accepted, whatever the checks report; the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done
+WARNING: no enforced write boundary — the claude-code adapter reports write_containment "unsupported" for 2.1.260 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a07eab-b124-7278-be08-622856f8c1a2
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/fx-at04b @ 5c51905f57ed (main)
+agent engineer-claude via claude-local (claude-code)
+write boundary: claude-code reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/ws-at04b/01a07eab-b124-7278-be08-622856f8c1a2/01a07eab-b124-7279-805f-5d6742fb0ef1/01a07eac-0f38-7570-b2ed-4d9dfab14ad5 on branch workforce/01a07eab-b124-7278-be08-622856f8c1a2/01a07eab-b124-7279-805f-5d6742fb0ef1/01a07eac-0f38-7570-b2ed-4d9dfab14ad5
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a07eab-02235ff9.sock
+  runtime session 01a07eac-0ff5-75d8-9b45-2b5207dda6f9 started
+  turn started
+  runtime error: {"fatal":false,"message":"Failed to authenticate: OAuth session expired and could not be refreshed","errorClass":"authentication","runtimeError":"authenticatio…
+  turn completed
+  note: requested model "sonnet" but the runtime reports "claude-sonnet-5" ran
+  (2 further runtime event(s) kept verbatim as evidence, not shown here)
+worker stopped: process_tree_terminated (process group 75386 is empty after stdin close)
+candidate is identical to the base 5c51905f57ed: the worker changed nothing
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 42ms
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/state-at04b/runs/01a07eab-b124-7278-be08-622856f8c1a2/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+not accepted: the runtime's own terminal record says the turn failed (subtype "success", terminal reason "api_error", error class "authentication", result text "Failed to authenticate: OAuth session expired and could not be refreshed"); a candidate produced by a failed turn is not accepted, whatever the checks report; the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done
+runtime fallback: codex-local (codex) -> claude-local (claude-code) after a authentication failure
+run 01a07eab-b124-7278-be08-622856f8c1a2: failed
+task 01a07eab-b124-7279-805f-5d6742fb0ef1: failed
+  PASS check-1: passed (exit 0, 42ms)
+evidence and manifest: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/state-at04b/runs/01a07eab-b124-7278-be08-622856f8c1a2
+unresolved:
+  - this run had no enforced write boundary: the claude-code adapter reports write_containment "unsupported" for 2.1.260 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process It was allowed by an explicit --allow-unconfined-writes, so acceptance here means the configured criteria passed, not that the worker's effects were confined
+  - the runtime ended the turn reporting that it failed (subtype "success", terminal reason "api_error", error class "authentication", result text "Failed to authenticate: OAuth session expired and could not be refreshed"); the candidate contains only what the worker had written by then
+  - the worker produced no change to the repository
+EXIT=4

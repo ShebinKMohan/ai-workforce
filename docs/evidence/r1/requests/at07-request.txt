@@ -1,0 +1,8 @@
+Create eight markdown files in the repository: docs/n01.md, docs/n02.md, docs/n03.md, docs/n04.md,
+docs/n05.md, docs/n06.md, docs/n07.md and docs/n08.md.
+Create them strictly one at a time, in that order, and write each file completely before you start
+the next one. Each file must have exactly three lines:
+line 1 the markdown title "# Note NN" for its own number NN,
+line 2 the line "Status: reviewed",
+line 3 one short sentence of your own about note NN.
+Do not create any other file and do not create them in a single batch.

@@ -1,0 +1,45 @@
+diff --git a/docs/n01.md b/docs/n01.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..d92b31d27f6511e7faccbccbaa41248a39838784
+--- /dev/null
++++ b/docs/n01.md
+@@ -0,0 +1,3 @@
++# N01
++
++This section introduces the first topic and establishes its purpose. It outlines the central idea in clear and practical terms. Readers can use it as a foundation for the sections that follow. The concise overview also highlights why the topic deserves attention.
+diff --git a/docs/n02.md b/docs/n02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..f7d930af251158265624d237da7a75ab3eba6b7f
+--- /dev/null
++++ b/docs/n02.md
+@@ -0,0 +1,3 @@
++# N02
++
++This section develops the second topic with additional context. It connects the initial concepts to a more focused area of discussion. Each point is presented so that readers can follow the progression easily. The section also prepares readers for the details introduced later.
+diff --git a/docs/n03.md b/docs/n03.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..90f27131fa77509d69ebb23a331ed92c84f16909
+--- /dev/null
++++ b/docs/n03.md
+@@ -0,0 +1,3 @@
++# N03
++
++This section examines the third topic from a practical perspective. It identifies the main considerations that shape the subject. The explanation emphasizes clarity, consistency, and useful outcomes. Readers should finish with a stronger understanding of how the ideas apply.
+diff --git a/docs/n04.md b/docs/n04.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..b1db3b99db84a65fd1f218f39611f8fe1a8053de
+--- /dev/null
++++ b/docs/n04.md
+@@ -0,0 +1,3 @@
++# N04
++
++This section describes the fourth topic and its role in the broader sequence. It brings together relevant ideas without assuming specialized knowledge. The discussion offers a straightforward path through the important details. It also marks the midpoint of the document set with a clear summary.
+diff --git a/docs/n05.md b/docs/n05.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..e8950db03ab34125eb167d08084c86c2a4d06e10
+--- /dev/null
++++ b/docs/n05.md
+@@ -0,0 +1,3 @@
++# N05
++
++This section presents the fifth topic as a distinct stage of the discussion. It explains the subject through a small set of related observations. The paragraph keeps the focus on information that readers can readily understand. Its conclusions provide a useful bridge to the remaining sections.
