@@ -307,7 +307,20 @@ describe('the direct path produces a verified candidate (FR019, FR020, FR041, FR
   it('stops the worker, preserves the work and reports an interruption on abort (FR039)', async () => {
     const h = await harness();
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 700);
+    // Interrupt once the worker has provably made its edit, not after a guessed
+    // delay. Under load `git worktree add` can still be running at 700ms, and
+    // aborting then kills that git child instead of the worker: the run dies
+    // with a GitError and never reaches the interruption this test is about.
+    // Waiting for the change also guarantees there is work to preserve, which
+    // is what the checkpoint assertion below depends on.
+    void (async () => {
+      const deadline = Date.now() + 20_000;
+      const edited = (): boolean => h.lines.some((line) => line.includes('changed') && line.includes('pagination.js'));
+      while (Date.now() < deadline && !edited()) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      controller.abort();
+    })();
 
     const result = await h.run(longRunningScenario(30_000), { signal: controller.signal });
 
@@ -330,7 +343,7 @@ describe('the direct path produces a verified candidate (FR019, FR020, FR041, FR
       expect(types).toContain('run.interrupted');
       expect(types).not.toContain('run.accepted');
     });
-  });
+  }, 60_000);
 
   it('runs the Python fixture through detected checks and accepts the fix', async () => {
     const h = await harness('py-bug');
