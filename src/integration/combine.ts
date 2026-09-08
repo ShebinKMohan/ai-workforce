@@ -818,10 +818,7 @@ async function measureCombinedSurface(
 
   const surface = await resolveAcceptanceSurface(checks, baseFiles, { packageManifest, readBaseFile });
   const findings = findSurfaceChanges(surface, changes);
-  // What the walk could not settle. A partial surface is a partial comparison,
-  // so it refuses the combination rather than being noted beside an
-  // "accepted" — the single-task path draws the line in the same place.
-  // Two kinds of incompleteness, reported apart because they lead to opposite
+  // What the walk could not settle, in two kinds, reported apart because they lead to opposite
   // decisions. A gap refuses the combination below; a limitation says this
   // walk has no dependency analysis for the criterion's language at all, which
   // must not make an entire Go or Rust repository uncombinable.
