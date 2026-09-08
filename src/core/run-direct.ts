@@ -71,7 +71,7 @@ import {
 } from '../workspaces/candidate.js';
 import { git } from '../workspaces/git.js';
 import { describeDirty, inspectProject, registerProject, type ProjectInspection } from '../workspaces/project.js';
-import { classifyFailure, type FailureClassification } from '../recovery/classify.js';
+import { classifyFailure, type FailureClassification, type ObservedFailure } from '../recovery/classify.js';
 import {
   decideAcceptance,
   persistCheckReceipts,
@@ -1798,14 +1798,19 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // stopped on an expired credential or an exhausted quota is a different
   // thing from one whose code failed, and only the classification lets a
   // coordinator decide whether handing the work to another runtime is honest.
+  // The signals are the adapter's own machine-readable ones, so the tag table,
+  // the HTTP-status rules, the errno rules and the Claude Code subtype rule
+  // are live here rather than the class being re-derived from prose.
   const failure: FailureClassification | null = acceptance.accepted
     ? null
-    : classifyFailure({
-        source: 'runtime',
-        adapter: adapter.id,
-        ...(evidence?.turnFailure !== undefined && evidence.turnFailure !== null ? { message: evidence.turnFailure } : {}),
-        ...(turnConclusion === 'runtime_exited' ? { message: `the runtime process ended before the turn completed (${describeExit(runtimeEvents)})` } : {}),
-      });
+    : classifyFailure(
+        observeRuntimeFailure({
+          adapter: adapter.id,
+          events: runtimeEvents,
+          turnFailure: evidence?.turnFailure ?? null,
+          runtimeExited: turnConclusion === 'runtime_exited',
+        }),
+      );
   if (failure !== null) {
     appendEvent(db, {
       runId,
@@ -2004,6 +2009,152 @@ export function previewPatch(patch: string, maxLines = MAX_PATCH_PREVIEW_LINES):
 function truncateLine(text: string, max = 160): string {
   const single = text.replace(/\s+/g, ' ').trim();
   return single.length <= max ? single : `${single.slice(0, max - 1)}…`;
+}
+
+// ---------------------------------------------------------------------------
+// The runtime's machine-readable failure signals (FR053)
+// ---------------------------------------------------------------------------
+
+/**
+ * What an adapter already recorded about *why* a turn failed, in the shape
+ * `classifyFailure` reads.
+ *
+ * Every field below is lifted from a payload key an adapter really writes; not
+ * one of them is inferred from the worker's prose. Without this the only thing
+ * that reached the classifier was a rendered sentence, so the tag table, the
+ * HTTP-status rules, the errno rules and the Claude Code subtype rule were all
+ * dead on the run path and a real failure was classified `unknown`.
+ */
+export interface StructuredFailureSignals {
+  /** Runtime error tag, or the coarse class the adapter derived from it (`errorClass`). */
+  readonly errorTag: string | null;
+  readonly httpStatus: number | null;
+  readonly subtype: string | null;
+  readonly terminalReason: string | null;
+  /** Node/libuv style code, when the runtime reported one. */
+  readonly code: string | null;
+  readonly exitCode: number | null;
+  readonly signal: string | null;
+  readonly isError: boolean | null;
+}
+
+/** Payload keys carrying a raw runtime tag: Codex `errorTag`, Claude Code `runtimeError` (the CLI's own `error` value). */
+const RUNTIME_TAG_KEYS = ['errorTag', 'runtimeError'] as const;
+
+/** errno shape, so a runtime's free-form `code` ("delete_failed") is never read as a libuv code. */
+const ERRNO_SHAPE = /^[A-Z][A-Z0-9_]{2,}$/;
+
+/**
+ * An HTTP status the runtime stated in its own transport error. Codex 0.147.0
+ * reports transport failures as `unexpected status 401 Unauthorized: …` and
+ * carries the number nowhere else (see
+ * docs/evidence/at03/2026-09-07-codex-signed-out/events-codex.jsonl), so this
+ * is the status as the runtime reported it, not a guess about the message.
+ */
+const HTTP_STATUS_IN_RUNTIME_ERROR = /\b(?:unexpected status|status code|http(?:\s+status)?)\s+(\d{3})\b/i;
+
+function payloadString(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function payloadNumber(payload: Record<string, unknown>, key: string): number | null {
+  const value = payload[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/** A tag worth classifying. `unknown` is not one: it means the adapter could not classify it either. */
+function usableTag(value: string | null): string | null {
+  return value === null || value === 'unknown' ? null : value;
+}
+
+function statusFromRuntimeError(text: string | null): number | null {
+  if (text === null) return null;
+  const match = HTTP_STATUS_IN_RUNTIME_ERROR.exec(text);
+  if (match?.[1] === undefined) return null;
+  const status = Number.parseInt(match[1], 10);
+  return status >= 100 && status <= 599 ? status : null;
+}
+
+export function structuredFailureSignals(events: ReadonlyArray<RuntimeEvent>): StructuredFailureSignals {
+  let tag: string | null = null;
+  let coarseClass: string | null = null;
+  let httpStatus: number | null = null;
+  let subtype: string | null = null;
+  let terminalReason: string | null = null;
+  let code: string | null = null;
+  let exitCode: number | null = null;
+  let signal: string | null = null;
+  let isError: boolean | null = null;
+
+  const readShared = (payload: Record<string, unknown>): void => {
+    for (const key of RUNTIME_TAG_KEYS) tag ??= usableTag(payloadString(payload, key));
+    coarseClass ??= usableTag(payloadString(payload, 'errorClass'));
+    httpStatus ??= payloadNumber(payload, 'httpStatus');
+    const errno = payloadString(payload, 'code') ?? payloadString(payload, 'errno');
+    if (errno !== null && ERRNO_SHAPE.test(errno)) code ??= errno;
+  };
+
+  for (const event of events) {
+    const payload = event.payload;
+    if (event.kind === 'turn_completed' || event.kind === 'turn_interrupted') {
+      readShared(payload);
+      subtype ??= payloadString(payload, 'subtype');
+      terminalReason ??= payloadString(payload, 'terminalReason');
+      if (typeof payload['isError'] === 'boolean') isError ??= payload['isError'];
+      httpStatus ??= statusFromRuntimeError(payloadString(payload, 'error') ?? payloadString(payload, 'resultText'));
+      continue;
+    }
+    if (event.kind !== 'error') continue;
+    readShared(payload);
+    if (payload['fatal'] === true) {
+      exitCode ??= payloadNumber(payload, 'exitCode');
+      signal ??= payloadString(payload, 'signal');
+    }
+    httpStatus ??= statusFromRuntimeError(payloadString(payload, 'message'));
+  }
+
+  // The raw runtime tag first, the adapter's own coarse class second: both are
+  // machine-readable, and the more specific one decides when it exists.
+  return { errorTag: tag ?? coarseClass, httpStatus, subtype, terminalReason, code, exitCode, signal, isError };
+}
+
+/**
+ * Everything observed about a failed turn, in the shape the classifier reads.
+ *
+ * The two message facts are joined rather than assigned to the same key: the
+ * runtime's own statement that the turn failed and the separate fact that its
+ * process ended first are different observations, and while both were written
+ * to `message` the second silently replaced the first.
+ */
+export function observeRuntimeFailure(input: {
+  readonly adapter: string;
+  readonly events: ReadonlyArray<RuntimeEvent>;
+  /** The runtime's own words about the turn it ended, from `TurnEvidence.turnFailure`. */
+  readonly turnFailure: string | null;
+  /** True when the runtime process ended before the turn completed. */
+  readonly runtimeExited: boolean;
+}): ObservedFailure {
+  const signals = structuredFailureSignals(input.events);
+  const message = [
+    input.turnFailure,
+    input.runtimeExited ? `the runtime process ended before the turn completed (${describeExit(input.events)})` : null,
+  ]
+    .filter((part): part is string => part !== null && part.length > 0)
+    .join('; ');
+  return {
+    source: 'runtime',
+    adapter: input.adapter,
+    ...(message.length > 0 ? { message } : {}),
+    ...(signals.errorTag !== null ? { errorTag: signals.errorTag } : {}),
+    ...(signals.httpStatus !== null ? { httpStatus: signals.httpStatus } : {}),
+    ...(signals.subtype !== null ? { subtype: signals.subtype } : {}),
+    ...(signals.terminalReason !== null ? { terminalReason: signals.terminalReason } : {}),
+    ...(signals.code !== null ? { code: signals.code } : {}),
+    ...(signals.exitCode !== null ? { exitCode: signals.exitCode } : {}),
+    ...(signals.signal !== null ? { signal: signals.signal } : {}),
+    ...(signals.isError !== null ? { isError: signals.isError } : {}),
+  };
 }
 
 function describeExit(events: ReadonlyArray<RuntimeEvent>): string {

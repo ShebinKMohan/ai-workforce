@@ -343,3 +343,172 @@ describe('the planned repair loop', () => {
     expect(maxLive).toBeGreaterThan(1);
   });
 });
+
+/**
+ * AT09: "one fast prerequisite releases its dependent task while an unrelated
+ * slow worker continues, when an active-turn slot is available."
+ *
+ * The property is about *when* the dependent starts, so the test measures it
+ * rather than inferring it from the final order. `slow` holds its turn open
+ * until `dependent` has started; an orchestrator that joins on the whole
+ * dispatched batch before recording any completion cannot release `dependent`
+ * until `slow` has finished, so the gate below falls through to its timeout
+ * and the recorded timestamps fail the assertion instead of hanging.
+ */
+describe('AT09: dependency release is per task, not per batch', () => {
+  type Key = 'fast' | 'dependent' | 'slow';
+
+  const OBJECTIVES: Readonly<Record<Key, string>> = {
+    fast: 'AT09-FAST: the quick prerequisite.',
+    dependent: 'AT09-DEPENDENT: the task that waits for the quick prerequisite.',
+    slow: 'AT09-SLOW: an unrelated task that takes much longer than the other two.',
+  };
+
+  /** How long the gate waits before giving up, so a regression fails rather than hanging the suite. */
+  const GATE_TIMEOUT_MS = 20_000;
+
+  it('starts the dependent while the unrelated slow task is still running, within the scheduler caps', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-at09-'), 'state');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-at09-config-'));
+    const loaded = loadAgentConfigFile(configPath);
+    const paths = createStatePaths(stateDir);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    registerCleanup(() => store.close());
+
+    // Three distinct deliverables so the artifacts really combine. Which
+    // scenario a worker gets does not matter — the task is identified from its
+    // own prompt below, which always begins with its objective.
+    const scenarios = [
+      writeScenario(addFileScenario('docs/at09-a.md', '# A\n')),
+      writeScenario(addFileScenario('docs/at09-b.md', '# B\n')),
+      writeScenario(addFileScenario('docs/at09-c.md', '# C\n')),
+    ];
+    let made = 0;
+
+    const marks: Array<{ readonly key: Key; readonly phase: 'start' | 'end'; readonly at: number }> = [];
+    let liveNow = 0;
+    let maxLive = 0;
+    let releaseSlow = (): void => {};
+    const dependentStarted = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+
+    const keyOf = (prompt: string): Key => {
+      const found = (Object.keys(OBJECTIVES) as Key[]).find((key) => prompt.startsWith(OBJECTIVES[key]));
+      if (found === undefined) throw new Error(`no AT09 task owns this prompt: ${JSON.stringify(prompt.slice(0, 120))}`);
+      return found;
+    };
+
+    // Every `schedule.dispatch` the run emits, so the caps are read from the
+    // scheduler's own numbers and not only from observed overlap.
+    const dispatches: Array<{ tasks: ReadonlyArray<string>; activeTurns: number; activeWriters: number }> = [];
+
+    const result = await runPlanned({
+      repoPath: fixture.path,
+      config: loaded.config,
+      configRaw: loaded.raw,
+      configPath: loaded.path,
+      requestText: 'Three tasks: one quick, one that depends on it, and one unrelated and slow.',
+      requestSource: 'test',
+      tasks: [
+        { key: 'fast', objective: OBJECTIVES.fast },
+        { key: 'dependent', objective: OBJECTIVES.dependent, dependencies: ['fast'] },
+        { key: 'slow', objective: OBJECTIVES.slow },
+      ],
+      checkFlags: ['node --version'],
+      paths,
+      db: store.db,
+      stream: {
+        line: () => {},
+        event: (record) => {
+          if (record.type !== 'schedule.dispatch') return;
+          dispatches.push({
+            tasks: record['tasks'] as ReadonlyArray<string>,
+            activeTurns: record['activeTurns'] as number,
+            activeWriters: record['activeWriters'] as number,
+          });
+        },
+      },
+      adapterFactory: () => {
+        const adapter = new FakeAdapter({ scenarioPath: scenarios[Math.min(made, scenarios.length - 1)]! });
+        made += 1;
+        const startTurn = adapter.startTurn.bind(adapter);
+        const events = adapter.events.bind(adapter);
+        let key: Key | null = null;
+        Object.defineProperty(adapter, 'startTurn', {
+          value: async (session: Parameters<typeof startTurn>[0], input: Parameters<typeof startTurn>[1]) => {
+            key = keyOf(input.prompt);
+            return startTurn(session, input);
+          },
+        });
+        Object.defineProperty(adapter, 'events', {
+          value: (turn: Parameters<typeof events>[0]) => {
+            const inner = events(turn);
+            return {
+              async *[Symbol.asyncIterator]() {
+                const mine = key;
+                if (mine === null) throw new Error('the turn started without a recognised AT09 objective');
+                marks.push({ key: mine, phase: 'start', at: Date.now() });
+                liveNow += 1;
+                maxLive = Math.max(maxLive, liveNow);
+                try {
+                  if (mine === 'dependent') releaseSlow();
+                  if (mine === 'slow') {
+                    let timer: NodeJS.Timeout | undefined;
+                    await Promise.race([
+                      dependentStarted,
+                      new Promise<void>((resolve) => {
+                        timer = setTimeout(resolve, GATE_TIMEOUT_MS);
+                      }),
+                    ]);
+                    if (timer !== undefined) clearTimeout(timer);
+                  }
+                  for await (const event of inner) yield event;
+                } finally {
+                  liveNow -= 1;
+                  marks.push({ key: mine, phase: 'end', at: Date.now() });
+                }
+              },
+            };
+          },
+        });
+        return adapter;
+      },
+    });
+
+    const mark = (key: Key, phase: 'start' | 'end'): number => {
+      const found = marks.find((entry) => entry.key === key && entry.phase === phase);
+      if (found === undefined) throw new Error(`task "${key}" never reached "${phase}"; marks: ${JSON.stringify(marks)}`);
+      return found.at;
+    };
+
+    // All three tasks ran, exactly once each.
+    expect(marks.filter((entry) => entry.phase === 'start').map((entry) => entry.key).sort()).toEqual(['dependent', 'fast', 'slow']);
+
+    // The dependency was honoured: the dependent did not start before its
+    // prerequisite finished.
+    expect(mark('dependent', 'start')).toBeGreaterThanOrEqual(mark('fast', 'end'));
+
+    // AT09 itself: it started while the unrelated slow task was still running.
+    expect(mark('dependent', 'start')).toBeLessThan(mark('slow', 'end'));
+    expect(mark('slow', 'start')).toBeLessThan(mark('dependent', 'start'));
+
+    // …and the release did not come from ignoring the caps. maxActiveTurns and
+    // maxActiveWriters are both 2 in the fake configuration.
+    expect(maxLive).toBeLessThanOrEqual(2);
+    expect(dispatches.length).toBeGreaterThan(1);
+    for (const dispatch of dispatches) {
+      expect(dispatch.activeTurns).toBeLessThanOrEqual(2);
+      expect(dispatch.activeWriters).toBeLessThanOrEqual(2);
+    }
+    // The dependent was started by a dispatch of its own, after the first one.
+    expect(dispatches[0]?.tasks).toEqual(['fast', 'slow']);
+    expect(dispatches.some((dispatch) => dispatch.tasks.includes('dependent'))).toBe(true);
+
+    // The run still finished honestly: three accepted tasks, one combination.
+    expect(result.tasks.map((task) => task.accepted)).toEqual([true, true, true]);
+    expect(result.combination?.status).toBe('combined');
+    expect(result.accepted).toBe(true);
+  }, 180_000);
+});
