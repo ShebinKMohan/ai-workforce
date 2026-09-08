@@ -297,6 +297,68 @@ describe('the combined acceptance surface follows the module graph', () => {
     expect(combined.surfaceGaps).toEqual([]);
   });
 
+  it('refuses a combination whose acceptance surface it could not establish, however green the checks are', async () => {
+    // A specifier read from the environment can load anything, so nothing
+    // static bounds what this criterion executes. The single-task path refuses
+    // on that; the combined one has to draw the line in the same place, or the
+    // multi-task route is the cheaper way past the gate.
+    const repo = await makeRepo({
+      'package.json': MANIFEST,
+      'verify/run.js': ["const { expectEqual } = await import(process.env.HELPER ?? './expect.js');", "const { total } = await import('../src/total.js');", '', "expectEqual(total([1200, 340, 75]), 1615, 'every line item is billed');", ''].join('\n'),
+      'verify/expect.js': HELPER,
+      'src/total.js': BUGGY_TOTAL,
+    });
+    const fix = await makeArtifact(repo, { artifactId: 'art-a', taskId: 'task-a', edits: { 'src/total.js': FIXED_TOTAL } });
+    const other = await makeArtifact(repo, { artifactId: 'art-b', taskId: 'task-b', edits: { 'README.md': 'notes\n' } });
+
+    const result = await combineArtifacts({
+      runId: 'run-surface-gap',
+      projectRoot: repo.root,
+      baseRevision: repo.head,
+      artifacts: [fix, other],
+      integrationRoot: tempDir('wf-wp08-int-'),
+      checkOutputRoot: tempDir('wf-wp08-checks-'),
+      checks: CHECKS,
+    });
+
+    const combined = result as Extract<CombineResult, { status: 'combined' }>;
+    expect(combined.receipts[0]!.outcome).toBe('passed');
+    expect(combined.acceptance.accepted).toBe(false);
+    expect(combined.acceptance.reason).toContain('the acceptance surface for criterion "acceptance-suite-passes" could not be fully resolved');
+    expect(combined.surfaceGaps.join(' ')).toContain('loads a computed specifier');
+  });
+
+  it('refuses a combination that guts a helper behind a shell entry point', async () => {
+    // `sh verify/check.sh` contributed nothing to the module graph, so the
+    // helper the suite asserts through was outside the comparison entirely.
+    const repo = await makeRepo({
+      'package.json': MANIFEST,
+      'verify/check.sh': '#!/bin/sh\nexec node verify/run.js\n',
+      'verify/run.js': SUITE,
+      'verify/expect.js': HELPER,
+      'src/total.js': BUGGY_TOTAL,
+    });
+    const attack = await makeArtifact(repo, { artifactId: 'art-a', taskId: 'task-a', edits: { 'verify/expect.js': 'export function expectEqual() {}\n' } });
+    const other = await makeArtifact(repo, { artifactId: 'art-b', taskId: 'task-b', edits: { 'README.md': 'notes\n' } });
+
+    const result = await combineArtifacts({
+      runId: 'run-surface-shell',
+      projectRoot: repo.root,
+      baseRevision: repo.head,
+      artifacts: [attack, other],
+      integrationRoot: tempDir('wf-wp08-int-'),
+      checkOutputRoot: tempDir('wf-wp08-checks-'),
+      checks: [{ criterionId: 'acceptance-suite-passes', command: 'sh', args: ['verify/check.sh'] }],
+    });
+
+    const combined = result as Extract<CombineResult, { status: 'combined' }>;
+    expect(combined.receipts[0]!.outcome).toBe('passed');
+    expect(combined.acceptance.accepted).toBe(false);
+    expect(combined.acceptance.reason).toContain('verify/expect.js');
+    // Resolved, not merely blocked: the script was followed to its runner.
+    expect(combined.surfaceGaps).toEqual([]);
+  });
+
   it('still accepts a combination that fixes the code the same suite imports', async () => {
     const repo = await helperRepo();
     const fix = await makeArtifact(repo, { artifactId: 'art-a', taskId: 'task-a', edits: { 'src/total.js': FIXED_TOTAL } });

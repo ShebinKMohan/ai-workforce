@@ -27,7 +27,7 @@ import { nowIso, randomToken } from '../core/ids.js';
 import { sha256Hex } from '../core/snapshot.js';
 import { COORDINATOR_IDENTITY, git, gitOrThrow, gitText, resolveRevision } from '../workspaces/git.js';
 import { EVIDENCE_PROVENANCE, runChecks as defaultRunChecks, type CheckReceipt, type CheckSpec, type FixtureMutation, type RunChecksInput } from '../verification/checks.js';
-import { findSurfaceChanges, resolveAcceptanceSurface } from '../verification/surface.js';
+import { findSurfaceChanges, resolveAcceptanceSurface, surfaceBlockers } from '../verification/surface.js';
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -574,8 +574,9 @@ export interface CombineSucceeded {
    * What resolving the acceptance surface from the base revision could not
    * settle. Empty means the import graph was followed to completion; a
    * non-empty entry means the fixture comparison above covered less than the
-   * criteria actually execute. Recorded rather than blocking, so the gap is
-   * visible instead of silent.
+   * criteria actually execute, and `acceptance` refuses for exactly that
+   * reason — a comparison that missed files cannot say the combination left
+   * them alone.
    */
   readonly surfaceGaps: ReadonlyArray<string>;
   readonly combinedAt: string;
@@ -694,13 +695,14 @@ async function combineOnce(input: CombineInput): Promise<CombineResult> {
       requiredCriteria: input.checks.map((check) => ({ id: check.criterionId, required: check.required ?? true })),
       receipts: [...branchReceipts, ...receipts],
       fixtureMutations: surfaceFindings.mutations,
-      ...(surfaceFindings.definitionChanges.length > 0
-        ? {
-            blockers: [
+      blockers: [
+        ...(surfaceFindings.definitionChanges.length > 0
+          ? [
               `the combination changed the acceptance definition (${surfaceFindings.definitionChanges.join(', ')}); this run read its criteria from the base revision, so the change cannot have been assessed here`,
-            ],
-          }
-        : {}),
+            ]
+          : []),
+        ...surfaceFindings.blockers,
+      ],
     });
 
     if (input.keepWorkspace !== true) await disposeWorkspace(projectRoot, integrationRoot, workspacePath, branch, false);
@@ -752,16 +754,31 @@ function firstRejectedFile(stderr: string): string | null {
  * covers the same files. Resolving it any other way would leave the multi-task
  * path accepting a combination that gutted a helper the suite asserts through
  * while the single-task path refused it.
+ *
+ * And what it could not resolve blocks here too. Every failure below returns
+ * a blocker rather than an empty surface: a combination measured against
+ * nothing is not a combination that was measured, and "we could not read the
+ * base tree" must never come out looking like "nothing was changed".
  */
 async function measureCombinedSurface(
   workspacePath: string,
   baseRevision: string,
   combinedRevision: string,
   checks: ReadonlyArray<CheckSpec>,
-): Promise<{ mutations: ReadonlyArray<FixtureMutation>; definitionChanges: ReadonlyArray<string>; surfaceGaps: ReadonlyArray<string> }> {
-  const empty = { mutations: [], definitionChanges: [], surfaceGaps: [] };
+): Promise<{
+  mutations: ReadonlyArray<FixtureMutation>;
+  definitionChanges: ReadonlyArray<string>;
+  surfaceGaps: ReadonlyArray<string>;
+  blockers: ReadonlyArray<string>;
+}> {
+  const unmeasured = (detail: string): { mutations: []; definitionChanges: []; surfaceGaps: string[]; blockers: string[] } => ({
+    mutations: [],
+    definitionChanges: [],
+    surfaceGaps: [detail],
+    blockers: [`the combined candidate's acceptance surface could not be measured at all: ${detail}. Without it a pass on the combination establishes nothing about the criteria the base revision defined`],
+  });
   const listing = await git(['ls-tree', '-r', '--name-only', '-z', baseRevision], { cwd: workspacePath, maxOutputBytes: 8 * 1024 * 1024 });
-  if (!listing.ok) return empty;
+  if (!listing.ok) return unmeasured(`the file list of base revision ${baseRevision} could not be read (${listing.stderr.trim().split('\n')[0] ?? 'git ls-tree failed'})`);
   const baseFiles = listing.stdout.split('\0').filter((name) => name.length > 0);
 
   // Read a base-revision file through `git show`, never from the worktree: the
@@ -776,7 +793,7 @@ async function measureCombinedSurface(
   if (baseFiles.includes('package.json')) packageManifest = await readBaseFile('package.json');
 
   const diff = await git(['diff', '--name-status', '-z', `${baseRevision}..${combinedRevision}`], { cwd: workspacePath, maxOutputBytes: 8 * 1024 * 1024 });
-  if (!diff.ok) return empty;
+  if (!diff.ok) return unmeasured(`the diff ${baseRevision}..${combinedRevision} could not be read (${diff.stderr.trim().split('\n')[0] ?? 'git diff failed'})`);
   const fields = diff.stdout.split('\0').filter((field) => field.length > 0);
   const changes: Array<{ status: string; path: string }> = [];
   for (let i = 0; i < fields.length; i += 1) {
@@ -797,13 +814,14 @@ async function measureCombinedSurface(
 
   const surface = await resolveAcceptanceSurface(checks, baseFiles, { packageManifest, readBaseFile });
   const findings = findSurfaceChanges(surface, changes);
-  // What the walk could not settle. A combination is not refused for it, but a
-  // partial surface must not read as a complete one.
+  // What the walk could not settle. A partial surface is a partial comparison,
+  // so it refuses the combination rather than being noted beside an
+  // "accepted" — the single-task path draws the line in the same place.
   const surfaceGaps = [...surface.resolution.unresolved];
   if (surface.resolution.truncated) {
     surfaceGaps.push(
       `the acceptance surface for this combination is PARTIAL: the walk from ${surface.resolution.entryPoints.length} entry point(s) read ${surface.resolution.filesVisited} file(s) and stopped at a cap, so files a criterion executes may be missing from the fixture comparison`,
     );
   }
-  return { mutations: findings.mutations, definitionChanges: findings.definitionChanges, surfaceGaps };
+  return { mutations: findings.mutations, definitionChanges: findings.definitionChanges, surfaceGaps, blockers: surfaceBlockers(surface) };
 }

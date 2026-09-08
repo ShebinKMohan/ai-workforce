@@ -37,6 +37,18 @@
  * surface must say it is partial, because that is the difference between
  * "protected" and "we did not look".
  *
+ * And saying it is not enough. A criterion whose surface is partial is a
+ * criterion this run cannot vouch for: the check may exit 0 over exactly the
+ * files the walk never reached, which is the original false-completion defect
+ * wearing the walk's own clothes. So every gap is attributed to the criterion
+ * whose walk produced it and handed to the acceptance decision as a blocker by
+ * `surfaceBlockers` — an unresolved surface REFUSES, in the same class as a
+ * compromised one, rather than passing. `resolution.gaps` is that list, and it
+ * is the reason the walk works as hard as it does to leave the list empty:
+ * a shell entry point is followed to the runner it execs, a symlink is
+ * followed to its real target, and a computed specifier with a literal
+ * directory prefix pulls that whole directory in rather than giving up.
+ *
  * This lives beside the check runner rather than inside the orchestrator so
  * that BOTH acceptance decisions use it: the per-task one in `runDirect` and
  * the combined one in `combineArtifacts`.
@@ -95,6 +107,15 @@ const PACKAGE_MANAGER_COMMANDS = new Set(['npm', 'npx', 'yarn', 'pnpm']);
 /** Shell operators that separate one command from the next inside a script body. */
 const SCRIPT_SEPARATORS = /(?:&&|\|\||[;|&\n])/;
 
+/** Words that stand in front of the command that actually runs, inside a script. */
+const SHELL_WRAPPERS: ReadonlySet<string> = new Set(['exec', 'command', 'time', 'env', 'nice', 'nohup', 'builtin', 'source', '.']);
+
+/** Extensions that say "shell script"; the empty one covers `verify/check` with a shebang. */
+const SHELL_EXTENSIONS: ReadonlySet<string> = new Set(['', '.sh', '.bash', '.zsh', '.ksh', '.command']);
+
+/** A script body larger than this is not scanned for the runner it execs. */
+const MAX_SCRIPT_BYTES = 256 * 1024;
+
 /** How deep `npm run a` -> `npm run b` -> ... is followed before giving up. */
 const MAX_SCRIPT_DEPTH = 4;
 
@@ -115,6 +136,41 @@ type ModuleLanguage = 'javascript' | 'python';
 
 export type SurfaceTier = 'suite' | 'dependency';
 
+/**
+ * What kind of thing the walk could not settle. The kind decides which remedy
+ * is offered, because a remedy that does not actually close the gap is worse
+ * than none: it would send an operator to change something and leave the run
+ * refusing for the same reason.
+ */
+export type SurfaceGapKind =
+  /** The criterion runs a file this walk cannot read as a module and could not follow. */
+  | 'entry_not_module'
+  /** A module reference computed at runtime: what it loads is not knowable statically. */
+  | 'computed_specifier'
+  /** A literal import that names nothing in the base revision. */
+  | 'unresolved_import'
+  /** A file the base-revision reader did not return. */
+  | 'unreadable'
+  /** A cap: depth, file count, file size, or directory size. */
+  | 'truncated'
+  /** The caller followed no module graph at all. */
+  | 'no_reader';
+
+/**
+ * One thing the walk could not settle, and the criterion it belongs to.
+ *
+ * The criterion matters because the gap is not a property of the repository —
+ * it is a property of what a *particular* criterion executes, and it is that
+ * criterion the run must refuse to call established. `*` means the gap is in
+ * the shared fixture closure and therefore affects every criterion.
+ */
+export interface SurfaceGap {
+  readonly criterionId: string;
+  readonly kind: SurfaceGapKind;
+  /** What could not be resolved, in the words a reader needs. */
+  readonly detail: string;
+}
+
 /** What the walk managed to resolve, and what it did not. */
 export interface SurfaceResolution {
   /** True when the import graph was followed. False means path patterns and literal command paths only. */
@@ -127,6 +183,12 @@ export interface SurfaceResolution {
   readonly truncated: boolean;
   /** Everything the walk could not settle statically, in the words a reader needs. */
   readonly unresolved: ReadonlyArray<string>;
+  /**
+   * The same facts, each bound to the criterion whose surface they leave
+   * incomplete. `surfaceBlockers` turns these into the reasons acceptance is
+   * refused; an empty list is the only state in which a pass can be trusted.
+   */
+  readonly gaps: ReadonlyArray<SurfaceGap>;
 }
 
 export interface AcceptanceSurface {
@@ -266,6 +328,12 @@ function entriesForCheck(check: CheckSpec, baseFiles: ReadonlyArray<string>, scr
   const explicit = new Set<string>();
   const implicit = new Set<string>();
 
+  // `./verify/check.sh` as the command itself, not as an argument of one. The
+  // guard is the same as for arguments: it counts only when a file of that
+  // name exists at the base revision, so `node` and `npm` name nothing.
+  const asCommand = normalizeRelative(check.command);
+  if (asCommand !== null && existsInTree(baseFiles, asCommand)) explicit.add(asCommand);
+
   for (const token of check.args ?? []) {
     if (token.startsWith('-')) continue;
     const relative = normalizeRelative(token);
@@ -330,6 +398,65 @@ interface Specifier {
   /** The literal specifier, or the source text of the expression that replaced it. */
   readonly text: string;
   readonly literal: boolean;
+  /**
+   * For a computed specifier, the literal path its expression starts with —
+   * the `./cases/` of `` import(`./cases/${name}.js`) ``. What the expression
+   * loads is not knowable, but the *directory* it loads it from is, and that
+   * directory is what the criterion executes.
+   */
+  readonly prefix?: string;
+}
+
+/**
+ * The literal head of a computed specifier expression: a leading quoted string
+ * (`'./cases/' + name`) or the fixed part of a template literal
+ * (`` `./cases/${name}.js` ``). Null when the expression begins with something
+ * this cannot read, which is the honest answer.
+ */
+function literalPrefixOf(expression: string): string | null {
+  const quoted = /^['"]([^'"\n]*)['"]/.exec(expression);
+  if (quoted !== null) return quoted[1] ?? null;
+  const template = /^`([^`$\n]*)\$\{/.exec(expression);
+  if (template !== null) return template[1] ?? null;
+  return null;
+}
+
+/**
+ * Whether an offset sits in code rather than inside a string literal.
+ *
+ * A repository's own tests quote source as data — `"import { x } from './y.js'"`
+ * is a fixture, not an import — and reading those as module references invents
+ * files the criterion does not execute *and*, now that a gap refuses, would
+ * refuse repositories on the strength of a quotation. The scan is per line and
+ * tracks the open quote, so a different quote character nested inside one does
+ * not confuse it. Its failure mode is to miss an import written after an odd
+ * quote on the same line, which under-detects in the base revision's own
+ * formatting rather than over-refusing.
+ */
+function atCodeLevel(source: string, index: number): boolean {
+  let quote: string | null = null;
+  for (let i = source.lastIndexOf('\n', index - 1) + 1; i < index; i += 1) {
+    const ch = source[i]!;
+    if (ch === '\\') {
+      i += 1;
+      continue;
+    }
+    if (quote === null) {
+      if (ch === '"' || ch === "'" || ch === '`') quote = ch;
+    } else if (ch === quote) {
+      quote = null;
+    }
+  }
+  return quote === null;
+}
+
+/**
+ * Where the keyword sits, not where the match starts: each pattern below may
+ * consume one character in front of `import`, and that character is often the
+ * very quote that opens the string the match is buried in.
+ */
+function keywordAt(match: RegExpExecArray): number {
+  return (match.index ?? 0) + (/\b(?:import|export|require)\b/.exec(match[0])?.index ?? 0);
 }
 
 /** Static and literal-dynamic module specifiers in a JavaScript or TypeScript source. */
@@ -342,14 +469,29 @@ function javascriptSpecifiers(source: string): Specifier[] {
   // `import ... from 'x'`, `export ... from 'x'`. The middle is a negated
   // class, so it crosses newlines (multi-line binding lists) but stops at the
   // first `;` or quote and cannot run away over the rest of the file.
-  for (const match of source.matchAll(/(?:^|[^.\w$])(?:import|export)\b[^;'"`]*?\bfrom\s*['"]([^'"\n]*)['"]/g)) add(match[1] ?? '', true);
+  for (const match of source.matchAll(/(?:^|[^.\w$])(?:import|export)\b[^;'"`]*?\bfrom\s*['"]([^'"\n]*)['"]/g)) {
+    if (atCodeLevel(source, keywordAt(match))) add(match[1] ?? '', true);
+  }
   // Side-effect import: `import 'x'`.
-  for (const match of source.matchAll(/(?:^|[^.\w$])import\s*['"]([^'"\n]*)['"]/g)) add(match[1] ?? '', true);
+  for (const match of source.matchAll(/(?:^|[^.\w$])import\s*['"]([^'"\n]*)['"]/g)) {
+    if (atCodeLevel(source, keywordAt(match))) add(match[1] ?? '', true);
+  }
   // Dynamic import and require with a literal argument.
-  for (const match of source.matchAll(/(?:^|[^.\w$])(?:import|require)\s*\(\s*['"]([^'"\n]*)['"]\s*\)/g)) add(match[1] ?? '', true);
+  for (const match of source.matchAll(/(?:^|[^.\w$])(?:import|require)\s*\(\s*['"]([^'"\n]*)['"]\s*\)/g)) {
+    if (atCodeLevel(source, keywordAt(match))) add(match[1] ?? '', true);
+  }
   // ... and the same two with anything else inside: what they load is not static.
   for (const match of source.matchAll(/(?:^|[^.\w$])(import|require)\s*\(\s*(?!['"])([^)\n]{1,120})\)/g)) {
-    add(`${match[1] ?? 'import'}(${(match[2] ?? '').trim()})`, false);
+    if (!atCodeLevel(source, keywordAt(match))) continue;
+    const expression = (match[2] ?? '').trim();
+    // A template literal with nothing interpolated into it is a literal.
+    const constant = /^`([^`$\n]*)`$/.exec(expression);
+    if (constant !== null) {
+      add(constant[1] ?? '', true);
+      continue;
+    }
+    const prefix = literalPrefixOf(expression);
+    found.push({ text: `${match[1] ?? 'import'}(${expression})`, literal: false, ...(prefix === null ? {} : { prefix }) });
   }
   return found;
 }
@@ -448,20 +590,133 @@ function resolvePython(entry: PythonImport, fromFile: string, baseFileSet: Reado
 interface WalkState {
   filesVisited: number;
   truncated: boolean;
-  readonly unresolved: Set<string>;
+  /** The criterion whose walk is running, so every gap knows what it makes unprovable. */
+  criterionId: string;
+  /** Gaps, keyed by criterion and text so the same fact is reported once. */
+  readonly gaps: Map<string, SurfaceGap>;
   readonly maxFiles: number;
   readonly maxDepth: number;
   readonly baseFileSet: ReadonlySet<string>;
+  readonly baseFiles: ReadonlyArray<string>;
+  readonly scripts: ReadonlyMap<string, string>;
   readonly cache: Map<string, string | null>;
   readonly read: (relativePath: string) => Promise<string | null>;
 }
 
-function note(state: WalkState, text: string): void {
-  if (state.unresolved.size >= MAX_REPORTED_UNRESOLVED) {
-    state.unresolved.add(`(further unresolved references were not listed; the first ${MAX_REPORTED_UNRESOLVED} are above)`);
+function note(state: WalkState, kind: SurfaceGapKind, text: string): void {
+  const key = `${state.criterionId} ${text}`;
+  if (state.gaps.has(key)) return;
+  if (state.gaps.size >= MAX_REPORTED_UNRESOLVED) {
+    const overflow = `(further unresolved references were not listed; the first ${MAX_REPORTED_UNRESOLVED} are above)`;
+    state.gaps.set(`${state.criterionId} ${overflow}`, { criterionId: state.criterionId, kind: 'truncated', detail: overflow });
     return;
   }
-  state.unresolved.add(text);
+  state.gaps.set(key, { criterionId: state.criterionId, kind, detail: text });
+}
+
+/**
+ * The repository path a symlink blob points at, or null when the blob is an
+ * ordinary file.
+ *
+ * `git show <revision>:<path>` on a symlink hands back the LINK TEXT, not the
+ * file it names. Read as source, that text has no imports — so a suite reached
+ * through a symlink looks like a leaf, and the module it actually executes
+ * never enters the surface at all. That is a silent hole, the worst kind.
+ *
+ * A blob is taken for a link when its entire content is a single line that
+ * resolves, against the linking file's own directory, to another path of the
+ * same tree. Source that reads that way does not exist: `export * from './x'`
+ * does not name a file. The failure mode is over-inclusion — a data file whose
+ * one line happens to be a sibling's name pulls that sibling in — which adds
+ * to the surface rather than quietly subtracting from it.
+ */
+function symlinkTarget(file: string, raw: string, baseFileSet: ReadonlySet<string>): string | null {
+  const text = raw.trim();
+  if (text.length === 0 || text.length > 1024) return null;
+  if (/[\n\r\0]/.test(text)) return null;
+  // An absolute link leaves the repository; nothing in the tree can answer it.
+  if (text.startsWith('/')) return null;
+  const target = path.posix.normalize(path.posix.join(path.posix.dirname(file), text));
+  if (target.startsWith('..') || target === file) return null;
+  return baseFileSet.has(target) ? target : null;
+}
+
+function looksLikeShellScript(file: string, raw: string): boolean {
+  if (/^#!.*\b(?:sh|bash|zsh|ksh|dash)\b/.test(raw)) return true;
+  return SHELL_EXTENSIONS.has(path.posix.extname(file).toLowerCase());
+}
+
+/**
+ * The repository paths a shell script execs, as far as literal command words
+ * can say.
+ *
+ * `sh verify/check.sh` contributes nothing to a module graph on its own, and
+ * before this the criterion's whole surface was that one unreadable file. A
+ * script whose body is `exec node verify/run.js` names its runner outright, so
+ * the walk follows it and the criterion is protected exactly as if the check
+ * had named `verify/run.js` itself. A word carrying `$` is not literal and is
+ * skipped, which leaves the gap reported rather than guessed at.
+ */
+function pathsFromShellScript(file: string, raw: string, state: WalkState): string[] {
+  const found = new Set<string>();
+  const directory = path.posix.dirname(file);
+  for (const line of raw.split('\n')) {
+    for (const segment of line.replace(/#.*$/, '').split(SCRIPT_SEPARATORS)) {
+      const words = segment
+        .trim()
+        .split(/\s+/)
+        .map((word) => word.replace(/^["']|["']$/g, ''))
+        .filter((word) => word.length > 0);
+      let index = 0;
+      while (index < words.length && (SHELL_WRAPPERS.has(words[index]!) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index]!))) index += 1;
+      const head = words[index];
+      if (head === undefined) continue;
+      // `npm run acceptance` inside the script: the package.json chain answers it.
+      const nested = scriptNameOf(head, words.slice(index + 1));
+      if (nested !== null) {
+        for (const value of pathsFromScript(nested, state.scripts, state.baseFiles, new Set(), 0)) found.add(value);
+        continue;
+      }
+      for (const word of words.slice(index)) {
+        if (word.startsWith('-') || word.includes('$')) continue;
+        for (const candidate of [normalizeRelative(word), normalizeRelative(path.posix.join(directory, word))]) {
+          if (candidate !== null && state.baseFileSet.has(candidate)) found.add(candidate);
+        }
+      }
+    }
+  }
+  found.delete(file);
+  return [...found];
+}
+
+/**
+ * The directory a computed specifier loads from, when its expression starts
+ * with a literal path.
+ *
+ * `` import(`./cases/${name}.js`) `` does not say which case it loads, but it
+ * does say every one of them lives in `./cases`. Treating that directory as
+ * part of the surface is strictly better than giving up: the criterion really
+ * does execute one of those files, and which one is not something the
+ * candidate should get to decide.
+ */
+function computedDirectoryOf(prefix: string | undefined, fromFile: string): string | null {
+  if (prefix === undefined || !prefix.startsWith('.')) return null;
+  const slash = prefix.lastIndexOf('/');
+  if (slash < 0) return null;
+  const directory = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), prefix.slice(0, slash)));
+  if (directory.startsWith('..') || directory === '.' || directory.length === 0) return null;
+  return directory;
+}
+
+/** The module files directly or transitively under a directory, capped like every other walk. */
+function modulesUnder(directory: string, state: WalkState): string[] {
+  const contained = state.baseFiles.filter((file) => file.startsWith(`${directory}/`) && languageOf(file) !== null);
+  if (contained.length > MAX_DIRECTORY_ENTRIES) {
+    state.truncated = true;
+    note(state, 'truncated', `${directory} holds ${contained.length} module files; only the first ${MAX_DIRECTORY_ENTRIES} were walked`);
+    return contained.slice(0, MAX_DIRECTORY_ENTRIES);
+  }
+  return contained;
 }
 
 async function readOnce(state: WalkState, file: string): Promise<string | null> {
@@ -481,7 +736,7 @@ async function readOnce(state: WalkState, file: string): Promise<string | null> 
  * base revision. Bare specifiers are ignored: `node_modules` is not candidate
  * writable, so a package cannot be the thing a candidate guts.
  */
-async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, declared: ReadonlySet<string>): Promise<Set<string>> {
+async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, declared: Set<string>, discovered: Set<string>): Promise<Set<string>> {
   const reached = new Set<string>();
   const seen = new Set<string>(entries);
   let frontier: Array<{ file: string; depth: number }> = entries.map((file) => ({ file, depth: 0 }));
@@ -491,34 +746,71 @@ async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, d
     for (const { file, depth } of frontier) {
       reached.add(file);
       const language = languageOf(file);
-      if (language === null) {
-        // Only worth reporting for a file a check *names*: `bash
-        // scripts/check.sh` executes something this walk cannot see. A data
-        // file that happens to sit under `tests/` is not a gap in the surface.
-        if (declared.has(file)) {
-          note(state, `${file} is executed by a criterion but is not a JavaScript, TypeScript or Python module, so what it runs was not followed`);
-        }
-        continue;
-      }
+      // A non-module file is only followed when a check *names* it: `sh
+      // verify/check.sh` executes something, and that something belongs to the
+      // criterion. A data file that happens to sit under `tests/` does not.
+      if (language === null && !declared.has(file)) continue;
       if (depth >= state.maxDepth) {
         state.truncated = true;
-        note(state, `the import walk stopped at ${file}: depth cap ${state.maxDepth} reached, so its own imports are NOT part of this surface`);
+        note(state, 'truncated', `the import walk stopped at ${file}: depth cap ${state.maxDepth} reached, so its own imports are NOT part of this surface`);
         continue;
       }
       if (state.filesVisited >= state.maxFiles) {
         state.truncated = true;
-        note(state, `the import walk stopped after ${state.maxFiles} files; files beyond that cap are NOT part of this surface`);
+        note(state, 'truncated', `the import walk stopped after ${state.maxFiles} files; files beyond that cap are NOT part of this surface`);
         return reached;
       }
       state.filesVisited += 1;
       const raw = await readOnce(state, file);
       if (raw === null) {
-        note(state, `${file} could not be read at the base revision, so its imports were not followed`);
+        note(state, 'unreadable', `${file} could not be read at the base revision, so what it executes was not followed`);
         continue;
       }
+
+      // A symlink's blob is its link text. Follow it to the real file rather
+      // than reading the target's name as if it were the module's source.
+      const link = symlinkTarget(file, raw, state.baseFileSet);
+      if (link !== null) {
+        // A link named by a check stands in for what it points at, so the
+        // target inherits the right to be followed as an executed entry.
+        if (declared.has(file)) {
+          declared.add(link);
+          discovered.add(link);
+        }
+        if (!seen.has(link)) {
+          seen.add(link);
+          next.push({ file: link, depth: depth + 1 });
+        }
+        continue;
+      }
+
+      if (language === null) {
+        if (looksLikeShellScript(file, raw) && raw.length <= MAX_SCRIPT_BYTES) {
+          const execed = pathsFromShellScript(file, raw, state);
+          if (execed.length > 0) {
+            for (const target of execed) {
+              // The runner a criterion's script execs is what that criterion
+              // executes, so it is an entry point of the criterion in every
+              // sense: followed like one, and protected like one. Anything
+              // less would leave `sh run.sh` weaker than `node run.js`.
+              declared.add(target);
+              discovered.add(target);
+              if (seen.has(target)) continue;
+              seen.add(target);
+              next.push({ file: target, depth: depth + 1 });
+            }
+            continue;
+          }
+          note(state, 'entry_not_module', `${file} is executed by a criterion and is a shell script, but no literal command in it names a file of this repository, so what it runs was not followed`);
+          continue;
+        }
+        note(state, 'entry_not_module', `${file} is executed by a criterion but is not a JavaScript, TypeScript or Python module, so what it runs was not followed`);
+        continue;
+      }
+
       if (raw.length > MAX_FILE_BYTES) {
         state.truncated = true;
-        note(state, `${file} is larger than ${MAX_FILE_BYTES} bytes and was not scanned for imports`);
+        note(state, 'truncated', `${file} is larger than ${MAX_FILE_BYTES} bytes and was not scanned for imports`);
         continue;
       }
       const source = stripComments(raw, language);
@@ -527,20 +819,29 @@ async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, d
       if (language === 'javascript') {
         for (const specifier of javascriptSpecifiers(source)) {
           if (!specifier.literal) {
-            note(state, `${file} loads a computed specifier (${specifier.text}); what it executes was not resolved`);
+            // Not knowable *which* module it loads, but often knowable which
+            // directory it loads from — and the whole directory is a better
+            // answer than none.
+            const directory = computedDirectoryOf(specifier.prefix, file);
+            const contained = directory === null ? [] : modulesUnder(directory, state);
+            if (contained.length > 0) {
+              targets.push(...contained);
+              continue;
+            }
+            note(state, 'computed_specifier', `${file} loads a computed specifier (${specifier.text}); what it executes was not resolved`);
             continue;
           }
           const text = specifier.text;
           if (text.length === 0) continue;
           if (/^(?:node|data|bun|file|https?):/.test(text)) continue;
           if (text.startsWith('/')) {
-            note(state, `${file} imports the absolute path "${text}", which is outside the repository tree and was not resolved`);
+            note(state, 'unresolved_import', `${file} imports the absolute path "${text}", which is outside the repository tree and was not resolved`);
             continue;
           }
           if (!text.startsWith('.')) continue; // a package: not candidate-writable
           const resolved = resolveJavascript(text, file, state.baseFileSet);
           if (resolved === null) {
-            note(state, `${file} imports "${text}", which does not resolve to a file in the base revision`);
+            note(state, 'unresolved_import', `${file} imports "${text}", which does not resolve to a file in the base revision`);
             continue;
           }
           targets.push(resolved);
@@ -549,7 +850,7 @@ async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, d
         for (const entry of pythonImports(source)) {
           const resolved = resolvePython(entry, file, state.baseFileSet);
           if (resolved.length === 0 && entry.level > 0) {
-            note(state, `${file} imports "${'.'.repeat(entry.level)}${entry.module}", which does not resolve to a module in the base revision`);
+            note(state, 'unresolved_import', `${file} imports "${'.'.repeat(entry.level)}${entry.module}", which does not resolve to a module in the base revision`);
             continue;
           }
           targets.push(...resolved);
@@ -613,7 +914,7 @@ function entryFilesOf(entries: ReadonlyArray<string>, baseFiles: ReadonlyArray<s
     const contained = baseFiles.filter((file) => file.startsWith(`${entry}/`) && languageOf(file) !== null);
     if (contained.length > MAX_DIRECTORY_ENTRIES) {
       state.truncated = true;
-      note(state, `${entry} holds ${contained.length} module files; only the first ${MAX_DIRECTORY_ENTRIES} were walked`);
+      note(state, 'truncated', `${entry} holds ${contained.length} module files; only the first ${MAX_DIRECTORY_ENTRIES} were walked`);
     }
     for (const file of contained.slice(0, MAX_DIRECTORY_ENTRIES)) files.add(file);
   }
@@ -682,24 +983,28 @@ export async function resolveAcceptanceSurface(
   const entries = checks.map((check) => entriesForCheck(check, baseFiles, scripts));
 
   if (context.readBaseFile === undefined) {
+    const detail =
+      'the acceptance surface was resolved from path patterns and command arguments only: no reader for the base revision was supplied, so the modules those files import are NOT covered';
     return assemble(entries, shared, new Map(), definitionPathsOf(baseFiles), {
       moduleGraphResolved: false,
       entryPoints: [...new Set([...shared, ...entries.flatMap((entry) => entry.explicit)])].sort(),
       filesVisited: 0,
       truncated: true,
-      unresolved: [
-        'the acceptance surface was resolved from path patterns and command arguments only: no reader for the base revision was supplied, so the modules those files import are NOT covered',
-      ],
+      unresolved: [detail],
+      gaps: [{ criterionId: '*', kind: 'no_reader', detail }],
     });
   }
 
   const state: WalkState = {
     filesVisited: 0,
     truncated: false,
-    unresolved: new Set<string>(),
+    criterionId: '*',
+    gaps: new Map<string, SurfaceGap>(),
     maxFiles: context.limits?.maxFiles ?? DEFAULT_MAX_FILES,
     maxDepth: context.limits?.maxDepth ?? DEFAULT_MAX_DEPTH,
     baseFileSet: new Set(baseFiles),
+    baseFiles,
+    scripts,
     cache: new Map<string, string | null>(),
     read: context.readBaseFile,
   };
@@ -708,18 +1013,35 @@ export async function resolveAcceptanceSurface(
   const allEntryPoints = new Set<string>();
 
   const walk = async (id: string, entryPaths: ReadonlyArray<string>, suiteDirectories: ReadonlyArray<string>, namedByCheck: boolean): Promise<void> => {
+    state.criterionId = id;
     for (const entry of entryPaths) allEntryPoints.add(entry);
     const entryFiles = entryFilesOf(entryPaths, baseFiles, state);
-    if (entryFiles.length === 0) return;
-    const entrySet = new Set(entryFiles);
+    if (entryFiles.length === 0) {
+      // Entry points that stand for nothing: a directory the check names whose
+      // files are all unreadable to this walk, or a link that leaves the tree.
+      // Silence here would read as "nothing to protect" rather than "we found
+      // nothing", which is the difference this module exists to make.
+      if (namedByCheck && entryPaths.length > 0) {
+        note(state, 'entry_not_module', `the entry point(s) ${entryPaths.join(', ')} named by this criterion contain no JavaScript, TypeScript or Python module, so nothing about what it executes was resolved`);
+      }
+      return;
+    }
     // Paths the check itself names, as opposed to files found by expanding a
     // directory or matching a fixture pattern.
     const declared = namedByCheck ? new Set(entryPaths.filter((entry) => state.baseFileSet.has(entry))) : new Set<string>();
-    const reached = await reachableFrom(entryFiles, state, declared);
+    // Entry points the walk *finds*: the runner a named script execs, the real
+    // file a named link points at. The check named them as surely as if it had
+    // spelled them out, so they are entry points for tiering too — otherwise
+    // `sh verify/check.sh` would protect less than `node verify/run.js`.
+    const discovered = new Set<string>();
+    const reached = await reachableFrom(entryFiles, state, declared, discovered);
+    const entrySet = new Set([...entryFiles, ...discovered]);
+    const directories = discovered.size === 0 ? suiteDirectories : [...new Set([...suiteDirectories, ...suiteDirectoriesOf([...discovered], state.baseFileSet)])];
+    for (const entry of discovered) allEntryPoints.add(entry);
     const suite: string[] = [];
     const dependencies: string[] = [];
     for (const file of reached) {
-      if (tierOf(file, entrySet, suiteDirectories) === 'suite') suite.push(file);
+      if (tierOf(file, entrySet, directories) === 'suite') suite.push(file);
       else dependencies.push(file);
     }
     reachedByCriterion.set(id, { suite: suite.sort(), dependencies: dependencies.sort() });
@@ -732,12 +1054,14 @@ export async function resolveAcceptanceSurface(
     await walk(entry.criterionId, entry.explicit, suiteDirectoriesOf(entry.explicit, state.baseFileSet), true);
   }
 
+  const gaps = [...state.gaps.values()].sort((left, right) => left.criterionId.localeCompare(right.criterionId) || left.detail.localeCompare(right.detail));
   return assemble(entries, shared, reachedByCriterion, definitionPathsOf(baseFiles), {
     moduleGraphResolved: true,
     entryPoints: [...allEntryPoints].sort(),
     filesVisited: state.filesVisited,
     truncated: state.truncated,
-    unresolved: [...state.unresolved].sort(),
+    unresolved: [...new Set(gaps.map((gap) => gap.detail))].sort(),
+    gaps,
   });
 }
 
@@ -751,15 +1075,86 @@ export function acceptanceSurface(checks: ReadonlyArray<CheckSpec>, baseFiles: R
   const scripts = parseScripts(context.packageManifest);
   const shared = sharedFixtureFiles(baseFiles);
   const entries = checks.map((check) => entriesForCheck(check, baseFiles, scripts));
+  const detail =
+    'the acceptance surface was resolved from path patterns and command arguments only: this caller did not follow the module graph, so the modules those files import are NOT covered';
   return assemble(entries, shared, new Map(), definitionPathsOf(baseFiles), {
     moduleGraphResolved: false,
     entryPoints: [...new Set([...shared, ...entries.flatMap((entry) => entry.explicit)])].sort(),
     filesVisited: 0,
     truncated: true,
-    unresolved: [
-      'the acceptance surface was resolved from path patterns and command arguments only: this caller did not follow the module graph, so the modules those files import are NOT covered',
-    ],
+    unresolved: [detail],
+    gaps: [{ criterionId: '*', kind: 'no_reader', detail }],
   });
+}
+
+/**
+ * The reasons an acceptance decision must REFUSE because the surface it would
+ * be decided over is partial.
+ *
+ * This is the point of the whole module. A criterion whose executed files were
+ * only partly found is a criterion whose check could have exited 0 over
+ * precisely the part that was missed — the same false-completion hole as a
+ * rewritten suite, reached by a different road. Reporting the gap and
+ * accepting anyway is the one outcome that cannot be defended, so the gaps
+ * come back here as blockers and the run says "not established" instead.
+ *
+ * Each message names the criterion, exactly what could not be resolved, and
+ * what the operator can do about it. The remedies are real ones: a path named
+ * in a check's `args` in `.workforce/checks.json` becomes an entry point this
+ * walk follows (that is how fixtures are named explicitly), and a check
+ * pointed at a JavaScript, TypeScript or Python file has a module graph to
+ * follow in the first place.
+ */
+export function surfaceBlockers(surface: AcceptanceSurface): string[] {
+  const byCriterion = new Map<string, { details: string[]; kinds: Set<SurfaceGapKind> }>();
+  for (const gap of surface.resolution.gaps) {
+    let entry = byCriterion.get(gap.criterionId);
+    if (entry === undefined) {
+      entry = { details: [], kinds: new Set<SurfaceGapKind>() };
+      byCriterion.set(gap.criterionId, entry);
+    }
+    if (!entry.details.includes(gap.detail)) entry.details.push(gap.detail);
+    entry.kinds.add(gap.kind);
+  }
+  const order = [...byCriterion.keys()].sort((left, right) => (left === '*' ? -1 : right === '*' ? 1 : left.localeCompare(right)));
+  return order.map((criterionId) => {
+    const who = criterionId === '*' ? 'every criterion' : `criterion "${criterionId}"`;
+    const subject = criterionId === '*' ? 'no criterion is' : `"${criterionId}" is not`;
+    const entry = byCriterion.get(criterionId) ?? { details: [], kinds: new Set<SurfaceGapKind>() };
+    return (
+      `the acceptance surface for ${who} could not be fully resolved, so ${subject} established by its check: ${entry.details.join('; ')}. ` +
+      `A check that exits 0 over files this run never resolved is not evidence that the criterion the base revision defined still holds. ` +
+      `${remediesFor(entry.kinds).join(' ')}`
+    );
+  });
+}
+
+/** What actually closes each kind of gap. Nothing here is offered unless it works. */
+function remediesFor(kinds: ReadonlySet<SurfaceGapKind>): string[] {
+  const remedies: string[] = [];
+  if (kinds.has('entry_not_module')) {
+    remedies.push(
+      'To resolve it: name the JavaScript, TypeScript or Python file the criterion ultimately runs as the check\'s command or in its "args" in .workforce/checks.json, so the walk starts from a module rather than from a file it cannot read; a shell entry point is followed only as far as a literal command in it names a file of this repository.',
+    );
+  }
+  if (kinds.has('computed_specifier')) {
+    remedies.push(
+      'To resolve it: make the specifier literal. A template literal with a fixed directory prefix is enough — `./cases/${name}.js` puts the whole `./cases` directory into the surface — but a specifier read from a variable or the environment can load anything, and no static declaration can bound it.',
+    );
+  }
+  if (kinds.has('unresolved_import')) {
+    remedies.push('To resolve it: correct the import, or commit the file it names, so the path it points at exists at the base revision.');
+  }
+  if (kinds.has('unreadable')) {
+    remedies.push('To resolve it: make the file readable at the base revision — a criterion cannot be judged against a file this run cannot fetch.');
+  }
+  if (kinds.has('truncated')) {
+    remedies.push('To resolve it: narrow what the criterion executes, or split it into criteria whose closures each fit the walk, so no cap is reached.');
+  }
+  if (kinds.has('no_reader')) {
+    remedies.push('To resolve it: give the surface a reader for the base revision; without one no module graph is followed at all.');
+  }
+  return remedies;
 }
 
 function matchesSurfacePath(changedPath: string, surfacePath: string): boolean {

@@ -48,6 +48,7 @@ import { writeArtifact, type ArtifactRecord } from '../storage/artifacts.js';
 import {
   findSurfaceChanges as computeSurfaceChanges,
   resolveAcceptanceSurface as computeAcceptanceSurface,
+  surfaceBlockers as listSurfaceBlockers,
   surfaceDependencyPaths as listSurfaceDependencyPaths,
   surfacePaths as listSurfacePaths,
   type SurfaceSources,
@@ -1561,6 +1562,12 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // Facts that block acceptance whatever the receipts say. Each one means the
   // run cannot honestly claim "verified candidate" (plan section 9, AT02, AT12).
   const blockers: string[] = [];
+  // A surface the walk could not finish is one of them. The run already knew
+  // this — it printed the gap above — and used to accept anyway, which made
+  // "we did not look" indistinguishable from "we looked and it was clean". A
+  // criterion whose executed files were only partly found is not established
+  // by its check, exactly as a criterion whose fixtures were rewritten is not.
+  for (const blocker of listSurfaceBlockers(surface)) blockers.push(blocker);
   const unconfirmedEscapes = new Set(evidence?.unconfirmedFileChangesOutsideAllowedPaths ?? []);
   for (const escaped of evidence?.fileChangesOutsideAllowedPaths ?? []) {
     blockers.push(
