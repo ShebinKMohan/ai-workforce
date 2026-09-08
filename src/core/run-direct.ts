@@ -532,6 +532,13 @@ export const RepoCheckSchema = z.strictObject({
   description: z.string().min(1).optional(),
   command: z.string().min(1),
   args: z.array(z.string()).default([]),
+  /**
+   * Paths this criterion executes, for the acceptance surface only — never
+   * passed to the command. They are how an operator declares the closure of a
+   * criterion whose language the surface walk cannot analyse, which turns a
+   * conservative surface into an established one.
+   */
+  fixtures: z.array(z.string().min(1)).max(256).optional(),
   cwd: z.string().min(1).optional(),
   timeoutMs: z.number().int().min(1).max(24 * 60 * 60 * 1000).optional(),
   required: z.boolean().optional(),
@@ -668,6 +675,7 @@ export async function resolveAcceptanceChecks(
         command: check.command,
         args: check.args,
         required: check.required ?? true,
+        ...(check.fixtures !== undefined ? { fixtures: check.fixtures } : {}),
         ...(check.description !== undefined ? { description: check.description } : {}),
         ...(check.cwd !== undefined ? { cwd: check.cwd } : {}),
         ...(check.timeoutMs !== undefined ? { timeoutMs: check.timeoutMs } : {}),
@@ -1154,9 +1162,22 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // A surface that could not be fully resolved is reported as such. The
   // difference between "this file is protected" and "we did not look" is
   // exactly what a false-completion hole lives in.
-  for (const gap of surface.resolution.unresolved) {
+  for (const gap of [...new Set(surface.resolution.gaps.map((entry) => entry.detail))]) {
     stream.line(`acceptance surface: ${gap}`);
     unresolved.push(`the acceptance surface could not be fully resolved from the base revision: ${gap}`);
+  }
+  // A limitation is the other half of that same honesty, and the opposite
+  // decision. The walk reads JavaScript, TypeScript and Python; on anything
+  // else there is no dependency analysis to perform, and refusing every run in
+  // a Go or Rust repository would be an outage rather than a safety property.
+  // So the run proceeds over a surface built without parsing, and the operator
+  // is told exactly what was and was not established.
+  for (const limitation of surface.resolution.limitations) {
+    const who = limitation.criterionId === '*' ? 'every criterion' : `criterion "${limitation.criterionId}"`;
+    stream.line(`acceptance surface (CONSERVATIVE, dependency analysis unavailable) for ${who}: ${limitation.detail}`);
+    unresolved.push(
+      `the acceptance surface for ${who} was resolved in a CONSERVATIVE mode rather than established: ${limitation.detail}. This run's acceptance therefore means the configured checks passed over a surface whose closure was not proven, not that every file the criterion executes was examined`,
+    );
   }
   if (surface.resolution.truncated) {
     unresolved.push(
@@ -2122,8 +2143,14 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
         entryPoints: surface.resolution.entryPoints,
         filesVisited: surface.resolution.filesVisited,
         partial: surface.resolution.truncated,
+        // True when at least one criterion's closure was not proven because
+        // this walk has no dependency analysis for it. The run was allowed to
+        // proceed; `acceptanceSurfaceLimitations` says for which criteria and
+        // why, and that is the residual risk this manifest carries.
+        conservative: surface.resolution.conservative,
       },
       acceptanceSurfaceUnresolved: surface.resolution.unresolved,
+      acceptanceSurfaceLimitations: surface.resolution.limitations,
       // Well-formed runtime output the adapter did not normalize — not
       // malformed lines, and not an error count.
       unnormalizedRuntimeEvents: evidence?.rawEvents ?? 0,

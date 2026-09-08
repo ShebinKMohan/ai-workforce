@@ -49,6 +49,27 @@
  * followed to its real target, and a computed specifier with a literal
  * directory prefix pulls that whole directory in rather than giving up.
  *
+ * Two things are deliberately NOT gaps, because a refusal there is an outage
+ * rather than a safety property, and a product that refuses correct runs on
+ * ordinary repositories is not usable:
+ *
+ *   - A language this walk has no reader for. It reads JavaScript, TypeScript
+ *     and Python; a repository in Go, Rust, C, Ruby or Swift has no import
+ *     graph here to follow, and that is a fact about the walk, not evidence
+ *     that the criterion is unsound. Such a criterion gets a CONSERVATIVE
+ *     surface — its entry points, the paths its check names, conventional
+ *     fixture paths — and a `resolution.limitations` entry that says the
+ *     closure was not proven, on the terminal and in the manifest. Listing the
+ *     criterion's `fixtures` in `.workforce/checks.json` declares the closure
+ *     and upgrades the run to an established surface.
+ *   - A cap. A truncated analysis that announces itself is more useful than a
+ *     run that cannot happen, so a cap is a limitation too.
+ *
+ * And a gap only ever belongs to a criterion that actually executes the file
+ * that produced it. A broken relative import in a fixture no check runs is
+ * recorded and nothing more; it used to refuse every criterion in the
+ * repository.
+ *
  * This lives beside the check runner rather than inside the orchestrator so
  * that BOTH acceptance decisions use it: the per-task one in `runDirect` and
  * the combined one in `combineArtifacts`.
@@ -62,9 +83,17 @@ import type { CheckSpec, FixtureMutation } from './checks.js';
  * criterion means.
  */
 const FIXTURE_PATH_PATTERNS: ReadonlyArray<RegExp> = [
-  /(^|\/)(tests?|spec|specs|__tests__)\//,
+  /(^|\/)(tests?|Tests?|spec|specs|__tests__|testdata)\//,
   /\.(test|spec)\.[cm]?[jt]sx?$/,
   /(^|\/)(test_[^/]*\.py|[^/]*_test\.py|conftest\.py)$/,
+  // The same convention in the languages the module walk cannot read. Where
+  // no import graph can be followed, a file whose NAME says "test" is the only
+  // evidence there is, and it is strong evidence: `_test.go` and `_spec.rb`
+  // are as load-bearing in their ecosystems as `.test.js` is here.
+  /(^|\/)[^/]*_test\.(go|rb|exs?|cc|cpp|cxx|c|swift|rs|java|kt)$/,
+  /(^|\/)[^/]*_spec\.(rb|exs?)$/,
+  /(^|\/)[^/]*Tests?\.(swift|java|kt|cs)$/,
+  /(^|\/)[^/]*Test\.php$/,
 ];
 
 /**
@@ -119,15 +148,25 @@ const MAX_SCRIPT_BYTES = 256 * 1024;
 /** How deep `npm run a` -> `npm run b` -> ... is followed before giving up. */
 const MAX_SCRIPT_DEPTH = 4;
 
-/** Caps on the module walk. Hitting one makes the surface partial, and it says so. */
-const DEFAULT_MAX_FILES = 400;
-const DEFAULT_MAX_DEPTH = 24;
+/**
+ * Caps on the module walk. Hitting one makes the surface partial, and it says
+ * so — as a LIMITATION rather than a gap, because a truncated analysis that
+ * announces itself is more useful than a run that cannot happen at all.
+ *
+ * The numbers are set where a real repository will not reach them. The old
+ * ones (400 files in a closure, 200 module files under a named directory) are
+ * ordinary sizes for an application's test tree, so they refused correct runs
+ * on nothing worse than the repository being of normal size. A cap exists here
+ * to stop a pathological walk, not to express an opinion about project layout.
+ */
+const DEFAULT_MAX_FILES = 20_000;
+const DEFAULT_MAX_DEPTH = 128;
 /** A file larger than this is not scanned for imports; the walk records that it skipped it. */
-const MAX_FILE_BYTES = 512 * 1024;
+const MAX_FILE_BYTES = 4 * 1024 * 1024;
 /** How many distinct "could not resolve" facts are reported before the list is summarized. */
 const MAX_REPORTED_UNRESOLVED = 20;
 /** How many files one directory entry point contributes before the walk calls itself partial. */
-const MAX_DIRECTORY_ENTRIES = 200;
+const MAX_DIRECTORY_ENTRIES = 5_000;
 
 const JS_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'] as const;
 const JS_RESOLUTION_EXTENSIONS = [...JS_EXTENSIONS, '.json'] as const;
@@ -153,8 +192,47 @@ export type SurfaceGapKind =
   | 'unreadable'
   /** A cap: depth, file count, file size, or directory size. */
   | 'truncated'
+  /** A path named in the check's own `fixtures` list that the base revision does not contain. */
+  | 'declared_fixture_missing'
   /** The caller followed no module graph at all. */
   | 'no_reader';
+
+/**
+ * Why a surface is CONSERVATIVE rather than established.
+ *
+ * A limitation is not a gap. A gap says "this criterion's evidence could have
+ * exited 0 over exactly the part we never resolved", and refuses. A limitation
+ * says "there is no dependency analysis to run here at all" — the walk reads
+ * JavaScript, TypeScript and Python and nothing else — and a repository
+ * written in Go, Rust, C, Ruby or Swift is not thereby unverifiable. Refusing
+ * those runs is not a safety property, it is an outage, so they proceed with a
+ * surface built from what can be identified without parsing (the entry points,
+ * the paths the check names, conventional fixture paths) and with the residual
+ * risk stated plainly: the closure was NOT proven, so a candidate could gut a
+ * helper this walk cannot see. Naming the criterion's fixtures explicitly in
+ * `.workforce/checks.json` closes it and upgrades the run.
+ */
+export type SurfaceLimitationKind =
+  /** The criterion's entry points are in a language this walk has no reader for. */
+  | 'language_unsupported'
+  /** The criterion runs an external toolchain (`go test`, `cargo test`, `make`) rather than a module of this repository. */
+  | 'external_toolchain'
+  /** A cap was reached, so the closure below is a prefix of the real one. */
+  | 'analysis_truncated'
+  /** Something the shared fixture walk could not settle in a file no criterion's evidence executes. */
+  | 'unexecuted_fixture';
+
+/**
+ * One reason a criterion's surface rests on declared paths rather than on a
+ * followed graph, and the criterion it applies to. `*` means it applies to the
+ * shared fixture closure.
+ */
+export interface SurfaceLimitation {
+  readonly criterionId: string;
+  readonly kind: SurfaceLimitationKind;
+  /** What could not be analysed, and what is protected instead, in the words a reader needs. */
+  readonly detail: string;
+}
 
 /**
  * One thing the walk could not settle, and the criterion it belongs to.
@@ -181,14 +259,24 @@ export interface SurfaceResolution {
   readonly filesVisited: number;
   /** True when a cap was hit: the surface below is PARTIAL, not a complete answer. */
   readonly truncated: boolean;
-  /** Everything the walk could not settle statically, in the words a reader needs. */
+  /** Everything the walk could not settle statically — gaps and limitations both — in the words a reader needs. */
   readonly unresolved: ReadonlyArray<string>;
   /**
-   * The same facts, each bound to the criterion whose surface they leave
-   * incomplete. `surfaceBlockers` turns these into the reasons acceptance is
-   * refused; an empty list is the only state in which a pass can be trusted.
+   * The facts that make a criterion's evidence unusable, each bound to the
+   * criterion whose surface they leave incomplete. `surfaceBlockers` turns
+   * these into the reasons acceptance is refused; an empty list is the only
+   * state in which a pass over a fully analysed closure can be trusted.
    */
   readonly gaps: ReadonlyArray<SurfaceGap>;
+  /**
+   * The facts that make a criterion's surface conservative rather than
+   * unusable: analysis this walk cannot perform, stated rather than refused.
+   * These do NOT block acceptance; they are printed and recorded so the
+   * operator knows the closure was not proven.
+   */
+  readonly limitations: ReadonlyArray<SurfaceLimitation>;
+  /** True when any limitation applies: at least one criterion's closure was not proven. */
+  readonly conservative: boolean;
 }
 
 export interface AcceptanceSurface {
@@ -322,11 +410,51 @@ interface CriterionEntries {
   readonly explicit: ReadonlyArray<string>;
   /** Paths that belong to the surface without being a module entry (`package.json`, the check's cwd). */
   readonly implicit: ReadonlyArray<string>;
+  /**
+   * The subset of `explicit` the candidate must not rewrite.
+   *
+   * A named path is an entry point of the walk and, usually, a protected path
+   * too. A named DIRECTORY is where the two roles come apart: `node --test
+   * test/` names a directory that is entirely acceptance material, while
+   * `go test ./internal/billing` names one holding the suite AND the code
+   * under test in the same folder. Protecting the second wholesale forbids
+   * exactly the file the task exists to change, which turns a conservative
+   * surface back into a wall. So a directory that does not itself read as a
+   * fixture path is protected through the test-named files inside it, and only
+   * falls back to the whole directory when it holds none.
+   */
+  readonly protectedPaths: ReadonlyArray<string>;
+  /**
+   * True when the check's own `fixtures` list named at least one path that
+   * exists at the base revision. The operator has then declared what this
+   * criterion executes, which is what upgrades a conservative surface to an
+   * established one: there is nothing left for the walk to fail to analyse.
+   */
+  readonly fixturesDeclared: boolean;
+  /** Declared fixture paths the base revision does not contain. A typo here must not read as a declaration. */
+  readonly missingFixtures: ReadonlyArray<string>;
 }
 
 function entriesForCheck(check: CheckSpec, baseFiles: ReadonlyArray<string>, scripts: ReadonlyMap<string, string>): CriterionEntries {
   const explicit = new Set<string>();
   const implicit = new Set<string>();
+  const missingFixtures: string[] = [];
+  const declaredFixturePaths = new Set<string>();
+  let fixturesDeclared = false;
+
+  // Paths the operator declared in `.workforce/checks.json`. They are entry
+  // points in every sense the command's own arguments are: walked from, and
+  // protected. The command never sees them.
+  for (const declared of check.fixtures ?? []) {
+    const relative = normalizeRelative(declared);
+    if (relative === null || !existsInTree(baseFiles, relative)) {
+      missingFixtures.push(declared);
+      continue;
+    }
+    explicit.add(relative);
+    declaredFixturePaths.add(relative);
+    fixturesDeclared = true;
+  }
 
   // `./verify/check.sh` as the command itself, not as an argument of one. The
   // guard is the same as for arguments: it counts only when a file of that
@@ -355,7 +483,59 @@ function entriesForCheck(check: CheckSpec, baseFiles: ReadonlyArray<string>, scr
     }
   }
 
-  return { criterionId: check.criterionId, explicit: [...explicit], implicit: [...implicit] };
+  return {
+    criterionId: check.criterionId,
+    explicit: [...explicit],
+    implicit: [...implicit],
+    protectedPaths: protectedPathsOf([...explicit], baseFiles, declaredFixturePaths),
+    fixturesDeclared,
+    missingFixtures,
+  };
+}
+
+/**
+ * Which of a criterion's named paths the candidate must not rewrite.
+ *
+ * A named file is always protected. A named directory is protected wholesale
+ * when its own path reads as a fixture path (`test/`, `spec/`, `testdata/`),
+ * and otherwise only through the files inside it whose names say "test" —
+ * because a Go, Ruby or Swift package directory holds the suite and the code
+ * under test side by side, and forbidding both leaves no correct candidate.
+ * A directory that holds no test-named file at all falls back to the whole
+ * directory: there is nothing finer to go on, and saying nothing would protect
+ * nothing.
+ *
+ * A path the operator declared under `fixtures` is exempt: they said what this
+ * criterion executes, and the surface does not second-guess them.
+ */
+function protectedPathsOf(explicit: ReadonlyArray<string>, baseFiles: ReadonlyArray<string>, declaredFixturePaths: ReadonlySet<string>): string[] {
+  const baseFileSet = new Set(baseFiles);
+  const paths = new Set<string>();
+  for (const entry of explicit) {
+    if (baseFileSet.has(entry) || declaredFixturePaths.has(entry)) {
+      paths.add(entry);
+      continue;
+    }
+    if (FIXTURE_PATH_PATTERNS.some((pattern) => pattern.test(`${entry}/`))) {
+      paths.add(entry);
+      continue;
+    }
+    // A directory the walk CAN read is protected exactly as it always was: the
+    // closure is followed from the modules inside it, and narrowing the
+    // protected path here would quietly stop protecting the data files beside
+    // them. The narrowing below is only for a directory that holds no module
+    // this walk can analyse at all.
+    if (baseFiles.some((file) => file.startsWith(`${entry}/`) && languageOf(file) !== null)) {
+      paths.add(entry);
+      continue;
+    }
+    const named = baseFiles.filter(
+      (file) => file.startsWith(`${entry}/`) && (FIXTURE_PATH_PATTERNS.some((pattern) => pattern.test(file)) || TEST_SUPPORT_PATTERNS.some((pattern) => pattern.test(file))),
+    );
+    if (named.length === 0) paths.add(entry);
+    else for (const file of named) paths.add(file);
+  }
+  return [...paths];
 }
 
 /** Files that match a conventional fixture path — the shared `*` entry points. */
@@ -375,23 +555,201 @@ function languageOf(file: string): ModuleLanguage | null {
 }
 
 /**
+ * Characters after which a `/` opens a regular-expression literal rather than
+ * dividing. Everything else (an identifier, a digit, a closing bracket) means
+ * division, and `a / *b` is not valid JavaScript — so after those a `/*` really
+ * is a comment.
+ */
+const REGEX_LITERAL_PRECEDERS: ReadonlySet<string> = new Set(['', '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '~', '^', '<', '>']);
+
+/** Index just past a quoted string that starts at `start`, or the line end when it never closes. */
+function skipQuoted(source: string, start: number, quote: string): number {
+  for (let i = start + 1; i < source.length; i += 1) {
+    const ch = source[i]!;
+    // An unterminated literal is a parse this cannot trust; stopping at the
+    // newline resumes at code level rather than swallowing the rest of the file.
+    if (ch === '\n') return i;
+    if (ch === '\\') {
+      i += 1;
+      continue;
+    }
+    if (ch === quote) return i + 1;
+  }
+  return source.length;
+}
+
+/** Index just past a template literal, following `${...}` through nested quotes and braces. */
+function skipTemplate(source: string, start: number): number {
+  let depth = 0;
+  for (let i = start + 1; i < source.length; i += 1) {
+    const ch = source[i]!;
+    if (ch === '\\') {
+      i += 1;
+      continue;
+    }
+    if (depth === 0) {
+      if (ch === '`') return i + 1;
+      if (ch === '$' && source[i + 1] === '{') {
+        depth = 1;
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') depth -= 1;
+    else if (ch === '"' || ch === "'") i = skipQuoted(source, i, ch) - 1;
+    else if (ch === '`') i = skipTemplate(source, i) - 1;
+  }
+  return source.length;
+}
+
+/**
+ * Index just past a regular-expression literal, or null when it does not close
+ * on its own line — in which case the `/` was something else and the caller
+ * falls back to reading it as a comment.
+ */
+function skipRegexLiteral(source: string, start: number): number | null {
+  let inClass = false;
+  for (let i = start + 1; i < source.length; i += 1) {
+    const ch = source[i]!;
+    if (ch === '\n') return null;
+    if (ch === '\\') {
+      i += 1;
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']') inClass = false;
+      continue;
+    }
+    if (ch === '[') inClass = true;
+    else if (ch === '/') return i + 1;
+  }
+  return null;
+}
+
+/** Index just past a Python triple-quoted string, or null when it never closes. */
+function skipPythonTriple(source: string, start: number, quote: string): number | null {
+  const closer = quote.repeat(3);
+  for (let i = start + 3; i < source.length; i += 1) {
+    if (source[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (source.startsWith(closer, i)) return i + 3;
+  }
+  return null;
+}
+
+/**
  * Drop comments before scanning for imports, so a commented-out import does
- * not enlarge the surface. Deliberately crude: block comments non-greedily,
- * and only whole lines that begin with `//`, which cannot swallow a URL
- * inside a string literal.
+ * not enlarge the surface — and, far more importantly, so an ordinary string
+ * literal is never read as the start of one.
+ *
+ * A regex over raw source cannot tell the glob in `readdir('cases/*')` from the
+ * opening of a block comment. Read as a comment it swallows everything up to
+ * the next `*` + `/`, real imports included, and the walk then reports a clean
+ * surface for files it never saw. That is a FALSE ACCEPT, not merely a false
+ * refusal, so the scan below tracks which state it is in: string, template,
+ * regular expression, comment or code.
+ *
+ * Comment bytes are replaced by spaces of the same length and newlines are
+ * kept, so every offset in the result still names the same position in the
+ * original — `atCodeLevel` and the line-anchored Python patterns both depend
+ * on that. Where the scanner cannot be sure (an unterminated block comment, an
+ * unclosed triple quote) it strips NOTHING: over-including a commented import
+ * enlarges the surface, which is the safe direction, while over-stripping
+ * hides one.
  */
 function stripComments(source: string, language: ModuleLanguage): string {
-  if (language === 'python') {
-    return source
-      .split('\n')
-      .map((line) => (line.trimStart().startsWith('#') ? '' : line))
-      .join('\n');
+  return language === 'python' ? stripPythonComments(source) : stripJavascriptComments(source);
+}
+
+function stripJavascriptComments(source: string): string {
+  const out = source.split('');
+  const blank = (from: number, to: number): void => {
+    for (let i = from; i < to; i += 1) if (out[i] !== '\n') out[i] = ' ';
+  };
+  let significant = '';
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === '"' || ch === "'") {
+      i = skipQuoted(source, i, ch);
+      significant = ch;
+      continue;
+    }
+    if (ch === '`') {
+      i = skipTemplate(source, i);
+      significant = ch;
+      continue;
+    }
+    if (ch === '/') {
+      const next = source[i + 1];
+      if (next === '/') {
+        const newline = source.indexOf('\n', i);
+        const stop = newline < 0 ? source.length : newline;
+        blank(i, stop);
+        i = stop;
+        continue;
+      }
+      if (next === '*') {
+        const closer = source.indexOf('*/', i + 2);
+        if (closer < 0) {
+          // Not a comment this scanner can bound. Leave the text alone.
+          i += 2;
+          continue;
+        }
+        blank(i, closer + 2);
+        i = closer + 2;
+        continue;
+      }
+      if (REGEX_LITERAL_PRECEDERS.has(significant)) {
+        const end = skipRegexLiteral(source, i);
+        if (end !== null) {
+          i = end;
+          significant = '/';
+          continue;
+        }
+      }
+    }
+    if (!/\s/.test(ch)) significant = ch;
+    i += 1;
   }
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .split('\n')
-    .map((line) => (line.trimStart().startsWith('//') ? '' : line))
-    .join('\n');
+  return out.join('');
+}
+
+function stripPythonComments(source: string): string {
+  const out = source.split('');
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === '#') {
+      const newline = source.indexOf('\n', i);
+      const stop = newline < 0 ? source.length : newline;
+      for (let k = i; k < stop; k += 1) out[k] = ' ';
+      i = stop;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      if (source.startsWith(ch.repeat(3), i)) {
+        const end = skipPythonTriple(source, i, ch);
+        if (end === null) {
+          i += 3;
+          continue;
+        }
+        // A docstring is the one place a multi-line quotation can put
+        // `from x import y` at the start of a line, where the line-anchored
+        // import patterns would read it as an import the module never makes.
+        for (let k = i; k < end; k += 1) if (out[k] !== '\n') out[k] = ' ';
+        i = end;
+        continue;
+      }
+      i = skipQuoted(source, i, ch);
+      continue;
+    }
+    i += 1;
+  }
+  return out.join('');
 }
 
 interface Specifier {
@@ -587,13 +945,49 @@ function resolvePython(entry: PythonImport, fromFile: string, baseFileSet: Reado
   return resolved;
 }
 
+/**
+ * A gap plus the file whose walk produced it.
+ *
+ * The origin is not part of the public `SurfaceGap` — it exists so a gap found
+ * while walking the SHARED fixture closure can be attributed to the criteria
+ * that actually execute that file, and dropped when no criterion executes it
+ * at all. A broken import in a fixture no check ever runs is a fact about the
+ * repository, not a reason to refuse every criterion in it.
+ */
+interface GapRecord {
+  readonly criterionId: string;
+  readonly kind: SurfaceGapKind;
+  readonly detail: string;
+  readonly origin: string | null;
+}
+
+/**
+ * The separator that keeps two criteria's identical messages apart in the
+ * dedup maps. It is spelled as an escape on purpose: a literal control byte in
+ * the source makes the whole module binary to `git`, `grep` and `file`, and a
+ * module nobody can search is a module nobody can review.
+ */
+const KEY_SEPARATOR = '\u001F';
+
+/** The remedy that closes a limitation, repeated wherever one is raised. */
+const CONSERVATIVE_REMEDY =
+  'the surface for this criterion therefore protects only what can be identified without parsing (its entry points, the paths the check names, and conventional fixture paths), and its closure was NOT proven \u2014 a candidate could change a file the criterion executes that this walk never saw. To establish it, list the files the criterion executes under "fixtures" in that check\'s entry in .workforce/checks.json';
+
 interface WalkState {
   filesVisited: number;
   truncated: boolean;
   /** The criterion whose walk is running, so every gap knows what it makes unprovable. */
   criterionId: string;
+  /**
+   * True while walking a criterion whose `fixtures` the operator declared. The
+   * declaration IS the closure, so the walk stops reporting that it could not
+   * work one out for itself.
+   */
+  fixturesDeclared: boolean;
   /** Gaps, keyed by criterion and text so the same fact is reported once. */
-  readonly gaps: Map<string, SurfaceGap>;
+  readonly gaps: Map<string, GapRecord>;
+  /** Limitations, keyed the same way. These are reported and never refused. */
+  readonly limitations: Map<string, SurfaceLimitation>;
   readonly maxFiles: number;
   readonly maxDepth: number;
   readonly baseFileSet: ReadonlySet<string>;
@@ -603,15 +997,28 @@ interface WalkState {
   readonly read: (relativePath: string) => Promise<string | null>;
 }
 
-function note(state: WalkState, kind: SurfaceGapKind, text: string): void {
-  const key = `${state.criterionId} ${text}`;
+function note(state: WalkState, kind: SurfaceGapKind, text: string, origin: string | null = null): void {
+  const key = `${state.criterionId}${KEY_SEPARATOR}${text}`;
   if (state.gaps.has(key)) return;
   if (state.gaps.size >= MAX_REPORTED_UNRESOLVED) {
     const overflow = `(further unresolved references were not listed; the first ${MAX_REPORTED_UNRESOLVED} are above)`;
-    state.gaps.set(`${state.criterionId} ${overflow}`, { criterionId: state.criterionId, kind: 'truncated', detail: overflow });
+    state.gaps.set(`${state.criterionId}${KEY_SEPARATOR}${overflow}`, { criterionId: state.criterionId, kind: 'truncated', detail: overflow, origin: null });
     return;
   }
-  state.gaps.set(key, { criterionId: state.criterionId, kind, detail: text });
+  state.gaps.set(key, { criterionId: state.criterionId, kind, detail: text, origin });
+}
+
+/**
+ * Record a fact that makes the surface CONSERVATIVE rather than unusable.
+ *
+ * The difference from `note` is the whole of defect 1: a limitation is
+ * reported, printed and recorded, and the run proceeds. Nothing here ever
+ * reaches `surfaceBlockers`.
+ */
+function limit(state: WalkState, kind: SurfaceLimitationKind, text: string): void {
+  const key = `${state.criterionId}${KEY_SEPARATOR}${text}`;
+  if (state.limitations.has(key) || state.limitations.size >= MAX_REPORTED_UNRESOLVED) return;
+  state.limitations.set(key, { criterionId: state.criterionId, kind, detail: text });
 }
 
 /**
@@ -656,9 +1063,17 @@ function looksLikeShellScript(file: string, raw: string): boolean {
  * the walk follows it and the criterion is protected exactly as if the check
  * had named `verify/run.js` itself. A word carrying `$` is not literal and is
  * skipped, which leaves the gap reported rather than guessed at.
+ *
+ * `computed` separates the two ways this can come back empty, and they are not
+ * the same fact. A script whose runner is `"$RUNNER"` can execute anything, so
+ * nothing bounds the criterion and the run refuses. A script whose commands
+ * are all literal and simply name no file of this repository — `go test ./...`,
+ * `cargo test`, `make check` — runs an external toolchain: the walk has no
+ * analysis to offer, which is a limitation to state, not a reason to refuse.
  */
-function pathsFromShellScript(file: string, raw: string, state: WalkState): string[] {
+function pathsFromShellScript(file: string, raw: string, state: WalkState): { paths: string[]; computed: boolean } {
   const found = new Set<string>();
+  let computed = false;
   const directory = path.posix.dirname(file);
   for (const line of raw.split('\n')) {
     for (const segment of line.replace(/#.*$/, '').split(SCRIPT_SEPARATORS)) {
@@ -678,7 +1093,11 @@ function pathsFromShellScript(file: string, raw: string, state: WalkState): stri
         continue;
       }
       for (const word of words.slice(index)) {
-        if (word.startsWith('-') || word.includes('$')) continue;
+        if (word.startsWith('-')) continue;
+        if (word.includes('$')) {
+          computed = true;
+          continue;
+        }
         for (const candidate of [normalizeRelative(word), normalizeRelative(path.posix.join(directory, word))]) {
           if (candidate !== null && state.baseFileSet.has(candidate)) found.add(candidate);
         }
@@ -686,7 +1105,7 @@ function pathsFromShellScript(file: string, raw: string, state: WalkState): stri
     }
   }
   found.delete(file);
-  return [...found];
+  return { paths: [...found], computed };
 }
 
 /**
@@ -713,7 +1132,11 @@ function modulesUnder(directory: string, state: WalkState): string[] {
   const contained = state.baseFiles.filter((file) => file.startsWith(`${directory}/`) && languageOf(file) !== null);
   if (contained.length > MAX_DIRECTORY_ENTRIES) {
     state.truncated = true;
-    note(state, 'truncated', `${directory} holds ${contained.length} module files; only the first ${MAX_DIRECTORY_ENTRIES} were walked`);
+    limit(
+      state,
+      'analysis_truncated',
+      `${directory} holds ${contained.length} module files; only the first ${MAX_DIRECTORY_ENTRIES} were walked, so the closure below is a prefix of what this criterion may execute`,
+    );
     return contained.slice(0, MAX_DIRECTORY_ENTRIES);
   }
   return contained;
@@ -752,18 +1175,18 @@ async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, d
       if (language === null && !declared.has(file)) continue;
       if (depth >= state.maxDepth) {
         state.truncated = true;
-        note(state, 'truncated', `the import walk stopped at ${file}: depth cap ${state.maxDepth} reached, so its own imports are NOT part of this surface`);
+        limit(state, 'analysis_truncated', `the import walk stopped at ${file}: depth cap ${state.maxDepth} reached, so its own imports are NOT part of this surface`);
         continue;
       }
       if (state.filesVisited >= state.maxFiles) {
         state.truncated = true;
-        note(state, 'truncated', `the import walk stopped after ${state.maxFiles} files; files beyond that cap are NOT part of this surface`);
+        limit(state, 'analysis_truncated', `the import walk stopped after ${state.maxFiles} files; files beyond that cap are NOT part of this surface`);
         return reached;
       }
       state.filesVisited += 1;
       const raw = await readOnce(state, file);
       if (raw === null) {
-        note(state, 'unreadable', `${file} could not be read at the base revision, so what it executes was not followed`);
+        note(state, 'unreadable', `${file} could not be read at the base revision, so what it executes was not followed`, file);
         continue;
       }
 
@@ -787,8 +1210,8 @@ async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, d
       if (language === null) {
         if (looksLikeShellScript(file, raw) && raw.length <= MAX_SCRIPT_BYTES) {
           const execed = pathsFromShellScript(file, raw, state);
-          if (execed.length > 0) {
-            for (const target of execed) {
+          if (execed.paths.length > 0) {
+            for (const target of execed.paths) {
               // The runner a criterion's script execs is what that criterion
               // executes, so it is an entry point of the criterion in every
               // sense: followed like one, and protected like one. Anything
@@ -801,16 +1224,41 @@ async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, d
             }
             continue;
           }
-          note(state, 'entry_not_module', `${file} is executed by a criterion and is a shell script, but no literal command in it names a file of this repository, so what it runs was not followed`);
+          if (execed.computed || state.fixturesDeclared) {
+            // A runner chosen at run time is not bounded by anything in the
+            // tree, so the criterion really is unprovable. (When the operator
+            // declared the closure, `fixturesDeclared` suppresses the refusal
+            // below instead — see `walk`.)
+            if (!state.fixturesDeclared) {
+              note(
+                state,
+                'entry_not_module',
+                `${file} is executed by a criterion and is a shell script, but no literal command in it names a file of this repository, so what it runs was not followed`,
+                file,
+              );
+            }
+            continue;
+          }
+          limit(
+            state,
+            'external_toolchain',
+            `${file} is executed by a criterion and is a shell script whose commands are all literal but name no file of this repository, so it runs an external toolchain this walk cannot analyse; ${CONSERVATIVE_REMEDY}`,
+          );
           continue;
         }
-        note(state, 'entry_not_module', `${file} is executed by a criterion but is not a JavaScript, TypeScript or Python module, so what it runs was not followed`);
+        if (!state.fixturesDeclared) {
+          limit(
+            state,
+            'language_unsupported',
+            `${file} is executed by a criterion but is not a JavaScript, TypeScript or Python module, so its dependencies were not analysed; ${CONSERVATIVE_REMEDY}`,
+          );
+        }
         continue;
       }
 
       if (raw.length > MAX_FILE_BYTES) {
         state.truncated = true;
-        note(state, 'truncated', `${file} is larger than ${MAX_FILE_BYTES} bytes and was not scanned for imports`);
+        limit(state, 'analysis_truncated', `${file} is larger than ${MAX_FILE_BYTES} bytes and was not scanned for imports`);
         continue;
       }
       const source = stripComments(raw, language);
@@ -828,20 +1276,20 @@ async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, d
               targets.push(...contained);
               continue;
             }
-            note(state, 'computed_specifier', `${file} loads a computed specifier (${specifier.text}); what it executes was not resolved`);
+            note(state, 'computed_specifier', `${file} loads a computed specifier (${specifier.text}); what it executes was not resolved`, file);
             continue;
           }
           const text = specifier.text;
           if (text.length === 0) continue;
           if (/^(?:node|data|bun|file|https?):/.test(text)) continue;
           if (text.startsWith('/')) {
-            note(state, 'unresolved_import', `${file} imports the absolute path "${text}", which is outside the repository tree and was not resolved`);
+            note(state, 'unresolved_import', `${file} imports the absolute path "${text}", which is outside the repository tree and was not resolved`, file);
             continue;
           }
           if (!text.startsWith('.')) continue; // a package: not candidate-writable
           const resolved = resolveJavascript(text, file, state.baseFileSet);
           if (resolved === null) {
-            note(state, 'unresolved_import', `${file} imports "${text}", which does not resolve to a file in the base revision`);
+            note(state, 'unresolved_import', `${file} imports "${text}", which does not resolve to a file in the base revision`, file);
             continue;
           }
           targets.push(resolved);
@@ -850,7 +1298,7 @@ async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, d
         for (const entry of pythonImports(source)) {
           const resolved = resolvePython(entry, file, state.baseFileSet);
           if (resolved.length === 0 && entry.level > 0) {
-            note(state, 'unresolved_import', `${file} imports "${'.'.repeat(entry.level)}${entry.module}", which does not resolve to a module in the base revision`);
+            note(state, 'unresolved_import', `${file} imports "${'.'.repeat(entry.level)}${entry.module}", which does not resolve to a module in the base revision`, file);
             continue;
           }
           targets.push(...resolved);
@@ -914,7 +1362,11 @@ function entryFilesOf(entries: ReadonlyArray<string>, baseFiles: ReadonlyArray<s
     const contained = baseFiles.filter((file) => file.startsWith(`${entry}/`) && languageOf(file) !== null);
     if (contained.length > MAX_DIRECTORY_ENTRIES) {
       state.truncated = true;
-      note(state, 'truncated', `${entry} holds ${contained.length} module files; only the first ${MAX_DIRECTORY_ENTRIES} were walked`);
+      limit(
+        state,
+        'analysis_truncated',
+        `${entry} holds ${contained.length} module files; only the first ${MAX_DIRECTORY_ENTRIES} were walked, so the closure below is a prefix of what this criterion may execute`,
+      );
     }
     for (const file of contained.slice(0, MAX_DIRECTORY_ENTRIES)) files.add(file);
   }
@@ -945,7 +1397,7 @@ function assemble(
 
   if (shared.length > 0 || (reachedByCriterion.get('*')?.dependencies.length ?? 0) > 0) put('*', shared);
   for (const entry of entries) {
-    const direct = [...entry.explicit, ...entry.implicit];
+    const direct = [...entry.protectedPaths, ...entry.implicit];
     if (direct.length === 0 && (reachedByCriterion.get(entry.criterionId)?.dependencies.length ?? 0) === 0) continue;
     put(entry.criterionId, direct);
   }
@@ -992,6 +1444,8 @@ export async function resolveAcceptanceSurface(
       truncated: true,
       unresolved: [detail],
       gaps: [{ criterionId: '*', kind: 'no_reader', detail }],
+      limitations: [],
+      conservative: false,
     });
   }
 
@@ -999,7 +1453,9 @@ export async function resolveAcceptanceSurface(
     filesVisited: 0,
     truncated: false,
     criterionId: '*',
-    gaps: new Map<string, SurfaceGap>(),
+    fixturesDeclared: false,
+    gaps: new Map<string, GapRecord>(),
+    limitations: new Map<string, SurfaceLimitation>(),
     maxFiles: context.limits?.maxFiles ?? DEFAULT_MAX_FILES,
     maxDepth: context.limits?.maxDepth ?? DEFAULT_MAX_DEPTH,
     baseFileSet: new Set(baseFiles),
@@ -1012,17 +1468,30 @@ export async function resolveAcceptanceSurface(
   const reachedByCriterion = new Map<string, { suite: ReadonlyArray<string>; dependencies: ReadonlyArray<string> }>();
   const allEntryPoints = new Set<string>();
 
-  const walk = async (id: string, entryPaths: ReadonlyArray<string>, suiteDirectories: ReadonlyArray<string>, namedByCheck: boolean): Promise<void> => {
+  const walk = async (
+    id: string,
+    entryPaths: ReadonlyArray<string>,
+    suiteDirectories: ReadonlyArray<string>,
+    namedByCheck: boolean,
+    fixturesDeclared = false,
+  ): Promise<void> => {
     state.criterionId = id;
+    state.fixturesDeclared = fixturesDeclared;
     for (const entry of entryPaths) allEntryPoints.add(entry);
     const entryFiles = entryFilesOf(entryPaths, baseFiles, state);
     if (entryFiles.length === 0) {
-      // Entry points that stand for nothing: a directory the check names whose
-      // files are all unreadable to this walk, or a link that leaves the tree.
-      // Silence here would read as "nothing to protect" rather than "we found
-      // nothing", which is the difference this module exists to make.
-      if (namedByCheck && entryPaths.length > 0) {
-        note(state, 'entry_not_module', `the entry point(s) ${entryPaths.join(', ')} named by this criterion contain no JavaScript, TypeScript or Python module, so nothing about what it executes was resolved`);
+      // Entry points that stand for nothing THIS WALK can read: a Go, Rust,
+      // Ruby or Swift directory, a link that leaves the tree. Silence would
+      // read as "nothing to protect" rather than "we found nothing", but a
+      // refusal would read as "this repository cannot be verified", and that
+      // is false: the walk has no parser for those languages, which is a fact
+      // about the walk. So it is stated and the run proceeds.
+      if (namedByCheck && entryPaths.length > 0 && !fixturesDeclared) {
+        limit(
+          state,
+          'language_unsupported',
+          `the entry point(s) ${entryPaths.join(', ')} named by this criterion contain no JavaScript, TypeScript or Python module, so no dependency analysis was possible for it; ${CONSERVATIVE_REMEDY}`,
+        );
       }
       return;
     }
@@ -1051,18 +1520,119 @@ export async function resolveAcceptanceSurface(
   // closure is shared too.
   await walk('*', shared, [], false);
   for (const entry of entries) {
-    await walk(entry.criterionId, entry.explicit, suiteDirectoriesOf(entry.explicit, state.baseFileSet), true);
+    await walk(entry.criterionId, entry.explicit, suiteDirectoriesOf(entry.explicit, state.baseFileSet), true, entry.fixturesDeclared);
+  }
+  // A criterion whose command names no path this tree contains, in a repository
+  // with no conventionally named fixture either: `go test ./...`, `cargo test`,
+  // `make check`. Nothing at all was identified for it, and saying nothing
+  // would let an empty surface read as a clean one.
+  if (shared.length === 0) {
+    for (const entry of entries) {
+      if (entry.explicit.length > 0 || entry.fixturesDeclared) continue;
+      state.criterionId = entry.criterionId;
+      limit(
+        state,
+        'external_toolchain',
+        `this criterion's command names no path this repository contains and the tree holds no conventionally named fixture, so nothing about what it executes was identified; ${CONSERVATIVE_REMEDY}`,
+      );
+    }
+  }
+  // A declared fixture path that names nothing at the base revision is not a
+  // declaration, it is a typo. Silently ignoring it would let the operator
+  // believe a closure was established that never was.
+  for (const entry of entries) {
+    if (entry.missingFixtures.length === 0) continue;
+    state.criterionId = entry.criterionId;
+    state.fixturesDeclared = false;
+    note(
+      state,
+      'declared_fixture_missing',
+      `this criterion declares the fixture path(s) ${entry.missingFixtures.join(', ')} in .workforce/checks.json, and the base revision contains no such path, so the closure they were meant to declare is not established`,
+    );
   }
 
-  const gaps = [...state.gaps.values()].sort((left, right) => left.criterionId.localeCompare(right.criterionId) || left.detail.localeCompare(right.detail));
+  const records = attributeSharedGaps([...state.gaps.values()], entries, reachedByCriterion, shared, state);
+  const gaps: SurfaceGap[] = records
+    .map((record) => ({ criterionId: record.criterionId, kind: record.kind, detail: record.detail }))
+    .sort((left, right) => left.criterionId.localeCompare(right.criterionId) || left.detail.localeCompare(right.detail));
+  const limitations = [...state.limitations.values()].sort(
+    (left, right) => left.criterionId.localeCompare(right.criterionId) || left.detail.localeCompare(right.detail),
+  );
   return assemble(entries, shared, reachedByCriterion, definitionPathsOf(baseFiles), {
     moduleGraphResolved: true,
     entryPoints: [...allEntryPoints].sort(),
     filesVisited: state.filesVisited,
     truncated: state.truncated,
-    unresolved: [...new Set(gaps.map((gap) => gap.detail))].sort(),
+    unresolved: [...new Set([...gaps.map((gap) => gap.detail), ...limitations.map((limitation) => limitation.detail)])].sort(),
     gaps,
+    limitations,
+    conservative: limitations.length > 0,
   });
+}
+
+/**
+ * Re-home the gaps found while walking the SHARED fixture closure.
+ *
+ * `*` means "every criterion", and a `*` blocker refuses the whole repository.
+ * That is right for a file every criterion executes and wrong for everything
+ * else: one unresolvable relative import in a legacy fixture that no check
+ * runs used to block every criterion in the tree, which is a false refusal
+ * dressed as a safety property. So a shared-closure gap is attributed to the
+ * criteria whose own closure contains the file that produced it, and when no
+ * criterion executes that file it is demoted to a limitation — recorded,
+ * visible, and not a reason to refuse a run.
+ *
+ * A criterion that names no entry paths of its own is the exception: it
+ * discovers its tests conventionally (`pytest`, `npm test` with no argument
+ * that resolves), so the shared closure IS what it executes and it owns every
+ * gap in it.
+ */
+function attributeSharedGaps(
+  records: ReadonlyArray<GapRecord>,
+  entries: ReadonlyArray<CriterionEntries>,
+  reachedByCriterion: ReadonlyMap<string, { suite: ReadonlyArray<string>; dependencies: ReadonlyArray<string> }>,
+  shared: ReadonlyArray<string>,
+  state: WalkState,
+): GapRecord[] {
+  const sharedReached = reachedByCriterion.get('*');
+  const sharedFiles = new Set<string>([...shared, ...(sharedReached?.suite ?? []), ...(sharedReached?.dependencies ?? [])]);
+  const executedBy = new Map<string, Set<string>>();
+  for (const entry of entries) {
+    const reached = reachedByCriterion.get(entry.criterionId);
+    const files = new Set<string>([...entry.explicit, ...(reached?.suite ?? []), ...(reached?.dependencies ?? [])]);
+    // No entry paths of its own: whatever the conventions found is what it runs.
+    if (entry.explicit.length === 0) for (const file of sharedFiles) files.add(file);
+    executedBy.set(entry.criterionId, files);
+  }
+
+  const kept: GapRecord[] = [];
+  const seen = new Set<string>();
+  const keep = (record: GapRecord): void => {
+    const key = `${record.criterionId}${KEY_SEPARATOR}${record.detail}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    kept.push(record);
+  };
+
+  for (const record of records) {
+    if (record.criterionId !== '*') {
+      keep(record);
+      continue;
+    }
+    const origin = record.origin;
+    const owners = origin === null ? [...executedBy.keys()] : [...executedBy].filter(([, files]) => files.has(origin)).map(([id]) => id);
+    if (owners.length === 0) {
+      state.criterionId = '*';
+      limit(
+        state,
+        'unexecuted_fixture',
+        `${record.detail} \u2014 this is a file under a conventional fixture path that no criterion's evidence executes, so it is recorded rather than treated as a reason to refuse any criterion`,
+      );
+      continue;
+    }
+    for (const owner of owners) keep({ ...record, criterionId: owner });
+  }
+  return kept;
 }
 
 /**
@@ -1084,6 +1654,8 @@ export function acceptanceSurface(checks: ReadonlyArray<CheckSpec>, baseFiles: R
     truncated: true,
     unresolved: [detail],
     gaps: [{ criterionId: '*', kind: 'no_reader', detail }],
+    limitations: [],
+    conservative: false,
   });
 }
 
@@ -1134,8 +1706,11 @@ function remediesFor(kinds: ReadonlySet<SurfaceGapKind>): string[] {
   const remedies: string[] = [];
   if (kinds.has('entry_not_module')) {
     remedies.push(
-      'To resolve it: name the JavaScript, TypeScript or Python file the criterion ultimately runs as the check\'s command or in its "args" in .workforce/checks.json, so the walk starts from a module rather than from a file it cannot read; a shell entry point is followed only as far as a literal command in it names a file of this repository.',
+      'To resolve it: name the JavaScript, TypeScript or Python file the criterion ultimately runs as the check\'s command or in its "args" in .workforce/checks.json, so the walk starts from a module rather than from a file it cannot read; or list the files the criterion executes under "fixtures" in that check\'s entry, which declares the closure outright. A shell entry point is followed only as far as a literal command in it names a file of this repository, and a runner chosen at run time names none.',
     );
+  }
+  if (kinds.has('declared_fixture_missing')) {
+    remedies.push('To resolve it: correct the "fixtures" paths in .workforce/checks.json so each one names a path the base revision contains, or remove the ones that no longer exist.');
   }
   if (kinds.has('computed_specifier')) {
     remedies.push(
