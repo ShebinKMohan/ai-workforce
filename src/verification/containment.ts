@@ -70,19 +70,43 @@ export class ContainmentError extends Error {
 
 const MANIFEST_MAX_BYTES = 64 * 1024;
 
-/** True when `dir` has the shape `ensureStateRoot` creates: a paths manifest beside `runs/` and `workspaces/`. */
-export function looksLikeStateRoot(dir: string): boolean {
+/** The paths manifest `dir` declares about itself, or null when it has none this module can read. */
+function readPathsManifest(dir: string): { readonly stateRoot: string; readonly workspaceRoot: string } | null {
   try {
     const manifest = path.join(dir, 'manifest.json');
     const stats = statSync(manifest);
-    if (!stats.isFile() || stats.size > MANIFEST_MAX_BYTES) return false;
+    if (!stats.isFile() || stats.size > MANIFEST_MAX_BYTES) return null;
+    return PathsManifestSchema.parse(JSON.parse(readFileSync(manifest, 'utf8')));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when `dir` *says it is* a coordinator state root: it carries a valid
+ * paths manifest whose own `stateRoot` is this directory.
+ *
+ * The identification is the manifest's declaration, not the directory's shape.
+ * An earlier version also required a `workspaces/` directory, which turned the
+ * guard off in exactly the configuration that needs it most: `--workspace-root`
+ * pointing outside the state root means `ensureStateRoot` never creates
+ * `workspaces/` there, `looksLikeStateRoot` answered false, no root was found,
+ * and every check ran with the guard silently disabled. A state root with its
+ * workspaces elsewhere is still a state root — it still holds `state.sqlite`,
+ * the coordinator lock and every run artifact.
+ */
+export function looksLikeStateRoot(dir: string): boolean {
+  const manifest = readPathsManifest(dir);
+  if (manifest === null) return false;
+  try {
     if (!statSync(path.join(dir, 'runs')).isDirectory()) return false;
-    if (!statSync(path.join(dir, 'workspaces')).isDirectory()) return false;
-    PathsManifestSchema.parse(JSON.parse(readFileSync(manifest, 'utf8')));
-    return true;
   } catch {
     return false;
   }
+  // The manifest must be talking about this directory and not a copy of
+  // someone else's: compare after symlink resolution so /var and /private/var
+  // are the same root.
+  return canonicalize(manifest.stateRoot) === canonicalize(dir);
 }
 
 /**
@@ -104,6 +128,104 @@ export function findEnclosingStateRoot(start: string): string | null {
     dir = parent;
   }
   return null;
+}
+
+/** How the guarded state root was established, recorded so the answer is never a guess. */
+export type StateRootOrigin =
+  /** The coordinator named it. It knows its own state root; nothing has to be inferred. */
+  | 'declared'
+  /** Found by walking up from the check's output location, because no caller named one. */
+  | 'discovered'
+  /** The caller stated there is none to guard (a check whose output lives nowhere near a state root). */
+  | 'none'
+  /** There should have been one and it could not be established. Never a silent pass. */
+  | 'undetermined';
+
+export interface StateRootResolution {
+  /** The directory to fingerprint, or null when there is nothing to guard. */
+  readonly root: string | null;
+  readonly origin: StateRootOrigin;
+  /**
+   * True when a root that ought to have been guarded could not be established.
+   * A caller that gets this must record it as an unresolved fact, never treat
+   * it as "nothing to guard".
+   */
+  readonly undetermined: boolean;
+  /** Why the answer is what it is, in one sentence, for a receipt. */
+  readonly note: string;
+}
+
+export interface ResolveStateRootInput {
+  /**
+   * The state root the coordinator itself knows. `undefined` means "no caller
+   * said"; `null` means "there is deliberately none".
+   */
+  readonly declared?: string | null | undefined;
+  /** Where this check's evidence is written, used only when nothing was declared. */
+  readonly outputRoot: string;
+}
+
+/**
+ * Decide what the state-root guard protects.
+ *
+ * The state root is a path the coordinator already knows, so the honest answer
+ * is to be told it. Inference from directory shape is the fallback for callers
+ * that have no coordinator — and when the fallback finds nothing while the
+ * output location itself is the coordinator's, that is a fact to report, not a
+ * reason to guard nothing.
+ */
+export function resolveStateRoot(input: ResolveStateRootInput): StateRootResolution {
+  if (input.declared === null) {
+    return {
+      root: null,
+      origin: 'none',
+      undetermined: false,
+      note: 'the caller stated that no coordinator state root encloses this check, so there was nothing to compare',
+    };
+  }
+  if (input.declared !== undefined) {
+    const declared = path.resolve(input.declared);
+    let isDirectory = false;
+    try {
+      isDirectory = statSync(declared).isDirectory();
+    } catch {
+      isDirectory = false;
+    }
+    if (!isDirectory) {
+      // Named but not there: the one case that must never look like "no state
+      // root", because something is wrong with what the coordinator told us.
+      return {
+        root: null,
+        origin: 'undetermined',
+        undetermined: true,
+        note: `the coordinator named ${declared} as its state root, but no such directory exists, so nothing could be guarded and this check proves nothing about coordinator state`,
+      };
+    }
+    const identified = looksLikeStateRoot(declared);
+    return {
+      root: declared,
+      origin: 'declared',
+      undetermined: false,
+      note: identified
+        ? `the coordinator named ${declared} as its state root, and that directory's own paths manifest identifies it as one`
+        : `the coordinator named ${declared} as its state root; it carries no paths manifest identifying it as one, and it is guarded on the coordinator's word`,
+    };
+  }
+  const discovered = findEnclosingStateRoot(input.outputRoot);
+  if (discovered !== null) {
+    return {
+      root: discovered,
+      origin: 'discovered',
+      undetermined: false,
+      note: `no state root was declared; ${discovered} encloses this check's output location and its own paths manifest identifies it as one`,
+    };
+  }
+  return {
+    root: null,
+    origin: 'none',
+    undetermined: false,
+    note: "no state root was declared and none encloses this check's output location, so there was nothing to compare; the check still ran outside every protected root",
+  };
 }
 
 // ---------------------------------------------------------------------------

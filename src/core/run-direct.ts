@@ -262,13 +262,153 @@ export function readUnenforceable(events: ReadonlyArray<RuntimeEvent>): Readonly
   return [];
 }
 
+/** The adapter's own identity for a reported change, when it supplies one. */
+function changeIdentity(event: RuntimeEvent): string | null {
+  for (const field of ['toolUseId', 'itemId'] as const) {
+    const value = event.payload[field];
+    if (typeof value === 'string' && value.length > 0) return `${field}:${value}`;
+  }
+  return null;
+}
+
+export interface UnplaceableChange {
+  /** The path the runtime reported, or a stand-in when it reported none. */
+  readonly descriptor: string;
+  readonly reason: string;
+}
+
+const UNPLACEABLE_LIMIT = 20;
+
+/**
+ * Changes the runtime reported that this run cannot place inside the granted
+ * paths.
+ *
+ * `withinAllowedPaths` is the adapter's answer to "did this write land inside
+ * the boundary?", and its absence is not a yes: the runtime said a change
+ * happened and the adapter could not say where. The Codex adapter reports
+ * exactly this shape for a `fileChange` item that names no path at all.
+ *
+ * A change the runtime *refused* is excluded: nothing was written, so there is
+ * nothing to place. Reports are grouped by the adapter's own item id so that
+ * the "started" and "completed" halves of one change count once, with the
+ * later record deciding.
+ */
+export function readUnplaceableChanges(events: ReadonlyArray<RuntimeEvent>): ReadonlyArray<UnplaceableChange> {
+  const latest = new Map<string, RuntimeEvent>();
+  let unkeyed = 0;
+  for (const event of events) {
+    if (event.kind !== 'file_change') continue;
+    unkeyed += 1;
+    latest.set(changeIdentity(event) ?? `#unkeyed-${unkeyed}`, event);
+  }
+  const out: UnplaceableChange[] = [];
+  for (const event of latest.values()) {
+    const payload = event.payload;
+    if (typeof payload['withinAllowedPaths'] === 'boolean') continue;
+    if (payload['denied'] === true || (payload['phase'] === 'completed' && payload['applied'] === false)) continue;
+    const reported = typeof payload['path'] === 'string' && payload['path'].length > 0 ? (payload['path'] as string) : null;
+    out.push(
+      reported === null
+        ? { descriptor: '(a change the runtime named no path for)', reason: 'the runtime reported a change without naming a path, so nothing about it can be placed inside the granted paths' }
+        : { descriptor: reported, reason: 'the adapter could not resolve that path, so it could not say whether the write landed inside the granted paths' },
+    );
+    if (out.length >= UNPLACEABLE_LIMIT) break;
+  }
+  return out;
+}
+
+export interface WriteBoundaryObservation {
+  /** What the capability table led this run to expect. Null when the profile writes nothing. */
+  readonly expected: boolean | null;
+  /**
+   * What this run's own evidence establishes. Null when the profile writes
+   * nothing, or when there is no evidence at all to stand behind an expected
+   * boundary — an unproven claim is recorded as unproven, never as true.
+   */
+  readonly held: boolean | null;
+  readonly escapes: ReadonlyArray<string>;
+  readonly unconfirmedEscapes: ReadonlyArray<string>;
+  readonly unplaceable: ReadonlyArray<UnplaceableChange>;
+  /** One sentence per reason this run cannot record that the boundary held. */
+  readonly findings: ReadonlyArray<string>;
+}
+
+/**
+ * What THIS RUN observed about its write boundary, as opposed to what the
+ * adapter's capability table expects of the runtime in general.
+ *
+ * The table is a claim about a version on a platform, established somewhere
+ * else, at some other time. It is a fine statement of what should happen and a
+ * useless statement of what did: a run whose own evidence lists a successful
+ * write outside the granted paths has watched the boundary fail, whatever the
+ * table says. So evidence decides, in one direction only — evidence can refute
+ * an expected boundary, and it can never manufacture one the runtime does not
+ * enforce.
+ */
+export function observeWriteBoundary(input: {
+  readonly containment: ContainmentAssessment;
+  readonly evidence: TurnEvidence | null;
+  readonly events: ReadonlyArray<RuntimeEvent>;
+}): WriteBoundaryObservation {
+  const { containment, evidence, events } = input;
+  const expected = containment.writes ? containment.status !== 'unsupported' : null;
+  if (!containment.writes) {
+    return { expected, held: null, escapes: [], unconfirmedEscapes: [], unplaceable: [], findings: [] };
+  }
+
+  const escapes = evidence?.fileChangesOutsideAllowedPaths ?? [];
+  const unconfirmedEscapes = evidence?.unconfirmedFileChangesOutsideAllowedPaths ?? [];
+  const unplaceable = readUnplaceableChanges(events);
+  const findings: string[] = [];
+  if (expected === false) {
+    findings.push(`the runtime enforces no write boundary (write_containment "${containment.status}"), so there was never one to hold`);
+  }
+  for (const escape of escapes) {
+    findings.push(
+      unconfirmedEscapes.includes(escape)
+        ? `the worker asked to write outside the granted paths (${escape}) and the runtime never reported whether the write happened`
+        : `the worker wrote outside the granted paths (${escape})`,
+    );
+  }
+  for (const change of unplaceable) {
+    findings.push(`a reported change cannot be placed inside the granted paths (${change.descriptor}): ${change.reason}`);
+  }
+
+  if (findings.length > 0) {
+    return { expected, held: false, escapes, unconfirmedEscapes, unplaceable, findings };
+  }
+  if (evidence === null) {
+    return {
+      expected,
+      held: null,
+      escapes,
+      unconfirmedEscapes,
+      unplaceable,
+      findings: ['no turn evidence was collected for this run, so nothing observed stands behind the boundary the capability table expects'],
+    };
+  }
+  return { expected, held: true, escapes, unconfirmedEscapes, unplaceable, findings: [] };
+}
+
+/** The one line a person needs when a run's evidence contradicts the boundary its runtime was expected to enforce. */
+export function describeBoundaryBreach(adapter: string, observation: WriteBoundaryObservation): string {
+  return (
+    `THE WRITE BOUNDARY DID NOT HOLD IN THIS RUN — the ${adapter} adapter's capability table expects one, and this run's own evidence contradicts it: ` +
+    `${observation.findings.join('; ')}`
+  );
+}
+
 export interface WriteObservation {
   /** Where the entries come from. There is no filesystem-level observation of a worker's writes. */
   readonly basis: 'runtime_reported_tool_events';
-  /** Whether an enforced boundary stood behind the report; null when the profile writes nothing. */
+  /** Whether an enforced boundary stood behind the report, as this run's evidence had it; null when nothing was established. */
   readonly enforcedWriteBoundary: boolean | null;
+  /** What the capability table expected, kept beside what happened so the two can never be confused. */
+  readonly expectedWriteBoundary: boolean | null;
   /** True only when a boundary could have refused an unreported write. Never true for a runtime with no sandbox. */
   readonly complete: boolean;
+  /** Why the boundary is not recorded as having held. Empty when it did. */
+  readonly boundaryFindings: ReadonlyArray<string>;
   readonly note: string;
 }
 
@@ -282,38 +422,57 @@ export interface WriteObservation {
  * stopped it. Saying so in the manifest is the difference between "no escape
  * was observed" and "no escape happened".
  */
-export function writeObservation(adapter: string, containment: ContainmentAssessment): WriteObservation {
-  const enforced = containment.writes ? containment.status !== 'unsupported' : null;
+export function writeObservation(adapter: string, containment: ContainmentAssessment, observation: WriteBoundaryObservation): WriteObservation {
   const shared =
     `every entry is a write the ${adapter} runtime itself reported through a tool event; the coordinator does not watch the filesystem, so this list can only be as complete as the runtime's reporting.`;
   if (!containment.writes) {
     return {
       basis: 'runtime_reported_tool_events',
       enforcedWriteBoundary: null,
+      expectedWriteBoundary: observation.expected,
       complete: false,
+      boundaryFindings: [],
       note: `The profile grants no writes, so no write was expected at all; ${shared}`,
     };
   }
-  if (enforced === true) {
+  if (observation.held === true) {
     return {
       basis: 'runtime_reported_tool_events',
       enforcedWriteBoundary: true,
+      expectedWriteBoundary: observation.expected,
       complete: true,
+      boundaryFindings: [],
       note:
-        `The runtime enforces a write boundary (write_containment "${containment.status}"), so a write outside the granted paths would have been refused whether or not it was reported; ${shared} An empty list therefore means no such write succeeded.`,
+        `The runtime enforces a write boundary (write_containment "${containment.status}") and nothing this run observed contradicts it: no reported write landed outside the granted paths, and every reported change could be placed inside them. A write outside the granted paths would have been refused whether or not it was reported; ${shared} An empty list therefore means no such write succeeded.`,
     };
   }
+  if (observation.held === null) {
+    return {
+      basis: 'runtime_reported_tool_events',
+      enforcedWriteBoundary: null,
+      expectedWriteBoundary: observation.expected,
+      complete: false,
+      boundaryFindings: observation.findings,
+      note:
+        `Whether a write boundary held in this run was never established: ${observation.findings.join('; ')}. The capability table expects one, and an expectation is not an observation; ${shared}`,
+    };
+  }
+  const because = observation.expected === true
+    ? `The ${adapter} adapter's capability table expects a write boundary, and this run's own evidence says it did not hold: ${observation.findings.join('; ')}. `
+    : '';
   return {
     basis: 'runtime_reported_tool_events',
     enforcedWriteBoundary: false,
+    expectedWriteBoundary: observation.expected,
     complete: false,
+    boundaryFindings: observation.findings,
     note:
-      `This run had no enforced write boundary, so an unreported write outside the granted paths would leave no trace here: ${shared} An empty list means nothing was reported, NOT that nothing was written.`,
+      `${because}This run had no write boundary that held, so an unreported write outside the granted paths would leave no trace here: ${shared} An empty list means nothing was reported, NOT that nothing was written.`,
   };
 }
 
 /** The containment paragraph for this run, written from what the adapter reported rather than from a fixed template. */
-export function renderContainmentNote(adapter: string, containment: ContainmentAssessment): string {
+export function renderContainmentNote(adapter: string, containment: ContainmentAssessment, observation: WriteBoundaryObservation): string {
   const shared =
     'The candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Neither installed runtime confines reads at all — a worker can read files outside the repository, and this run did not prevent that. ' +
     'Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, with that copy, its HOME and its TMPDIR placed outside the coordinator state root, so no relative path from a check reaches coordinator state; the state root is fingerprinted on both sides of each check window, so a write that reached it by absolute path is recorded as an integrity failure instead of passing silently. Each receipt\'s `containment` and `stateRootGuard` report what was actually placed and actually measured. ' +
@@ -323,14 +482,34 @@ export function renderContainmentNote(adapter: string, containment: ContainmentA
     return `This run used the read-only "${containment.policy}" profile, so no write boundary was required of the ${adapter} adapter (it reports write_containment "${containment.status}"). ${shared}`;
   }
   if (containment.status === 'unsupported') {
+    const observed = observation.escapes.length > 0 || observation.unplaceable.length > 0
+      ? `This run's own evidence records what happened without one: ${observation.findings.slice(1).join('; ')}. `
+      : '';
     return (
       `THIS RUN HAD NO ENFORCED WRITE BOUNDARY. ${describeUnconfinedWrites(adapter, containment)} ` +
       'It ran under an explicit --allow-unconfined-writes, so writes outside the granted candidate were possible and were not prevented; the file changes listed above are what the runtime reported, not what a boundary permitted. ' +
+      `${observed}${shared}`
+    );
+  }
+  // The capability table expects a boundary here. What this run saw decides
+  // whether it records one: a table cannot vouch for a run whose own evidence
+  // contradicts it.
+  if (observation.held === false) {
+    return (
+      `${describeBoundaryBreach(adapter, observation)}. The adapter reports write_containment "${containment.status}"${containment.testedVersion !== null ? ` (established against ${containment.testedVersion} on ${containment.os ?? 'this platform'})` : ''}, ` +
+      'and that status describes the runtime in general, not this run: the evidence above is what this run observed, and it is what the run records. ' +
       `${shared}`
+    );
+  }
+  if (observation.held === null) {
+    return (
+      `WHETHER A WRITE BOUNDARY HELD IN THIS RUN WAS NOT ESTABLISHED: ${observation.findings.join('; ')}. ` +
+      `The ${adapter} adapter reports write_containment "${containment.status}", which is what is expected of the runtime and not what this run observed. ${shared}`
     );
   }
   return (
     `Write confinement for this run is what the ${adapter} adapter reports as write_containment "${containment.status}"${containment.testedVersion !== null ? ` (established against ${containment.testedVersion} on ${containment.os ?? 'this platform'})` : ''}: ${containment.note} ` +
+    'Nothing this run observed contradicts it: no reported write landed outside the granted paths, and every reported change could be placed inside them. ' +
     `Any write seen outside the granted paths is listed above and blocks acceptance. ${shared}`
   );
 }
@@ -1452,6 +1631,11 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       candidate: { repoRoot: projectRoot, revision: candidateSnapshot.candidateRevision, patchHash: candidateSnapshot.patchHash },
       checks: resolvedChecks.checks,
       outputRoot: slot === undefined ? path.join(runDir, 'verification') : path.join(runDir, 'verification', attemptId),
+      // The coordinator knows its own state root, so it says so. Leaving the
+      // check runner to infer one from directory shape turned the guard off
+      // whenever --workspace-root pointed outside the state root, and said
+      // nothing when it did (FR049, FR050).
+      stateRoot: paths.root,
       ...(input.keepCheckCopies !== undefined ? { keepCopies: input.keepCheckCopies } : {}),
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
       onReceipt: (receipt) => {
@@ -1556,6 +1740,39 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     unresolved.push(
       `the candidate changed ${change.path} (${change.status}); Git attributes decide what a \`git archive\` of the candidate contains, so this file affects how the verifier materializes the candidate rather than what it computes. The check runner compared its copy against the candidate's own tree listing and completed it, and the check receipts record the strategy actually used`,
     );
+  }
+
+  // A guard that compared nothing is not a guard that found nothing. The
+  // coordinator names its own state root, so a receipt whose guard was never
+  // measured is an unresolved fact rather than a quiet pass (FR049, FR050).
+  for (const receipt of receipts) {
+    const guard = receipt.stateRootGuard;
+    if (guard === undefined || guard.checked) continue;
+    unresolved.push(
+      `the coordinator state root was not compared across check "${receipt.criterionId}" (${guard.note}), so this receipt establishes nothing about whether that check reached coordinator state`,
+    );
+  }
+
+  // What THIS RUN observed about its write boundary. The capability table says
+  // what is expected of the runtime; this says what happened, and it is what
+  // the run records (plan section 8; AT12).
+  const boundary = observeWriteBoundary({ containment, evidence, events: runtimeEvents });
+  if (containment.writes && boundary.held !== true) {
+    if (boundary.held === false && boundary.expected === true) {
+      // The case the capability table would have hidden: a runtime that is
+      // supposed to bound writes, and a run whose evidence says it did not.
+      stream.line(`WARNING: ${describeBoundaryBreach(adapter.id, boundary)}`);
+      unresolved.push(`this run does not record that its write boundary held: ${boundary.findings.join('; ')}`);
+    } else if (boundary.held === null) {
+      stream.line(`WARNING: whether this run's write boundary held was never established — ${boundary.findings.join('; ')}`);
+      unresolved.push(`whether this run's write boundary held was never established: ${boundary.findings.join('; ')}`);
+    }
+    for (const change of boundary.unplaceable) {
+      unresolved.push(`the runtime reported a change this run cannot place inside its granted paths (${change.descriptor}): ${change.reason}`);
+    }
+  }
+  if (containment.writes && boundary.held === true) {
+    stream.line('write boundary: held in this run — no reported write landed outside the granted paths, and every reported change could be placed inside them');
   }
 
   // Facts that block acceptance whatever the receipts say. Each one means the
@@ -1780,7 +1997,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       // runtime enforces no write boundary, a write it never reported —  by
       // the binary itself, by a hook it launched, by a shell command — leaves
       // no trace in this field at all (FR042).
-      writeObservation: writeObservation(adapter.id, containment),
+      writeObservation: writeObservation(adapter.id, containment, boundary),
       // A write the runtime refused is the tool boundary working; a write whose
       // outcome it never reported is neither proof nor refutation. Both are
       // recorded separately so the manifest cannot say "wrote" about either.
@@ -1822,12 +2039,17 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
         writeContainmentNote: containment.note,
         statusTestedVersion: containment.testedVersion,
         statusOs: containment.os,
-        enforcedWriteBoundary: containment.writes ? containment.status !== 'unsupported' : null,
+        // What the run OBSERVED, not what the table expects. A capability
+        // table may say what should happen; only evidence may say what did.
+        enforcedWriteBoundary: boundary.held,
+        expectedWriteBoundary: boundary.expected,
+        boundaryFindings: boundary.findings,
+        unplaceableChanges: boundary.unplaceable,
         unconfinedWritesAcknowledged: containment.unconfinedWrites ? containment.acknowledged : false,
         // Everything the adapter said it cannot enforce for this profile.
         unenforceable: sessionUnenforceable,
       },
-      containmentNote: renderContainmentNote(adapter.id, containment),
+      containmentNote: renderContainmentNote(adapter.id, containment, boundary),
     },
     timing,
     usage: usageFor(adapter, session),
@@ -2435,6 +2657,19 @@ export function renderSummary(manifest: RunManifest): string {
         ? `- Write boundary: policy \`${String(containment['policy'])}\` writes files; the adapter reports write_containment \`${String(containment['writeContainment'])}\`${containment['writeContainment'] === 'unsupported' ? ' — **this run had no enforced write boundary**' : ''}`
         : `- Write boundary: not required; policy \`${String(containment['policy'])}\` does not write`,
     );
+    if (containment['profileWrites'] === true) {
+      // What the run observed, said next to what the table expected, so a
+      // reader can never mistake one for the other.
+      const held = containment['enforcedWriteBoundary'];
+      const findings = (containment['boundaryFindings'] as ReadonlyArray<string> | undefined) ?? [];
+      lines.push(
+        held === true
+          ? '  - observed in this run: **the boundary held** — no reported write landed outside the granted paths, and every reported change could be placed inside them'
+          : held === false
+            ? `  - observed in this run: **the boundary did NOT hold** — ${findings.join('; ')}`
+            : `  - observed in this run: **not established** — ${findings.join('; ') || 'this run observed nothing about its boundary'}`,
+      );
+    }
     const unenforceable = (containment['unenforceable'] as Array<{ aspect: string; reason: string }> | undefined) ?? [];
     for (const entry of unenforceable) lines.push(`  - not enforced by the runtime — \`${entry.aspect}\`: ${entry.reason}`);
     const observation = (manifest.evidence['writeObservation'] ?? null) as { note?: unknown } | null;

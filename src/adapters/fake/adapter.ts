@@ -22,6 +22,7 @@ import {
   validateSettingsAgainst,
   type CapabilityName,
   type CapabilityReport,
+  type CapabilityStatus,
   type DeliveryInput,
   type DeliveryReceipt,
   type EffectiveRuntimeSettings,
@@ -45,6 +46,80 @@ import {
 
 export const FAKE_RUNTIME_VERSION = 'fake-runtime/1';
 export const FAKE_SCENARIO_ENV = 'WORKFORCE_FAKE_SCENARIO';
+
+interface FakeCapabilitySpec {
+  readonly status: CapabilityStatus;
+  readonly note: string;
+}
+
+/**
+ * What the fake runtime is known to be, before this adapter instance has
+ * watched it do anything.
+ *
+ * The two statuses here carry different weight, and the difference is the
+ * whole point of the table:
+ *
+ *   - `unsupported` is a fact about the runtime that no amount of running can
+ *     change. `write_containment` is the one that matters: the fake runtime
+ *     enforces no boundary whatsoever. Its `write_outside` scenario really
+ *     does write outside the granted paths; all this adapter does afterwards
+ *     is label the report `withinAllowedPaths: false`. Making an escape
+ *     *observable* is not preventing it, and the deterministic runtime used to
+ *     test containment must not be the one runtime that claims a boundary it
+ *     does not have.
+ *   - `supported_unverified` is what this adapter implements against the fake
+ *     runtime and has not yet observed in this process. Each one becomes
+ *     `verified` the moment this instance actually sees it happen
+ *     (`#demonstrate`), with a note saying what was seen. A status established
+ *     by observation is the only kind this adapter is entitled to report:
+ *     everything else is a plan.
+ */
+const FAKE_CAPABILITIES: Readonly<Record<CapabilityName, FakeCapabilitySpec>> = {
+  structured_events: {
+    status: 'supported_unverified',
+    note: 'the adapter normalizes the fake runtime\'s NDJSON records into RuntimeEvents; nothing has been normalized in this process yet',
+  },
+  session_identity: {
+    status: 'supported_unverified',
+    note: 'the fake runtime is expected to echo a session id in session_started; none has been observed in this process yet',
+  },
+  resume_session: {
+    status: 'supported_unverified',
+    note: 'resumeSession re-spawns the runtime with --session after verifying the previous process identity; no session has been resumed in this process yet',
+  },
+  interrupt_turn: {
+    status: 'supported_unverified',
+    note: 'interrupt sends `interrupt` and waits for the turn to end; no interrupt has been observed to end a turn in this process yet',
+  },
+  active_turn_delivery: {
+    status: 'supported_unverified',
+    note: 'deliver writes to the runtime\'s stdin during a turn; no message has been submitted into a running turn in this process yet',
+  },
+  queued_delivery: {
+    status: 'supported_unverified',
+    note: 'a delivery with no active turn is held in the runtime\'s inbox until the next turn starts; none has been queued in this process yet',
+  },
+  process_tree_stop: {
+    status: 'supported_unverified',
+    note: 'the runtime is spawned as a process-group leader and stopped with SIGTERM then SIGKILL; no process tree has been observed terminated in this process yet',
+  },
+  write_containment: {
+    status: 'unsupported',
+    note:
+      'the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. ' +
+      'Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence',
+  },
+  model_selection: {
+    status: 'supported_unverified',
+    note: 'the requested model is passed as --model and echoed back in session_started; no runtime-reported model has been observed in this process yet',
+  },
+  effort_selection: {
+    status: 'supported_unverified',
+    note: 'the requested effort is passed as --effort and echoed back in session_started; no runtime-reported effort has been observed in this process yet',
+  },
+  usage_reporting: { status: 'unsupported', note: 'fake runtime has no model usage' },
+  coordination_bridge: { status: 'unsupported', note: 'the fake script speaks no MCP; the coordinator\'s bridge argv is recorded rather than forwarded' },
+};
 
 /** What the fake runtime accepts; mirrors fixtures/fake-runtime/fake-runtime.mjs, which exits 64 on anything else. */
 export const FAKE_SETTINGS: RuntimeSettingsSupport = {
@@ -151,6 +226,8 @@ export class FakeAdapter implements RuntimeAdapter {
     Pick<FakeAdapterOptions, 'scenarioPath' | 'onRawLine'>;
   readonly #sessions = new Map<string, FakeSession>();
   readonly #extraArgs = new Map<string, ReadonlyArray<string>>();
+  /** Capabilities this instance has watched the runtime actually perform, and what was seen. */
+  readonly #demonstrated = new Map<CapabilityName, string>();
 
   constructor(options: FakeAdapterOptions = {}) {
     this.#options = {
@@ -203,12 +280,29 @@ export class FakeAdapter implements RuntimeAdapter {
     };
   }
 
+  /**
+   * Record that this instance has now *seen* a capability work, with the
+   * observation as its note.
+   *
+   * A capability the runtime does not have cannot be demonstrated into
+   * existence: `unsupported` is a fact about the fake runtime, not a starting
+   * point, so `write_containment` can never be raised here.
+   */
+  #demonstrate(name: CapabilityName, observation: string): void {
+    if (FAKE_CAPABILITIES[name].status === 'unsupported') return;
+    if (!this.#demonstrated.has(name)) this.#demonstrated.set(name, observation);
+  }
+
   capabilities(): RuntimeCapabilities {
-    const report: CapabilityReport = { status: 'verified', testedVersion: FAKE_RUNTIME_VERSION, os: process.platform };
     const capabilities = {} as Record<CapabilityName, CapabilityReport>;
-    for (const name of CAPABILITY_NAMES) capabilities[name] = report;
-    capabilities.usage_reporting = { status: 'unsupported', testedVersion: FAKE_RUNTIME_VERSION, os: process.platform, note: 'fake runtime has no model usage' };
-    capabilities.coordination_bridge = { status: 'unsupported', testedVersion: FAKE_RUNTIME_VERSION, os: process.platform, note: 'bridge arrives with WP06' };
+    for (const name of CAPABILITY_NAMES) {
+      const observed = this.#demonstrated.get(name);
+      const spec = FAKE_CAPABILITIES[name];
+      capabilities[name] =
+        observed === undefined
+          ? { status: spec.status, testedVersion: FAKE_RUNTIME_VERSION, os: process.platform, note: spec.note }
+          : { status: 'verified', testedVersion: FAKE_RUNTIME_VERSION, os: process.platform, note: `observed in this process: ${observed}` };
+    }
     return { adapter: 'fake', capabilities, settings: FAKE_SETTINGS };
   }
 
@@ -236,7 +330,9 @@ export class FakeAdapter implements RuntimeAdapter {
         throw new AdapterError('fake', 'session_unverifiable', `pid ${previous.pid} exists but cannot be verified as the previous process of session ${input.sessionId}; isolate a successor instead of resuming`);
       }
     }
-    return this.#spawnSession(input, input.sessionId);
+    const handle = await this.#spawnSession(input, input.sessionId);
+    this.#demonstrate('resume_session', `session ${input.sessionId} was resumed in a new runtime process and reported the same session id`);
+    return handle;
   }
 
   async #spawnSession(input: SessionInput, resumeSessionId: string | null): Promise<SessionHandle> {
@@ -313,7 +409,16 @@ export class FakeAdapter implements RuntimeAdapter {
       model: typeof started.payload['model'] === 'string' ? (started.payload['model'] as string) : null,
       effort: typeof started.payload['effort'] === 'string' ? (started.payload['effort'] as string) : null,
     };
+    if (session.effective.model !== null) {
+      this.#demonstrate('model_selection', `the runtime reported running model "${session.effective.model}" in session_started`);
+    }
+    if (session.effective.effort !== null) {
+      this.#demonstrate('effort_selection', `the runtime reported running effort "${session.effective.effort}" in session_started`);
+    }
     const sessionId = typeof reported === 'string' && reported.length > 0 ? reported : pendingId;
+    if (typeof reported === 'string' && reported.length > 0) {
+      this.#demonstrate('session_identity', `the runtime reported session id ${reported} in session_started, and every later event carries it`);
+    }
     const finalSession: FakeSession = Object.assign(session, { sessionId, handle: { ...session.handle, sessionId } });
     // Re-key events (and their raw references) already buffered under the pending id.
     const pendingPrefix = `fake:${pendingId}:`;
@@ -420,6 +525,9 @@ export class FakeAdapter implements RuntimeAdapter {
     if (kind === 'turn_completed' || kind === 'turn_interrupted') {
       if (session.activeTurnId === effectiveTurn) session.activeTurnId = null;
     }
+    // A well-formed record was recognized and normalized: that is the
+    // capability, and it just happened.
+    this.#demonstrate('structured_events', `a "${name}" record was parsed and normalized into a ${kind} RuntimeEvent`);
     this.#push(session, kind, effectiveTurn, payload, rawRef);
   }
 
@@ -515,6 +623,16 @@ export class FakeAdapter implements RuntimeAdapter {
     // inbox and reports it on the next turn it starts — so the holder is the
     // runtime in both cases, and the receipt says so rather than leaving a
     // reader to guess who will deliver it.
+    //
+    // The receipt about to be issued is itself the demonstration: the contract
+    // only lets `submitted_to_active_turn` be claimed by an adapter whose
+    // active_turn_delivery is verified, so the observation is recorded before
+    // the claim is made rather than after.
+    if (activeTurn === null) {
+      this.#demonstrate('queued_delivery', `message ${input.messageId} was written to the runtime with no active turn and is held in its inbox`);
+    } else {
+      this.#demonstrate('active_turn_delivery', `message ${input.messageId} was written to the runtime during turn ${activeTurn}`);
+    }
     return {
       messageId: input.messageId,
       state: activeTurn === null ? 'queued' : 'submitted_to_active_turn',
@@ -528,6 +646,7 @@ export class FakeAdapter implements RuntimeAdapter {
   async interrupt(turn: TurnHandle): Promise<InterruptionReceipt> {
     const session = this.#session({ adapter: 'fake', sessionId: turn.sessionId, raw: null });
     const alreadyEnded = session.buffer.some((e) => e.turnId === turn.turnId && (e.kind === 'turn_completed' || e.kind === 'turn_interrupted'));
+    // A turn that had already ended proves nothing about interrupting one.
     if (alreadyEnded) return { turnId: turn.turnId, state: 'observed', at: nowIso() };
     const startIndex = session.buffer.length;
     this.#send(session, { cmd: 'interrupt', turnId: turn.turnId });
@@ -537,6 +656,9 @@ export class FakeAdapter implements RuntimeAdapter {
       (event) => event.sequence > startIndex && event.turnId === turn.turnId && (event.kind === 'turn_interrupted' || event.kind === 'turn_completed'),
       this.#options.interruptTimeoutMs,
     );
+    if (observed !== null) {
+      this.#demonstrate('interrupt_turn', `an interrupt of turn ${turn.turnId} was followed by a ${observed.kind} record for that turn`);
+    }
     return { turnId: turn.turnId, state: observed === null ? 'requested' : 'observed', at: observed === null ? requestedAt : nowIso() };
   }
 
@@ -599,6 +721,9 @@ export class FakeAdapter implements RuntimeAdapter {
       }
     }
     const treeDead = !isProcessGroupAlive(pid) && !isProcessAlive(pid) && (session === undefined || session.exit !== null);
+    if (treeDead && lastSignal !== null) {
+      this.#demonstrate('process_tree_stop', `process group ${pid} was signalled with ${lastSignal} and observed gone, leader and group alike`);
+    }
     return {
       sessionId,
       state: treeDead ? 'process_tree_terminated' : lastSignal === null ? 'unknown' : 'requested',

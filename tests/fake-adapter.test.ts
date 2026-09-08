@@ -75,8 +75,42 @@ describe('fake adapter: passive probe', () => {
     expect(missing).toMatchObject({ installed: false, version: null, controllable: false, ready: 'not_ready', probeKind: 'passive' });
     expect(missing.diagnostics[0]).toMatch(/not found/);
 
-    expect(adapter.capabilities().capabilities.process_tree_stop).toMatchObject({ status: 'verified', testedVersion: FAKE_RUNTIME_VERSION });
+    // A probe starts nothing, so this adapter has watched nothing happen: a
+    // capability it implements but has not yet performed is reported as
+    // supported_unverified, never as verified.
+    expect(adapter.capabilities().capabilities.process_tree_stop).toMatchObject({
+      status: 'supported_unverified',
+      testedVersion: FAKE_RUNTIME_VERSION,
+    });
     expect(adapter.capabilities().capabilities.usage_reporting.status).toBe('unsupported');
+  });
+
+  it('never claims a write boundary, because the fake runtime enforces none (AT12)', async () => {
+    // The deterministic runtime used to test containment is the one that must
+    // not assert it: its write_outside scenario really does write outside the
+    // granted paths, and the adapter only labels that report afterwards.
+    const f = fixture({ scenarioVersion: 1, steps: [{ action: 'write_outside', name: 'escape.txt' }, { action: 'claim_done' }] });
+    const before = f.adapter.capabilities().capabilities.write_containment;
+    expect(before.status).toBe('unsupported');
+    expect(before.note).toContain('enforces no write boundary');
+
+    const handle = await open(f);
+    const events = await collect(f.adapter, await f.adapter.startTurn(handle, { prompt: 'escape' }));
+
+    // The escape really happened, and the adapter saw it happen.
+    expect(existsSync(path.join(f.root, 'escape.txt'))).toBe(true);
+    expect(events.some((event) => event.kind === 'file_change' && event.payload['withinAllowedPaths'] === false)).toBe(true);
+    // Watching an escape is not stopping one, so the status does not move.
+    expect(f.adapter.capabilities().capabilities.write_containment.status).toBe('unsupported');
+
+    // What the session did demonstrate is raised, and says what was seen.
+    const events2 = f.adapter.capabilities().capabilities.structured_events;
+    expect(events2.status).toBe('verified');
+    expect(events2.note).toContain('observed in this process');
+    expect(f.adapter.capabilities().capabilities.session_identity.status).toBe('verified');
+    // ...and what it did not exercise stays unproven.
+    expect(f.adapter.capabilities().capabilities.resume_session.status).toBe('supported_unverified');
+    expect(f.adapter.capabilities().capabilities.interrupt_turn.status).toBe('supported_unverified');
   });
 
   it('fails session startup honestly when the runtime cannot start', async () => {

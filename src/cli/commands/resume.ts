@@ -44,6 +44,8 @@ export interface ResumeCommandArgs {
   readonly positionals: ReadonlyArray<string>;
   readonly stateDir?: string;
   readonly agents?: string;
+  /** Accept a continued attempt whose runtime enforces no write boundary, exactly as `run` does. */
+  readonly allowUnconfinedWrites?: boolean;
   readonly json: boolean;
 }
 
@@ -193,6 +195,10 @@ export async function commandResume(args: ResumeCommandArgs, options: ResumeComm
     try {
       continued = await continueResumedRun(plan, store, {
         ...options.continuation,
+        // The invocation's own acknowledgement, not the injected deps': a
+        // continued attempt faces the same write-boundary gate as the run it
+        // continues.
+        ...(args.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
         ...(setup !== null ? { setup } : {}),
         ...(fallback !== undefined ? { config: fallback } : {}),
         ...(options.signal !== undefined ? { signal: options.signal } : {}),

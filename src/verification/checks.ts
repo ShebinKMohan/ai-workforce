@@ -73,10 +73,11 @@ import { runCommand } from '../workspaces/exec.js';
 import {
   compareStateRootFingerprints,
   createVerificationRoot,
-  findEnclosingStateRoot,
   fingerprintStateRoot,
   isDisjoint,
+  resolveStateRoot,
   type StateRootGuardReport,
+  type StateRootResolution,
   type VerificationRoot,
 } from './containment.js';
 
@@ -271,9 +272,12 @@ export interface RunChecksInput {
   readonly outputRoot: string;
   /**
    * The coordinator state root to keep the check out of and to fingerprint.
-   * Defaults to the state root that encloses `outputRoot`, so the ordinary
-   * caller needs to pass nothing; pass `null` only when there is genuinely no
-   * state root to protect.
+   *
+   * A coordinator knows its own state root and should pass it: inference from
+   * directory shape is the fallback for callers that have none. Omit it to
+   * search upwards from `outputRoot`; pass `null` only when there is genuinely
+   * no state root to protect. A path that is named and does not exist is
+   * refused rather than treated as "nothing to guard".
    */
   readonly stateRoot?: string | null;
   /**
@@ -696,8 +700,11 @@ export async function runChecks(input: RunChecksInput): Promise<CheckReceipt[]> 
 
   // The evidence stays under the run directory; the *execution* moves out of
   // the state root entirely, so a relative path from a check's cwd cannot
-  // reach state.sqlite, the coordinator lock or another run's artifacts.
-  const stateRoot = input.stateRoot === undefined ? findEnclosingStateRoot(outputRoot) : input.stateRoot === null ? null : path.resolve(input.stateRoot);
+  // reach state.sqlite, the coordinator lock or another run's artifacts. Which
+  // root that is comes from the coordinator when it names one; inference from
+  // directory shape is the fallback, and its failure is reported, not ignored.
+  const stateRootResolution = resolveStateRoot({ ...(input.stateRoot !== undefined ? { declared: input.stateRoot } : {}), outputRoot });
+  const stateRoot = stateRootResolution.root;
   const verificationRoot = createVerificationRoot({
     ...(input.verificationRoot !== undefined ? { requested: input.verificationRoot } : {}),
     protect: stateRoot === null ? [] : [stateRoot],
@@ -708,7 +715,7 @@ export async function runChecks(input: RunChecksInput): Promise<CheckReceipt[]> 
     let index = 0;
     for (const check of input.checks) {
       index += 1;
-      const receipt = await runOneCheck(check, input, { outputRoot, stateRoot, verificationRoot }, index);
+      const receipt = await runOneCheck(check, input, { outputRoot, stateRoot, stateRootResolution, verificationRoot }, index);
       receipts.push(receipt);
       input.onReceipt?.(receipt);
     }
@@ -721,6 +728,7 @@ export async function runChecks(input: RunChecksInput): Promise<CheckReceipt[]> 
 interface CheckPlacement {
   readonly outputRoot: string;
   readonly stateRoot: string | null;
+  readonly stateRootResolution: StateRootResolution;
   readonly verificationRoot: VerificationRoot;
 }
 
@@ -750,6 +758,11 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, placement: C
   const candidate = { repoRoot: input.candidate.repoRoot, revision: input.candidate.revision, patchHash: input.candidate.patchHash ?? null };
 
   const stateRoot = placement.stateRoot;
+  const resolution = placement.stateRootResolution;
+  // How the guarded root was established is part of the evidence: a receipt
+  // whose guard compared nothing has to say why, or an absent guard reads like
+  // a clean one.
+  if (stateRoot === null || resolution.origin !== 'declared') diagnostics.push(`state-root guard: ${resolution.note}`);
   const containmentAt = (cwd: string): ContainmentReport => ({
     copyRoot: workDir,
     home,
@@ -805,6 +818,13 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, placement: C
     diagnostics: [...diagnostics, message],
   });
 
+  // A state root that should exist and cannot be established is not "nothing
+  // to guard": with no root, placement cannot be checked and no fingerprint can
+  // be taken, so the check would run with the guard silently off. It does not run.
+  if (resolution.undetermined) {
+    return failReceipt('error', nowIso(), `refusing to run this check: ${resolution.note}`, 'git_archive');
+  }
+
   const startedAt = nowIso();
   let copy: DisposableCopy;
   try {
@@ -859,7 +879,10 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, placement: C
       stderrFile: stderrPath,
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
     });
-    const guard = compareStateRootFingerprints(guardBefore, fingerprintStateRoot(stateRoot));
+    const measured = compareStateRootFingerprints(guardBefore, fingerprintStateRoot(stateRoot));
+    // When nothing was compared, the receipt says why in the resolver's own
+    // words: "no root was found" and "no root was declared" are different facts.
+    const guard: StateRootGuardReport = measured.checked ? measured : { ...measured, note: `${measured.note}; ${resolution.note}` };
     const after = scanTrackedFiles(copy.root);
     const integrity = compareScans(before, after);
     if (guard.checked && guard.observations.length > 0) {

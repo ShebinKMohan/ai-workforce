@@ -151,6 +151,14 @@ export interface ContinueResumedRunDeps {
   readonly adapterFactory?: AdapterFactory;
   /** Extra environment for the runtime session (used to select a fake-runtime scenario). */
   readonly sessionEnv?: Readonly<Record<string, string>>;
+  /**
+   * Carry an explicit acknowledgement that this run's writes are unconfined.
+   * A continued attempt dispatches the same profile on the same runtime as the
+   * original, so it faces the same write-boundary gate and needs the same
+   * acknowledgement; without this a run started with
+   * `--allow-unconfined-writes` could not be resumed at all.
+   */
+  readonly allowUnconfinedWrites?: boolean;
   /** Injection seam for tests; defaults to the real orchestrator. */
   readonly dispatch?: (input: RunDirectInput) => Promise<RunDirectResult>;
   /** Configuration to fall back to when the run's own snapshot is unusable. */
@@ -290,6 +298,7 @@ export async function continueResumedRun(
       ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
       ...(deps.adapterFactory !== undefined ? { adapterFactory: deps.adapterFactory } : {}),
       ...(deps.sessionEnv !== undefined ? { sessionEnv: deps.sessionEnv } : {}),
+      ...(deps.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
     };
 
     let result: RunDirectResult;

@@ -10,9 +10,11 @@ import {
   fingerprintStateRoot,
   isDisjoint,
   looksLikeStateRoot,
+  resolveStateRoot,
   VERIFICATION_ROOT_ENV,
 } from '../../src/verification/containment.js';
-import { isWithin } from '../../src/storage/paths.js';
+import { createStatePaths, isWithin } from '../../src/storage/paths.js';
+import { openStateStore } from '../../src/storage/db.js';
 import { openTempState } from '../helpers/state.js';
 import { cleanupAll, registerCleanup, tempDir } from '../workspaces/support.js';
 
@@ -41,6 +43,69 @@ describe('findEnclosingStateRoot', () => {
     mkdirSync(path.join(unrelated, 'runs'), { recursive: true });
     mkdirSync(path.join(unrelated, 'workspaces'), { recursive: true });
     expect(looksLikeStateRoot(unrelated)).toBe(false);
+  });
+
+  it('identifies a state root whose workspaces live outside it (--workspace-root)', () => {
+    // The configuration that used to switch the guard off: with the workspace
+    // root elsewhere, `ensureStateRoot` never creates `workspaces/`, so a test
+    // for that directory's existence answered "not a state root" about the very
+    // directory holding state.sqlite, the lock and every run artifact.
+    const outsideWorkspaces = tempDir('workforce-elsewhere-ws-');
+    const root = tempDir('workforce-split-state-');
+    const paths = createStatePaths(root, { workspaceRoot: outsideWorkspaces });
+    const store = openStateStore(paths, { mode: 'mutating' });
+    registerCleanup(() => store.close());
+
+    expect(existsSync(path.join(paths.root, 'workspaces'))).toBe(false);
+    expect(looksLikeStateRoot(paths.root)).toBe(true);
+    const outputRoot = path.join(paths.root, 'runs', 'run-1', 'verification');
+    mkdirSync(outputRoot, { recursive: true });
+    expect(findEnclosingStateRoot(outputRoot)).toBe(paths.root);
+  });
+
+  it('does not mistake a copy of another root\'s manifest for a state root', () => {
+    const root = stateRoot();
+    const impostor = tempDir('workforce-impostor-');
+    mkdirSync(path.join(impostor, 'runs'), { recursive: true });
+    writeFileSync(path.join(impostor, 'manifest.json'), readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+    // The manifest names the other directory as the state root, so this one is
+    // identified by what it says about itself, not by the files it holds.
+    expect(looksLikeStateRoot(impostor)).toBe(false);
+  });
+});
+
+describe('resolveStateRoot decides what the guard protects', () => {
+  it('guards the root the coordinator names, rather than inferring one', () => {
+    const root = stateRoot();
+    const resolution = resolveStateRoot({ declared: root, outputRoot: tempDir('workforce-elsewhere-') });
+    expect(resolution).toMatchObject({ root, origin: 'declared', undetermined: false });
+    expect(resolution.note).toContain('paths manifest identifies it as one');
+  });
+
+  it('falls back to searching upwards only when no caller names one', () => {
+    const root = stateRoot();
+    const outputRoot = path.join(root, 'runs', 'run-1', 'verification');
+    mkdirSync(outputRoot, { recursive: true });
+    expect(resolveStateRoot({ outputRoot })).toMatchObject({ root, origin: 'discovered', undetermined: false });
+  });
+
+  it('says so, loudly, when a named state root cannot be established', () => {
+    // Never "nothing to guard": something is wrong with what the coordinator
+    // said, and a guard that quietly compares nothing reads like a clean one.
+    const missing = path.join(tempDir('workforce-missing-'), 'no-such-state-root');
+    const resolution = resolveStateRoot({ declared: missing, outputRoot: tempDir('workforce-out-') });
+    expect(resolution).toMatchObject({ root: null, origin: 'undetermined', undetermined: true });
+    expect(resolution.note).toContain('no such directory exists');
+    expect(resolution.note).toContain('proves nothing about coordinator state');
+  });
+
+  it('reports an honest absence when there is genuinely nothing to guard', () => {
+    expect(resolveStateRoot({ declared: null, outputRoot: tempDir('workforce-out2-') })).toMatchObject({
+      root: null,
+      origin: 'none',
+      undetermined: false,
+    });
+    expect(resolveStateRoot({ outputRoot: tempDir('workforce-out3-') })).toMatchObject({ root: null, origin: 'none', undetermined: false });
   });
 });
 
