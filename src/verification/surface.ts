@@ -520,6 +520,15 @@ function protectedPathsOf(explicit: ReadonlyArray<string>, baseFiles: ReadonlyAr
       paths.add(entry);
       continue;
     }
+    // A directory the walk CAN read is protected exactly as it always was: the
+    // closure is followed from the modules inside it, and narrowing the
+    // protected path here would quietly stop protecting the data files beside
+    // them. The narrowing below is only for a directory that holds no module
+    // this walk can analyse at all.
+    if (baseFiles.some((file) => file.startsWith(`${entry}/`) && languageOf(file) !== null)) {
+      paths.add(entry);
+      continue;
+    }
     const named = baseFiles.filter(
       (file) => file.startsWith(`${entry}/`) && (FIXTURE_PATH_PATTERNS.some((pattern) => pattern.test(file)) || TEST_SUPPORT_PATTERNS.some((pattern) => pattern.test(file))),
     );

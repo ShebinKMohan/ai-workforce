@@ -557,6 +557,24 @@ describe('a repository in a language the walk cannot read', () => {
     expect(findSurfaceChanges(surface, [{ status: 'M', path: 'internal/billing/total.go' }]).mutations).toEqual([]);
   });
 
+  it('still protects a named directory whole when it holds modules this walk CAN read', async () => {
+    // The narrowing above exists only for a directory the walk cannot analyse.
+    // Where it can, the closure is followed from the modules inside, and
+    // narrowing the protected path would stop protecting the data beside them.
+    const files = tree({
+      'verify/run.js': "import './expect.js';\n",
+      'verify/expect.js': 'export const e = 1;\n',
+      'verify/cases.json': '[{"total": 60}]\n',
+    });
+    const check: CheckSpec = { criterionId: 'node-tests', command: 'node', args: ['--test', 'verify/'], required: true };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surfacePaths(surface)).toContain('verify');
+    expect(findSurfaceChanges(surface, [{ status: 'M', path: 'verify/cases.json' }]).mutations).toEqual([
+      { criterionId: 'node-tests', changedPaths: ['M verify/cases.json'] },
+    ]);
+  });
+
   it('is upgraded to an established surface when the operator names the fixtures', async () => {
     const files = tree(GO_FILES);
     const check: CheckSpec = {
