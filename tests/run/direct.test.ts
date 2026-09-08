@@ -22,6 +22,7 @@ import { getAttempt, getRun, getTask, listTasks } from '../../src/storage/record
 import { listEvents } from '../../src/storage/events.js';
 import { listArtifacts } from '../../src/storage/artifacts.js';
 import { listChecks } from '../../src/verification/checks.js';
+import { HANDOFF_FAILURE_CLASSES } from '../../src/recovery/continue.js';
 import { gitTextOrNull } from '../../src/workspaces/git.js';
 import {
   claimDoneWithoutEditingScenario,
@@ -729,6 +730,26 @@ describe('what the runtime says about its own turn is read as a claim, not as a 
     expect(result.acceptance.reasons.join(' ')).toContain('terminal record says the turn failed');
     expect(result.manifest.unresolved.join(' ')).toContain('reporting that it failed');
     expect(readFileSync(result.summaryPath, 'utf8')).toContain('reporting that it failed');
+  });
+
+  it('classifies a recorded authentication failure from the runtime\'s own tag, so a fallback is reachable (AT04)', async () => {
+    // The whole point of classifying in the run path: this recorded transcript
+    // is a real expired-credential failure, and until the adapter's structured
+    // fields reached `classifyFailure` the class was derived from prose — a
+    // real Codex transport failure came out `unknown`, which is not a handoff
+    // class, so no fallback runtime could ever be selected.
+    const result = await runReplay('session-auth-failure.real.json');
+
+    expect(result.acceptance.accepted).toBe(false);
+    expect(result.failure).not.toBeNull();
+    const failure = result.failure!;
+    expect(failure.failureClass).toBe('authentication');
+    // Decided by the machine-readable tag the CLI itself reported, not by the
+    // sentence around it.
+    expect(failure.signal).toBe('runtime tag "authentication_failed"');
+    expect(failure.retryable).toBe(false);
+    expect(failure.userAction).toMatch(/re-authenticate/);
+    expect(HANDOFF_FAILURE_CLASSES.has(failure.failureClass)).toBe(true);
   });
 
   it('does not present an empty escape list as a checked negative on a runtime with no write boundary', async () => {

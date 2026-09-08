@@ -113,6 +113,28 @@ const TAGS: Readonly<Record<string, FailureClass>> = {
   invalid_request: 'protocol',
   overloaded_error: 'provider_transient',
   api_error: 'provider_transient',
+  // The coarse class the adapters themselves already derived from those tags
+  // and put on the event (`errorClass`): `CodexErrorClass` in the Codex
+  // adapter, `ClaudeErrorClass` in the Claude Code one. It is the same
+  // machine-readable fact one step downstream, and on the installed builds it
+  // is frequently the only one that reaches the coordinator — so it is mapped
+  // here rather than being thrown away and the class re-derived from prose.
+  // The two vocabularies overlap only where they already agree.
+  usage_limit: 'quota', // codex + claude-code
+  budget_exhausted: 'quota', // claude-code
+  context_window: 'protocol', // codex
+  sandbox: 'permission', // codex
+  // Codex's name for "the request itself was refused" (`badRequest`,
+  // `cyberPolicy`, and the HTTP 4xx that carry them). Neither retryable nor a
+  // handoff class: a second runtime would send the same rejected request.
+  request_rejected: 'protocol',
+  // Both adapters use these two words for the same thing, and
+  // `permission_denied` and `invalid_request` are already keys above with the
+  // mapping this vocabulary needs. `unknown` is deliberately absent: an adapter
+  // that could not classify a failure leaves it unclassified here too, rather
+  // than having a class guessed on its behalf.
+  authentication: 'authentication',
+  provider_transient: 'provider_transient',
 };
 
 const USER_ACTIONS: Readonly<Record<FailureClass, string | null>> = {

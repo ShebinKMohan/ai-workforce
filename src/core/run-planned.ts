@@ -280,18 +280,26 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
     const scheduler = createScheduler(scheduleTasks, { maxActiveTurns: limits.maxActiveTurns, maxActiveWriters: limits.maxActiveWriters });
 
     let failedKey: string | null = null;
-    for (;;) {
-      const batch = scheduler.dispatch();
-      if (batch.length === 0) break;
-      stream.event({ type: 'schedule.dispatch', runId, tasks: batch, activeTurns: scheduler.activeTurns, activeWriters: scheduler.activeWriters });
-      // The batch runs concurrently: that is what the scheduler's caps are
-      // for. Only the repository-mutating setup is serialized (see
-      // `withRepositoryLock`), so while one worker is taking its turn the
-      // others are taking theirs, and a peer's message can reach a task that
-      // is still working.
-      const settled = await Promise.all(
-        batch.map(async (key) => {
-          const task = byKey.get(key)!;
+    /** One task's outcome, carried out of its own promise so a rejection is that task's failure. */
+    interface Settlement {
+      readonly key: string;
+      readonly result: PlannedTaskResult | null;
+      readonly error: Error | null;
+    }
+    const inFlight = new Map<string, Promise<Settlement>>();
+
+    // A dispatched task becomes an in-flight promise immediately. There is no
+    // join across dispatched tasks: the loop below reacts to the FIRST one to
+    // settle, so a satisfied prerequisite releases its dependent while every
+    // unrelated task is still running (FR031/FR032, AT09). Concurrency is
+    // still bounded — the scheduler hands out turn and writer slots and only
+    // frees one when `complete`/`fail` records that task — and only the
+    // repository-mutating setup is serialized, inside `withRepositoryLock`.
+    const start = (key: string): void => {
+      const task = byKey.get(key)!;
+      inFlight.set(
+        key,
+        (async (): Promise<Settlement> => {
           try {
             return {
               key,
@@ -304,47 +312,68 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
                 taskId: taskIds.get(key)!,
                 limits,
                 bridge,
+                // Read at start, not at dispatch-round time: by now every
+                // dependency this task named has already been recorded.
                 briefing: briefingFor(task, results),
                 peers: input.tasks
                   .filter((peer) => peer.key !== key)
                   .map((peer) => ({ key: peer.key, taskId: taskIds.get(peer.key)!, objective: peer.objective })),
                 stream,
               }),
-              error: null as Error | null,
+              error: null,
             };
           } catch (error) {
             // One task throwing is that task failing, not the run dying with
             // no manifest: the run still has to finish and record what it did.
             return { key, result: null, error: error instanceof Error ? error : new Error(String(error)) };
           }
-        }),
+        })(),
       );
-      for (const entry of settled) {
-        if (entry.error !== null || entry.result === null) {
-          const detail = entry.error?.message ?? 'the task produced no result';
-          unresolved.push(`task "${entry.key}" ended with an error before it could be assessed: ${detail}`);
-          stream.line(`task "${entry.key}" failed: ${detail}`);
-          results.set(entry.key, {
-            key: entry.key,
-            taskId: taskIds.get(entry.key)!,
-            objective: byKey.get(entry.key)!.objective,
-            accepted: false,
-            attempts: [],
-            approved: null,
-            repairsUsed: 0,
-          });
-          scheduler.fail(entry.key, detail);
-          failedKey ??= entry.key;
-          continue;
-        }
-        results.set(entry.key, entry.result);
-        if (entry.result.accepted) {
-          scheduler.complete(entry.key);
-        } else {
-          scheduler.fail(entry.key, `task "${entry.key}" did not reach acceptance`);
-          failedKey ??= entry.key;
-        }
+    };
+
+    const record = (entry: Settlement): void => {
+      if (entry.error !== null || entry.result === null) {
+        const detail = entry.error?.message ?? 'the task produced no result';
+        unresolved.push(`task "${entry.key}" ended with an error before it could be assessed: ${detail}`);
+        stream.line(`task "${entry.key}" failed: ${detail}`);
+        results.set(entry.key, {
+          key: entry.key,
+          taskId: taskIds.get(entry.key)!,
+          objective: byKey.get(entry.key)!.objective,
+          accepted: false,
+          attempts: [],
+          approved: null,
+          repairsUsed: 0,
+        });
+        scheduler.fail(entry.key, detail);
+        failedKey ??= entry.key;
+        return;
       }
+      results.set(entry.key, entry.result);
+      if (entry.result.accepted) {
+        scheduler.complete(entry.key);
+      } else {
+        scheduler.fail(entry.key, `task "${entry.key}" did not reach acceptance`);
+        failedKey ??= entry.key;
+      }
+    };
+
+    for (;;) {
+      const started = scheduler.dispatch();
+      if (started.length > 0) {
+        stream.event({ type: 'schedule.dispatch', runId, tasks: started, activeTurns: scheduler.activeTurns, activeWriters: scheduler.activeWriters });
+        for (const key of started) start(key);
+      }
+      // Nothing running and nothing newly ready: the plan has been executed as
+      // far as it can be.
+      if (inFlight.size === 0) break;
+      // Whichever task settles first is recorded at once, freeing its slot and
+      // satisfying its dependents before the next dispatch. A task that is
+      // already settled but not yet raced stays in the map and wins the next
+      // race immediately, so no completion is lost.
+      const settled = await Promise.race(inFlight.values());
+      inFlight.delete(settled.key);
+      record(settled);
     }
 
     for (const blocker of scheduler.blockers) {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { backoffDelayMs, classifyFailure, planRetry, type FailureClass, type ObservedFailure } from '../../src/recovery/classify.js';
+import { HANDOFF_FAILURE_CLASSES } from '../../src/recovery/continue.js';
 
 interface Case {
   readonly name: string;
@@ -95,5 +96,135 @@ describe('FR053: bounded backoff and a retry budget', () => {
 
   it('a zero budget disables retrying entirely', () => {
     expect(planRetry({ code: 'ETIMEDOUT' }, 0, { maxTransientRetries: 0 }).retry).toBe(false);
+  });
+});
+
+/**
+ * The signals the two installed runtimes really emit, mapped by the rules and
+ * not by the prose around them.
+ *
+ * Each row names a signal that reaches the classifier from a real adapter
+ * payload: Codex writes `errorClass` (its `CodexErrorClass`) and reports
+ * transport failures with the HTTP status in the message; Claude Code writes
+ * `runtimeError` (the CLI's own `error` value), `subtype` and `terminalReason`.
+ * `signal` is asserted too, because a row that reached the right class through
+ * a message rule has not proved the machine-readable rule is live.
+ */
+describe('FR053: the machine-readable signals of the installed runtimes', () => {
+  interface SignalCase {
+    readonly name: string;
+    readonly observed: ObservedFailure;
+    readonly expected: FailureClass;
+    readonly signal: string;
+  }
+
+  const SIGNALS: ReadonlyArray<SignalCase> = [
+    // --- Codex 0.147.0 -----------------------------------------------------
+    { name: 'codex HTTP 401', observed: { source: 'runtime', adapter: 'codex', httpStatus: 401 }, expected: 'authentication', signal: 'HTTP 401' },
+    { name: 'codex unauthorized tag', observed: { source: 'runtime', adapter: 'codex', errorTag: 'unauthorized' }, expected: 'authentication', signal: 'runtime tag "unauthorized"' },
+    { name: 'codex usageLimitExceeded', observed: { source: 'runtime', adapter: 'codex', errorTag: 'usageLimitExceeded' }, expected: 'quota', signal: 'runtime tag "usageLimitExceeded"' },
+    {
+      name: 'codex usage_limit (the class its own adapter records)',
+      observed: { source: 'runtime', adapter: 'codex', errorTag: 'usage_limit' },
+      expected: 'quota',
+      signal: 'runtime tag "usage_limit"',
+    },
+    {
+      name: 'codex badRequest / invalid_request',
+      observed: { source: 'runtime', adapter: 'codex', errorTag: 'badRequest' },
+      expected: 'protocol',
+      signal: 'runtime tag "badRequest"',
+    },
+    {
+      name: 'codex request_rejected (the class its own adapter records for a rejected request)',
+      observed: { source: 'runtime', adapter: 'codex', errorTag: 'request_rejected' },
+      expected: 'protocol',
+      signal: 'runtime tag "request_rejected"',
+    },
+    { name: 'codex HTTP 400', observed: { source: 'runtime', adapter: 'codex', httpStatus: 400 }, expected: 'protocol', signal: 'HTTP 400' },
+    { name: 'codex HTTP 500', observed: { source: 'runtime', adapter: 'codex', httpStatus: 500 }, expected: 'provider_transient', signal: 'HTTP 500' },
+    { name: 'codex HTTP 503', observed: { source: 'runtime', adapter: 'codex', httpStatus: 503 }, expected: 'provider_transient', signal: 'HTTP 503' },
+    {
+      name: 'codex internalServerError',
+      observed: { source: 'runtime', adapter: 'codex', errorTag: 'internalServerError' },
+      expected: 'provider_transient',
+      signal: 'runtime tag "internalServerError"',
+    },
+    { name: 'codex sandboxError', observed: { source: 'runtime', adapter: 'codex', errorTag: 'sandboxError' }, expected: 'permission', signal: 'runtime tag "sandboxError"' },
+    // --- Claude Code 2.1.260 ----------------------------------------------
+    {
+      name: 'claude-code authentication_failed',
+      observed: { source: 'runtime', adapter: 'claude-code', errorTag: 'authentication_failed', isError: true },
+      expected: 'authentication',
+      signal: 'runtime tag "authentication_failed"',
+    },
+    {
+      name: 'claude-code error_max_budget',
+      observed: { source: 'runtime', adapter: 'claude-code', subtype: 'error_max_budget', terminalReason: 'max_budget', isError: true },
+      expected: 'quota',
+      signal: 'subtype "error_max_budget"',
+    },
+    {
+      name: 'claude-code budget_exhausted (the class its own adapter records)',
+      observed: { source: 'runtime', adapter: 'claude-code', errorTag: 'budget_exhausted', isError: true },
+      expected: 'quota',
+      signal: 'runtime tag "budget_exhausted"',
+    },
+    {
+      name: 'claude-code permission_denied',
+      observed: { source: 'runtime', adapter: 'claude-code', errorTag: 'permission_denied' },
+      expected: 'permission',
+      signal: 'runtime tag "permission_denied"',
+    },
+    // --- Node/OS level -----------------------------------------------------
+    { name: 'ECONNRESET on the socket', observed: { source: 'transport', adapter: 'codex', code: 'ECONNRESET' }, expected: 'provider_transient', signal: 'ECONNRESET' },
+    { name: 'ETIMEDOUT on the socket', observed: { source: 'transport', adapter: 'codex', code: 'ETIMEDOUT' }, expected: 'provider_transient', signal: 'ETIMEDOUT' },
+  ];
+
+  for (const testCase of SIGNALS) {
+    it(`maps ${testCase.name} to ${testCase.expected} on the signal it names`, () => {
+      const result = classifyFailure(testCase.observed);
+      expect(result.failureClass).toBe(testCase.expected);
+      expect(result.signal).toBe(testCase.signal);
+    });
+  }
+
+  it('leaves a signal neither adapter recognised unknown, even alongside an is_error and a message', () => {
+    // `unknown` is what an adapter writes when IT could not classify the
+    // failure. Mapping it to anything here would be guessing on its behalf.
+    for (const errorTag of ['unknown', 'somethingBrandNew']) {
+      const result = classifyFailure({ source: 'runtime', adapter: 'codex', errorTag, isError: true, message: 'the runtime said a new thing' });
+      expect(result.failureClass, errorTag).toBe('unknown');
+      expect(result.retryable, errorTag).toBe(false);
+    }
+  });
+
+  it('treats a rejected request as terminal for the task and as no reason to change runtime', () => {
+    // A second runtime would send the same rejected request, so this class is
+    // neither retried nor handed off.
+    for (const observed of [
+      { source: 'runtime' as const, adapter: 'codex', errorTag: 'request_rejected' },
+      { source: 'runtime' as const, adapter: 'codex', httpStatus: 400 },
+      { source: 'runtime' as const, adapter: 'claude-code', errorTag: 'invalid_request' },
+    ]) {
+      const result = classifyFailure(observed);
+      expect(result.retryable).toBe(false);
+      expect(planRetry(result, 0, { maxTransientRetries: 5 }).retry).toBe(false);
+      expect(HANDOFF_FAILURE_CLASSES.has(result.failureClass)).toBe(false);
+    }
+  });
+
+  it('makes the classes a second runtime could get past handoff classes', () => {
+    // The point of classifying at all: authentication and quota failures are
+    // exactly the ones a configured fallback runtime can get past (AT04).
+    for (const observed of [
+      { source: 'runtime' as const, adapter: 'codex', httpStatus: 401 },
+      { source: 'runtime' as const, adapter: 'codex', errorTag: 'usageLimitExceeded' },
+      { source: 'runtime' as const, adapter: 'claude-code', errorTag: 'authentication_failed' },
+      { source: 'runtime' as const, adapter: 'claude-code', subtype: 'error_max_budget' },
+      { source: 'runtime' as const, adapter: 'codex', httpStatus: 503 },
+    ]) {
+      expect(HANDOFF_FAILURE_CLASSES.has(classifyFailure(observed).failureClass)).toBe(true);
+    }
   });
 });
