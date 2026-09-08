@@ -9,9 +9,13 @@
  *     (there is no `timeout(1)` on the target machine);
  *   - expose notifications as an async stream that never drops a frame a
  *     consumer has not read yet;
- *   - answer every server -> client request from an explicit policy. Approval
- *     and elicitation requests are escalations by definition, so the default
- *     policy denies them and no policy can be configured to approve one;
+ *   - answer every server -> client request from an explicit policy. An
+ *     escalation — a request for reach the run was not configured with — is
+ *     always refused, and no policy can be configured to approve one. The one
+ *     request that is not an escalation is the runtime asking permission to
+ *     call a tool on the coordination bridge THIS coordinator provisioned for
+ *     the session; that is authorized, and every decision is recorded with its
+ *     reason either way;
  *   - tolerate unknown methods and unknown fields;
  *   - shut down cleanly: close stdin, wait, then signal the process group.
  *
@@ -24,6 +28,10 @@ import { isProcessAlive, isProcessGroupAlive, newSpawnToken, observeProcessIdent
 import {
   CLIENT_METHOD,
   INITIALIZED_NOTIFICATION,
+  ItemNotificationSchema,
+  MCP_TOOL_CALL_APPROVAL_KIND,
+  McpElicitationParamsSchema,
+  SERVER_NOTIFICATION,
   SERVER_REQUEST,
   decodeFrame,
   type DecodedFrame,
@@ -71,18 +79,51 @@ export class CodexTransportError extends Error {
 /**
  * How a server -> client request is answered.
  *
- * Every entry is a refusal. Approvals exist so a human can widen a worker's
- * reach mid-turn; a coordinator that answers them automatically has silently
- * broadened the execution profile, which plan section 8 forbids ("Do not
- * silently broaden a profile because a check fails"). The adapter therefore
- * denies and records, and a run that needs more reach must be configured with
- * more reach before it starts.
+ * Almost every entry is a refusal. An approval request exists so a human can
+ * widen a worker's reach mid-turn; a coordinator that answers one
+ * automatically has silently broadened the execution profile, which plan
+ * section 8 forbids ("Do not silently broaden a profile because a check
+ * fails"). The adapter therefore denies and records, and a run that needs more
+ * reach must be configured with more reach before it starts.
+ *
+ * There is exactly one request that is not an escalation. Codex 0.147.0 gates
+ * every MCP tool call behind `mcpServer/elicitation/request`, so the runtime
+ * uses the same frame to ask "may this worker use the coordination bridge you
+ * yourself configured for this session?". Refusing that is not containment; it
+ * is the coordinator taking back the channel it just handed out. Answering it
+ * grants nothing beyond what the run was already configured with, so it — and
+ * only it, identified by the exact server name the coordinator registered and
+ * the exact tool names that bridge exposes — is approved. See
+ * `#decideServerRequest`.
  */
 export interface ServerRequestDecision {
   /** JSON-RPC result to return, or `null` to answer with a JSON-RPC error instead. */
   readonly result: unknown | null;
   readonly denied: boolean;
   readonly reason: string;
+}
+
+/**
+ * The coordination bridge the coordinator provisioned for one session.
+ *
+ * Supplying this is what makes a bridge authorization possible at all: without
+ * it every server -> client request is refused exactly as before. It is
+ * derived from the run's own configuration (see `provisionedBridgeFromArgs`),
+ * never from anything a repository or a model can write.
+ */
+export interface ProvisionedBridge {
+  /** The MCP server name the coordinator registered with the runtime for this session. */
+  readonly serverName: string;
+  /** Exactly the tools that bridge exposes. A different tool on the same server is still an escalation. */
+  readonly toolNames: ReadonlyArray<string>;
+}
+
+/** An `mcpToolCall` item the server has started and not yet completed. */
+export interface InFlightToolCall {
+  readonly itemId: string;
+  readonly threadId: string | null;
+  readonly server: string | null;
+  readonly tool: string | null;
 }
 
 const DENY_REASON = 'workforce policy: the coordinator never approves an escalation mid-turn; configure the run with the access it needs before it starts';
@@ -114,6 +155,69 @@ export function denyServerRequest(method: string): ServerRequestDecision {
   }
 }
 
+/**
+ * Is this elicitation the runtime asking to run a tool on the coordination
+ * bridge the coordinator provisioned, and if so which tool?
+ *
+ * Returns the tool name when every one of these holds, and a refusal saying
+ * which clause failed otherwise:
+ *
+ *   1. the elicitation names exactly the MCP server the coordinator
+ *      registered (string equality, never a substring or prefix test — a
+ *      repository must not be able to get itself approved by choosing a name);
+ *   2. it is a `form`-mode request marked as an MCP tool-call approval, not a
+ *      `url` flow and not some other approval kind;
+ *   3. it asks for no data. We answer with empty content, so a form with
+ *      fields is user intent the coordinator must not invent (plan section 7);
+ *   4. the tool being authorized is one the bridge exposes. The runtime does
+ *      not name it in the elicitation, but it states it structurally in the
+ *      `mcpToolCall` item it starts immediately before asking — so the call is
+ *      identified from that item, and every MCP call in flight on the thread
+ *      must be a bridge call for the attribution to be unambiguous.
+ */
+export function bridgeToolUnderAuthorization(
+  params: unknown,
+  bridge: ProvisionedBridge,
+  inFlight: ReadonlyArray<InFlightToolCall>,
+): { readonly tool: string } | { readonly refusal: string } {
+  const parsed = McpElicitationParamsSchema.safeParse(params);
+  if (!parsed.success) return { refusal: 'the elicitation parameters did not decode' };
+  const elicitation = parsed.data;
+
+  if (elicitation.serverName !== bridge.serverName) {
+    return { refusal: `MCP server "${elicitation.serverName}" is not the coordination bridge "${bridge.serverName}"` };
+  }
+  if (elicitation.mode !== undefined && elicitation.mode !== 'form') {
+    return { refusal: `elicitation mode "${elicitation.mode}" is not a tool-call approval` };
+  }
+  const kind = elicitation._meta?.['codex_approval_kind'];
+  if (typeof kind === 'string' && kind !== MCP_TOOL_CALL_APPROVAL_KIND) {
+    return { refusal: `approval kind "${kind}" is not a tool-call approval` };
+  }
+  const requested = elicitation.requestedSchema;
+  const askedFor = Object.keys(requested?.properties ?? {});
+  if (askedFor.length > 0 || (requested?.required ?? []).length > 0) {
+    return { refusal: 'the elicitation asks for form input, which only the human it is addressed to can supply' };
+  }
+
+  const thread = elicitation.threadId ?? null;
+  const attributable = inFlight.filter((call) => thread === null || call.threadId === null || call.threadId === thread);
+  if (attributable.length === 0) {
+    return { refusal: 'no MCP tool call is in flight, so this elicitation cannot be attributed to a bridge tool' };
+  }
+  const tools = new Set<string>();
+  for (const call of attributable) {
+    if (call.server !== bridge.serverName) {
+      return { refusal: `a call to MCP server "${String(call.server)}" is in flight, so this elicitation cannot be attributed to the bridge` };
+    }
+    if (call.tool === null || !bridge.toolNames.includes(call.tool)) {
+      return { refusal: `"${String(call.tool)}" is not a tool the coordination bridge exposes` };
+    }
+    tools.add(call.tool);
+  }
+  return { tool: [...tools].join(', ') };
+}
+
 export interface CodexRpcOptions {
   readonly executablePath: string;
   /** Defaults to `app-server --stdio`. Extra `-c key=value` overrides may be prefixed by the caller. */
@@ -124,8 +228,13 @@ export interface CodexRpcOptions {
   readonly stopTimeoutMs?: number;
   /** Raw capture of every framed line in both directions, plus stderr. */
   readonly onRaw?: (record: RawRecord) => void;
-  /** Overrides the refusal payload per method; it cannot be used to approve (see `answerServerRequest`). */
+  /** Overrides the refusal payload per method; it cannot be used to approve (see `#decideServerRequest`). */
   readonly serverRequestPolicy?: (method: string, params: unknown) => ServerRequestDecision;
+  /**
+   * The coordination bridge this session was configured with. Omitted for a
+   * session that was given none, and then nothing is ever approved.
+   */
+  readonly provisionedBridge?: ProvisionedBridge;
 }
 
 export interface ServerRequestRecord {
@@ -211,11 +320,13 @@ class NotificationBuffer {
 
 export class CodexRpcClient {
   readonly #options: Required<Pick<CodexRpcOptions, 'executablePath' | 'args' | 'cwd' | 'requestTimeoutMs' | 'stopTimeoutMs'>> &
-    Pick<CodexRpcOptions, 'env' | 'onRaw' | 'serverRequestPolicy'>;
+    Pick<CodexRpcOptions, 'env' | 'onRaw' | 'serverRequestPolicy' | 'provisionedBridge'>;
   readonly #pending = new Map<string, Pending>();
   readonly #notifications = new NotificationBuffer();
   readonly #serverRequests: ServerRequestRecord[] = [];
   readonly #undecodable: UndecodableFrame[] = [];
+  /** `mcpToolCall` items started and not yet completed, keyed by item id; what an elicitation is attributed to. */
+  readonly #inFlightToolCalls = new Map<string, InFlightToolCall>();
   readonly #stderr: string[] = [];
   readonly #emitter = new EventEmitter();
   readonly #startedAtMs = Date.now();
@@ -239,6 +350,7 @@ export class CodexRpcClient {
       ...(options.env !== undefined ? { env: options.env } : {}),
       ...(options.onRaw !== undefined ? { onRaw: options.onRaw } : {}),
       ...(options.serverRequestPolicy !== undefined ? { serverRequestPolicy: options.serverRequestPolicy } : {}),
+      ...(options.provisionedBridge !== undefined ? { provisionedBridge: options.provisionedBridge } : {}),
     };
     // Nothing else listens for 'exit'; the emitter is an internal wake-up channel.
     this.#emitter.setMaxListeners(0);
@@ -266,6 +378,11 @@ export class CodexRpcClient {
 
   get undecodableFrames(): ReadonlyArray<UndecodableFrame> {
     return this.#undecodable;
+  }
+
+  /** MCP tool calls the server has started and not yet completed. */
+  get inFlightToolCalls(): ReadonlyArray<InFlightToolCall> {
+    return [...this.#inFlightToolCalls.values()];
   }
 
   get stderrLines(): ReadonlyArray<string> {
@@ -366,6 +483,10 @@ export class CodexRpcClient {
         return;
       case 'notification':
         this.#sequence += 1;
+        // Tracked before the notification is published: the server asks for
+        // tool-call authorization the moment after it announces the item, and
+        // the decision needs the item to attribute the request to.
+        this.#trackToolCallItem(frame.method, frame.params);
         this.#notifications.push({ method: frame.method, params: frame.params, sequence: this.#sequence, at: nowIso() });
         return;
       case 'server_request':
@@ -396,20 +517,84 @@ export class CodexRpcClient {
   }
 
   /**
-   * Answer a server -> client request. The policy hook may only change the
-   * shape of a refusal: a decision that claims not to be denied is discarded
-   * and the built-in denial is sent instead, so no configuration mistake can
-   * turn this client into an auto-approver.
+   * Answer a server -> client request from `#decideServerRequest` and record
+   * the decision, with its reason, in the audit trail.
    */
   #answerServerRequest(id: RequestId, method: string, params: unknown): void {
-    const proposed = this.#options.serverRequestPolicy?.(method, params);
-    const decision = proposed !== undefined && proposed.denied ? proposed : denyServerRequest(method);
+    const decision = this.#decideServerRequest(method, params);
     this.#serverRequests.push({ id, method, params, decision, at: nowIso() });
     if (decision.result === null) {
       this.#write({ jsonrpc: '2.0', id, error: { code: -32601, message: decision.reason } });
     } else {
       this.#write({ jsonrpc: '2.0', id, result: decision.result });
     }
+  }
+
+  /**
+   * Escalation or authorization?
+   *
+   * An escalation asks for reach the run was not configured with, and is
+   * always refused. The single exception is the runtime asking whether a
+   * worker may call a tool on the coordination bridge this coordinator
+   * configured for this session: approving that grants nothing the run did not
+   * already have, and refusing it would withdraw the channel the coordinator
+   * itself handed out.
+   *
+   * The exception is deliberately not reachable through `serverRequestPolicy`.
+   * That hook may still only change the shape of a refusal — a decision that
+   * claims not to be denied is discarded — so no configuration mistake can
+   * turn this client into an auto-approver. Approval requires the caller to
+   * have passed the bridge identity it provisioned, and the request to match
+   * that identity exactly.
+   */
+  #decideServerRequest(method: string, params: unknown): ServerRequestDecision {
+    const bridge = this.#options.provisionedBridge;
+    if (bridge !== undefined && method === SERVER_REQUEST.mcpElicitation) {
+      const outcome = bridgeToolUnderAuthorization(params, bridge, this.inFlightToolCalls);
+      if ('tool' in outcome) {
+        return {
+          result: { action: 'accept', content: {} },
+          denied: false,
+          reason: `workforce policy: authorized "${outcome.tool}" on the coordination bridge "${bridge.serverName}" that the coordinator provisioned for this session; it grants no reach beyond the channel the run was configured with`,
+        };
+      }
+      // Not the bridge, or not identifiable as a bridge call: the ordinary
+      // refusal, plus the clause that failed so a reviewer can see why.
+      const denial = this.#refuse(method, params);
+      return { ...denial, reason: `${denial.reason}. This was not a coordination-bridge tool authorization: ${outcome.refusal}` };
+    }
+    return this.#refuse(method, params);
+  }
+
+  /** The refusal for one request: the policy hook's shape when it gives one, otherwise the built-in denial. */
+  #refuse(method: string, params: unknown): ServerRequestDecision {
+    const proposed = this.#options.serverRequestPolicy?.(method, params);
+    return proposed !== undefined && proposed.denied ? proposed : denyServerRequest(method);
+  }
+
+  /** Keep the in-flight `mcpToolCall` set current; it is what an elicitation is attributed to. */
+  #trackToolCallItem(method: string, params: unknown): void {
+    // A turn that ends while a tool call is open (an interrupt, a failure)
+    // never completes that item, so the end of the turn is what bounds the set.
+    if (method === SERVER_NOTIFICATION.turnCompleted) {
+      this.#inFlightToolCalls.clear();
+      return;
+    }
+    if (method !== SERVER_NOTIFICATION.itemStarted && method !== SERVER_NOTIFICATION.itemCompleted) return;
+    const parsed = ItemNotificationSchema.safeParse(params);
+    if (!parsed.success) return;
+    const item = parsed.data.item;
+    if (item.type !== 'mcpToolCall' || item.id === undefined) return;
+    if (method === SERVER_NOTIFICATION.itemCompleted) {
+      this.#inFlightToolCalls.delete(item.id);
+      return;
+    }
+    this.#inFlightToolCalls.set(item.id, {
+      itemId: item.id,
+      threadId: parsed.data.threadId ?? null,
+      server: item.server ?? null,
+      tool: item.tool ?? null,
+    });
   }
 
   #write(message: unknown): void {

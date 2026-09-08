@@ -21,6 +21,10 @@ import { CodexAdapter } from '../../../src/adapters/codex/adapter.js';
 import { isProcessAlive, isProcessGroupAlive } from '../../../src/core/process.js';
 import { summarizeTurnEvidence } from '../../../src/telemetry/events.js';
 import type { RuntimeEvent, SessionHandle } from '../../../src/adapters/types.js';
+import { createCoordinationBridge } from '../../../src/coordination/index.js';
+import { openStateStore } from '../../../src/storage/db.js';
+import { createStatePaths } from '../../../src/storage/paths.js';
+import { seedAttempt, seedRun, seedTask } from '../../coordination/helpers.js';
 
 const ENABLED = process.env['WORKFORCE_REAL_RUNTIMES'] === '1';
 const CODEX = process.env['WORKFORCE_CODEX_PATH'] ?? 'codex';
@@ -502,5 +506,94 @@ describe.skipIf(!ENABLED)('codex real runtime: model turns (spends quota)', () =
     const terminal = events.at(-1)!;
     expect(terminal.payload['evidence']).toBe('runtime_reported');
     expect(JSON.stringify(events)).not.toContain('"accepted":true');
+  }, 300_000);
+});
+
+/**
+ * AT05 end to end against the installed runtime, with the real coordination
+ * bridge: the coordinator configures an MCP server, spawns it, and the worker
+ * has to be able to use it. Codex 0.147.0 asks permission before every MCP
+ * tool call, so this is the check that the adapter authorizes the channel it
+ * provisioned instead of refusing it as an escalation.
+ *
+ * Nothing here is stubbed on the worker side: the real bridge module, the real
+ * coordination socket and the real message store are used, and the assertion
+ * is on the row the coordinator actually stored.
+ */
+describe.skipIf(!ENABLED)('codex real runtime: the coordination bridge (spends model tokens)', () => {
+  it('lets a worker call a coordination tool through the bridge the coordinator gave it', async (ctx) => {
+    if (modelTurnsBlockedBy !== null) {
+      console.warn(`codex real runtime: skipping the coordination-bridge check (${modelTurnsBlockedBy})`);
+      ctx.skip();
+      return;
+    }
+    const cwd = repo('wf-codex-bridge-');
+    const stateDir = path.join(plainDir('wf-codex-bridge-state-'), 'state');
+    const paths = createStatePaths(stateDir);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    const run = seedRun(store.db);
+    const task = seedTask(store.db, run.id);
+    const attempt = seedAttempt(store.db, task.id);
+    const bridge = await createCoordinationBridge({ stateRoot: stateDir, runId: run.id, db: store.db });
+    const attached = bridge.mcpConfigFor(attempt.id);
+
+    const adapter = adapterFor();
+    await adapter.discoverSettings(CODEX);
+    const handle = await adapter.openSession({
+      cwd,
+      allowedWritePaths: [cwd],
+      policy: 'local-development',
+      model: 'gpt-5.6-sol',
+      effort: 'low',
+      systemInstructions: `You are a workforce worker. The MCP server "${attached.serverName}" is your coordination channel.`,
+      // Exactly what the run path splices in (coordinationArgsFor('codex', …)).
+      extraArgs: attached.codexArgs,
+    });
+    open.push({ adapter, handle });
+
+    let events: RuntimeEvent[] = [];
+    try {
+      const started = Date.now();
+      const turn = await adapter.startTurn(handle, {
+        prompt: `Call the ${attached.serverName} MCP tool send_message exactly once, with body "schema is ready". Do not write any files. Then reply with the messageId the tool returned.`,
+      });
+      for await (const event of adapter.events(turn)) events.push(event);
+      timings.push({ check: 'coordination bridge tool call', ms: Date.now() - started });
+
+      const blocked = blockingError(events);
+      if (blocked !== null) {
+        modelTurnsBlockedBy = blocked;
+        console.warn(`codex real runtime: skipping the coordination-bridge check (${blocked})`);
+        ctx.skip();
+        return;
+      }
+
+      // 1. The runtime asked, and the adapter authorized — naming the tool.
+      const decisions = adapter.serverRequestDecisions(handle);
+      const authorized = decisions.filter((record) => !record.decision.denied);
+      expect(authorized.length, `no server request was authorized; decisions: ${JSON.stringify(decisions.map((d) => ({ m: d.method, r: d.decision.reason })))}`).toBeGreaterThan(0);
+      expect(authorized.every((record) => record.method === 'mcpServer/elicitation/request')).toBe(true);
+      expect(authorized[0]!.decision.result).toEqual({ action: 'accept', content: {} });
+      expect(authorized[0]!.decision.reason).toContain('send_message');
+
+      // 2. The call reached the coordinator and it stored the message.
+      const messages = bridge.messages();
+      expect(messages.length, 'the coordinator recorded no message from the worker').toBeGreaterThan(0);
+      expect(messages[0]!.senderTaskId).toBe(task.id);
+      console.log(`codex coordination bridge: message ${messages[0]!.id} from task ${messages[0]!.senderTaskId}, body ${JSON.stringify(messages[0]!.body).slice(0, 200)}`);
+
+      // 3. The worker saw it succeed. A failed call surfaces as a tool_result
+      //    with isError/ok false, so success has to be observable, not assumed.
+      const toolResults = events.filter((event) => event.kind === 'tool_result' && event.payload['tool'] === 'send_message');
+      expect(toolResults.length, 'no tool_result for send_message in the event stream').toBeGreaterThan(0);
+      const observed = toolResults.at(-1)!;
+      console.log(`codex coordination bridge: observed tool result ${JSON.stringify(observed.payload).slice(0, 600)}`);
+      expect(observed.payload['status'], JSON.stringify(observed.payload)).not.toBe('failed');
+      expect(JSON.stringify(observed.payload)).not.toContain('user rejected MCP tool call');
+    } finally {
+      await bridge.close();
+      store.close();
+      events = [];
+    }
   }, 300_000);
 });

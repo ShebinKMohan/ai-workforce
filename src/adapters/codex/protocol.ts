@@ -249,6 +249,43 @@ export const TokenUsageNotificationSchema = z.looseObject({
 });
 
 // ---------------------------------------------------------------------------
+// Server -> client request payloads we inspect before answering
+// ---------------------------------------------------------------------------
+
+/**
+ * `mcpServer/elicitation/request` parameters (McpServerElicitationRequestParams).
+ *
+ * The installed server sends this both for a genuine MCP form — a server
+ * asking the human for data — and, with `_meta.codex_approval_kind` set to
+ * `mcp_tool_call`, as the authorization gate in front of every MCP tool call.
+ * Only `serverName` is guaranteed; everything else is optional here so an
+ * older or newer server still decodes, and a field the coordinator needs but
+ * did not get simply fails the authorization check instead of the parse.
+ *
+ * Recorded from codex-cli 0.147.0; see docs/runtime-codex.md.
+ */
+export const McpElicitationParamsSchema = z.looseObject({
+  serverName: z.string(),
+  threadId: z.string().optional(),
+  turnId: z.string().nullish(),
+  /** `form` (a typed schema), `openai/form`, or `url` (an out-of-band flow). */
+  mode: z.string().optional(),
+  message: z.string().optional(),
+  requestedSchema: z
+    .looseObject({
+      type: z.string().optional(),
+      properties: z.record(z.string(), z.unknown()).optional(),
+      required: z.array(z.string()).nullish(),
+    })
+    .optional(),
+  _meta: z.looseObject({ codex_approval_kind: z.string().optional() }).optional(),
+});
+export type McpElicitationParams = z.infer<typeof McpElicitationParamsSchema>;
+
+/** The `_meta.codex_approval_kind` value that marks an elicitation as "may this MCP tool run?". */
+export const MCP_TOOL_CALL_APPROVAL_KIND = 'mcp_tool_call';
+
+// ---------------------------------------------------------------------------
 // Error classification (foundation for FR053; kept honest, never invented)
 // ---------------------------------------------------------------------------
 
