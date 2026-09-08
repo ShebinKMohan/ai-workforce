@@ -27,7 +27,7 @@ import { nowIso, randomToken } from '../core/ids.js';
 import { sha256Hex } from '../core/snapshot.js';
 import { COORDINATOR_IDENTITY, git, gitOrThrow, gitText, resolveRevision } from '../workspaces/git.js';
 import { EVIDENCE_PROVENANCE, runChecks as defaultRunChecks, type CheckReceipt, type CheckSpec, type FixtureMutation, type RunChecksInput } from '../verification/checks.js';
-import { acceptanceSurface, findSurfaceChanges } from '../verification/surface.js';
+import { findSurfaceChanges, resolveAcceptanceSurface } from '../verification/surface.js';
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -570,6 +570,14 @@ export interface CombineSucceeded {
   readonly acceptance: CombinedAcceptance;
   /** Branch receipts carried through as context; they establish nothing here. */
   readonly branchReceiptIds: ReadonlyArray<string>;
+  /**
+   * What resolving the acceptance surface from the base revision could not
+   * settle. Empty means the import graph was followed to completion; a
+   * non-empty entry means the fixture comparison above covered less than the
+   * criteria actually execute. Recorded rather than blocking, so the gap is
+   * visible instead of silent.
+   */
+  readonly surfaceGaps: ReadonlyArray<string>;
   readonly combinedAt: string;
 }
 
@@ -709,6 +717,7 @@ async function combineOnce(input: CombineInput): Promise<CombineResult> {
       receipts,
       acceptance,
       branchReceiptIds: branchReceipts.map((receipt) => receipt.id),
+      surfaceGaps: surfaceFindings.surfaceGaps,
       combinedAt: nowIso(),
     };
   } catch (error) {
@@ -737,25 +746,37 @@ function firstRejectedFile(stderr: string): string | null {
  * Read from the integration worktree, which has both revisions: the surface
  * comes from the base tree (what the criteria meant when they were pinned) and
  * the changes from `base..combined`.
+ *
+ * The surface is resolved by following the import graph from each criterion's
+ * entry points, exactly as the direct path does, so the combined decision
+ * covers the same files. Resolving it any other way would leave the multi-task
+ * path accepting a combination that gutted a helper the suite asserts through
+ * while the single-task path refused it.
  */
 async function measureCombinedSurface(
   workspacePath: string,
   baseRevision: string,
   combinedRevision: string,
   checks: ReadonlyArray<CheckSpec>,
-): Promise<{ mutations: ReadonlyArray<FixtureMutation>; definitionChanges: ReadonlyArray<string> }> {
+): Promise<{ mutations: ReadonlyArray<FixtureMutation>; definitionChanges: ReadonlyArray<string>; surfaceGaps: ReadonlyArray<string> }> {
+  const empty = { mutations: [], definitionChanges: [], surfaceGaps: [] };
   const listing = await git(['ls-tree', '-r', '--name-only', '-z', baseRevision], { cwd: workspacePath, maxOutputBytes: 8 * 1024 * 1024 });
-  if (!listing.ok) return { mutations: [], definitionChanges: [] };
+  if (!listing.ok) return empty;
   const baseFiles = listing.stdout.split('\0').filter((name) => name.length > 0);
 
+  // Read a base-revision file through `git show`, never from the worktree: the
+  // integration worktree holds the combined tree, and the surface must be the
+  // one the base revision defined.
+  const readBaseFile = async (relativePath: string): Promise<string | null> => {
+    const shown = await git(['show', `${baseRevision}:${relativePath}`], { cwd: workspacePath, maxOutputBytes: 1024 * 1024 });
+    return shown.ok ? shown.stdout : null;
+  };
+
   let packageManifest: string | null = null;
-  if (baseFiles.includes('package.json')) {
-    const shown = await git(['show', `${baseRevision}:package.json`], { cwd: workspacePath, maxOutputBytes: 1024 * 1024 });
-    packageManifest = shown.ok ? shown.stdout : null;
-  }
+  if (baseFiles.includes('package.json')) packageManifest = await readBaseFile('package.json');
 
   const diff = await git(['diff', '--name-status', '-z', `${baseRevision}..${combinedRevision}`], { cwd: workspacePath, maxOutputBytes: 8 * 1024 * 1024 });
-  if (!diff.ok) return { mutations: [], definitionChanges: [] };
+  if (!diff.ok) return empty;
   const fields = diff.stdout.split('\0').filter((field) => field.length > 0);
   const changes: Array<{ status: string; path: string }> = [];
   for (let i = 0; i < fields.length; i += 1) {
@@ -774,7 +795,15 @@ async function measureCombinedSurface(
     i += 1;
   }
 
-  const surface = acceptanceSurface(checks, baseFiles, { packageManifest });
+  const surface = await resolveAcceptanceSurface(checks, baseFiles, { packageManifest, readBaseFile });
   const findings = findSurfaceChanges(surface, changes);
-  return { mutations: findings.mutations, definitionChanges: findings.definitionChanges };
+  // What the walk could not settle. A combination is not refused for it, but a
+  // partial surface must not read as a complete one.
+  const surfaceGaps = [...surface.resolution.unresolved];
+  if (surface.resolution.truncated) {
+    surfaceGaps.push(
+      `the acceptance surface for this combination is PARTIAL: the walk from ${surface.resolution.entryPoints.length} entry point(s) read ${surface.resolution.filesVisited} file(s) and stopped at a cap, so files a criterion executes may be missing from the fixture comparison`,
+    );
+  }
+  return { mutations: findings.mutations, definitionChanges: findings.definitionChanges, surfaceGaps };
 }

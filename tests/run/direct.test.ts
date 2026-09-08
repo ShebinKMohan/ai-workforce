@@ -673,6 +673,43 @@ describe('a writing profile needs a write boundary (plan sections 6, 8 and 9; FR
   });
 });
 
+/**
+ * The containment note is the one place a reader is told what this run's
+ * boundary actually was. It has to move when the boundary moves: once checks
+ * run outside the coordinator state root and that root is fingerprinted across
+ * each check window, a note that still says only "test code could write
+ * anything, including the state root" understates what happened — and a note
+ * that stops saying there is no OS containment would overstate it.
+ */
+describe('the containment note describes the boundary this run actually had (FR042, FR049, FR050)', () => {
+  it('names the check placement and the state-root guard without claiming confinement', async () => {
+    const h = await harness();
+
+    const result = await h.run(fixTheBugScenario());
+
+    expect(result.outcome).toBe('accepted');
+    const note = String(result.manifest.evidence['containmentNote']);
+    // What is now true, and is the point of running checks outside the state root.
+    expect(note).toContain('outside the coordinator state root');
+    expect(note).toContain('no relative path from a check reaches coordinator state');
+    expect(note).toContain('fingerprinted on both sides of each check window');
+    // What is still not true, said in the same breath.
+    expect(note).toContain('not confinement');
+    expect(note).toContain('can name any absolute path');
+    expect(note).toContain('(FR042) is an R1 gate and is not claimed here');
+
+    // And the receipt backs the note rather than the note standing alone.
+    const receipt = result.receipts[0]!;
+    expect(receipt.containment!.outsideStateRoot).toBe(true);
+    expect(receipt.containment!.stateRoot).not.toBeNull();
+    expect(receipt.containment!.cwd.startsWith(receipt.containment!.stateRoot!)).toBe(false);
+    // Evidence stays where it belongs: under the run directory, inside the state root.
+    expect(receipt.containment!.evidenceRoot.startsWith(result.runDir)).toBe(true);
+    expect(receipt.stateRootGuard!.checked).toBe(true);
+    expect(receipt.stateRootGuard!.violations).toEqual([]);
+  });
+});
+
 describe('what the runtime says about its own turn is read as a claim, not as a result (FR003, FR004, FR042, FR050)', () => {
   const CLAUDE_REPLAY = fileURLToPath(new URL('../../fixtures/claude-code/fake-claude.mjs', import.meta.url));
 

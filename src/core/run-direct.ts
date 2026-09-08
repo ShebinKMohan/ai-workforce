@@ -316,8 +316,9 @@ export function writeObservation(adapter: string, containment: ContainmentAssess
 export function renderContainmentNote(adapter: string, containment: ContainmentAssessment): string {
   const shared =
     'The candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Neither installed runtime confines reads at all — a worker can read files outside the repository, and this run did not prevent that. ' +
-    'Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, but with this user\'s own filesystem privileges: repository test code could still read or write anything this user can, including the coordinator state root. ' +
-    'An enforced execution boundary for tool and test subprocesses (FR042) is an R1 gate; acceptance compensates only by refusing evidence whose fixtures the candidate changed.';
+    'Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, with that copy, its HOME and its TMPDIR placed outside the coordinator state root, so no relative path from a check reaches coordinator state; the state root is fingerprinted on both sides of each check window, so a write that reached it by absolute path is recorded as an integrity failure instead of passing silently. Each receipt\'s `containment` and `stateRootGuard` report what was actually placed and actually measured. ' +
+    'That is placement and detection, not confinement: repository test code still runs with this user\'s own filesystem privileges and can name any absolute path, so it can still read or write anything this user can — the home directory and the registered project checkout included — and an in-place overwrite that does not change a file\'s identity is recorded as an observation rather than a violation. ' +
+    'An enforced execution boundary for tool and test subprocesses (FR042) is an R1 gate and is not claimed here; acceptance compensates only by refusing evidence whose fixtures the candidate changed.';
   if (!containment.writes) {
     return `This run used the read-only "${containment.policy}" profile, so no write boundary was required of the ${adapter} adapter (it reports write_containment "${containment.status}"). ${shared}`;
   }

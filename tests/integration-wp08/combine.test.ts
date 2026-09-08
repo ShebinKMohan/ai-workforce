@@ -227,6 +227,100 @@ describe('an individual branch pass never establishes the combination (AT13)', (
   });
 });
 
+/**
+ * The combined path has to apply the same acceptance surface as the direct
+ * one. A criterion's entry point names one file; the modules it imports are
+ * part of what the criterion executes, and are reached only by following the
+ * import graph from the base revision. Resolving the surface from path names
+ * alone here would accept a combination that the single-task path refuses.
+ */
+describe('the combined acceptance surface follows the module graph', () => {
+  const SUITE = [
+    "import { expectEqual } from './expect.js';",
+    "import { total } from '../src/total.js';",
+    '',
+    "expectEqual(total([1200, 340, 75]), 1615, 'every line item is billed');",
+    '',
+    "console.log('acceptance suite passed');",
+    '',
+  ].join('\n');
+  const HELPER = [
+    'export function expectEqual(actual, expected, what) {',
+    '  if (actual !== expected) throw new Error(`${what}: expected ${expected}, got ${actual}`);',
+    '}',
+    '',
+  ].join('\n');
+  const BUGGY_TOTAL = [
+    'export function total(amounts) {',
+    '  let sum = 0;',
+    '  for (let index = 0; index < amounts.length - 1; index += 1) sum += amounts[index];',
+    '  return sum;',
+    '}',
+    '',
+  ].join('\n');
+  const FIXED_TOTAL = BUGGY_TOTAL.replace('amounts.length - 1', 'amounts.length');
+
+  /** `package.json` names the suite; nothing about `verify/` matches a test-path convention. */
+  const MANIFEST = `${JSON.stringify({ name: 'helper-combined', private: true, type: 'module', scripts: { test: 'node verify/run.js' } }, null, 2)}\n`;
+
+  const helperRepo = async () =>
+    makeRepo({ 'package.json': MANIFEST, 'verify/run.js': SUITE, 'verify/expect.js': HELPER, 'src/total.js': BUGGY_TOTAL });
+  const CHECKS = [{ criterionId: 'acceptance-suite-passes', command: process.execPath, args: ['verify/run.js'] }];
+
+  it('refuses a combination that guts a helper the acceptance suite imports', async () => {
+    const repo = await helperRepo();
+    // The attack: the suite and the bug are untouched; the assertion helper it
+    // reports failures through is emptied, so the suite exits 0 asserting nothing.
+    const attack = await makeArtifact(repo, { artifactId: 'art-a', taskId: 'task-a', edits: { 'verify/expect.js': 'export function expectEqual() {}\n' } });
+    const other = await makeArtifact(repo, { artifactId: 'art-b', taskId: 'task-b', edits: { 'README.md': 'notes\n' } });
+
+    const result = await combineArtifacts({
+      runId: 'run-surface',
+      projectRoot: repo.root,
+      baseRevision: repo.head,
+      artifacts: [attack, other],
+      integrationRoot: tempDir('wf-wp08-int-'),
+      checkOutputRoot: tempDir('wf-wp08-checks-'),
+      checks: CHECKS,
+    });
+
+    const combined = result as Extract<CombineResult, { status: 'combined' }>;
+    // The check really does pass against the combined revision: that is the attack.
+    expect(combined.receipts[0]!.outcome).toBe('passed');
+    expect(combined.receipts[0]!.candidate.revision).toBe(combined.combinedRevision);
+    // And the combination is still refused, because the emptied file is code
+    // the criterion executes to judge the candidate.
+    expect(combined.acceptance.accepted).toBe(false);
+    expect(combined.acceptance.reason).toContain('verify/expect.js');
+    expect(combined.acceptance.verdicts[0]!.satisfied).toBe(false);
+    // The surface was resolved completely, so the refusal rests on knowledge rather than on a gap.
+    expect(combined.surfaceGaps).toEqual([]);
+  });
+
+  it('still accepts a combination that fixes the code the same suite imports', async () => {
+    const repo = await helperRepo();
+    const fix = await makeArtifact(repo, { artifactId: 'art-a', taskId: 'task-a', edits: { 'src/total.js': FIXED_TOTAL } });
+    const other = await makeArtifact(repo, { artifactId: 'art-b', taskId: 'task-b', edits: { 'README.md': 'notes\n' } });
+
+    const result = await combineArtifacts({
+      runId: 'run-surface-ok',
+      projectRoot: repo.root,
+      baseRevision: repo.head,
+      artifacts: [fix, other],
+      integrationRoot: tempDir('wf-wp08-int-'),
+      checkOutputRoot: tempDir('wf-wp08-checks-'),
+      checks: CHECKS,
+    });
+
+    const combined = result as Extract<CombineResult, { status: 'combined' }>;
+    // `src/total.js` is executed by the criterion too. Following the graph must
+    // not make the fix itself unacceptable.
+    expect(combined.receipts[0]!.outcome).toBe('passed');
+    expect(combined.acceptance.accepted).toBe(true);
+    expect(combined.surfaceGaps).toEqual([]);
+  });
+});
+
 describe('patch parsing', () => {
   it('reads hunk ranges, additions, deletions and binary markers', () => {
     const files = parseUnifiedDiff(
