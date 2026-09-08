@@ -1275,6 +1275,25 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     // stream still reaches --json, events.jsonl and the adapter's raw capture.
     const workspaceRootForDisplay = workspace.path;
     const shorten = (value: string): string => (isWithin(workspaceRootForDisplay, value) ? path.relative(workspaceRootForDisplay, value) || '.' : value);
+    // Deliver a peer's message while the recipient's turn is still live. Doing
+    // this only before the prompt or after the stream ended means the adapter's
+    // verified active-turn path is never used and a clarification arrives too
+    // late to change the work it was asked about.
+    const drainInbox = async (): Promise<void> => {
+      if (bridge === null || session === null) return;
+      for (const message of deliverableMessages(bridge, taskId)) {
+        try {
+          const receipt = await adapter.deliver(session, { messageId: message.id, body: message.text });
+          bridge.acknowledge(message.id);
+          messagesDelivered += 1;
+          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivered', payload: { messageId: message.id, state: receipt.state } });
+          stream.line(`  coordination: delivered a message to this worker (${receipt.state})`);
+        } catch (error) {
+          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivery_failed', payload: { messageId: message.id, message: (error as Error).message } });
+        }
+      }
+    };
+
     for await (const event of adapter.events(turn)) {
       runtimeEvents.push(event);
       recordRuntimeEvent(db, event, { runId, taskId, attemptId, paths });
@@ -1284,24 +1303,16 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       if (event.kind === 'turn_completed') turnConclusion = 'completed';
       else if (event.kind === 'turn_interrupted') turnConclusion = 'interrupted';
       else if (event.kind === 'error' && event.payload['fatal'] === true) turnConclusion = 'runtime_exited';
+      // A tool result or an assistant message is a safe boundary inside a turn:
+      // the worker is between actions rather than mid-write.
+      if (event.kind === 'tool_result' || event.kind === 'assistant_message') await drainInbox();
     }
     runtimeSpan.end();
 
     // A safe boundary after the turn: deliver anything that arrived while it
     // ran. The adapter either submits it to a live turn or queues it and says
     // who is holding it; either way the coordinator stops guessing.
-    if (bridge !== null && session !== null) {
-      for (const message of deliverableMessages(bridge, taskId)) {
-        try {
-          const receipt = await adapter.deliver(session, { messageId: message.id, body: message.text });
-          bridge.acknowledge(message.id);
-          messagesDelivered += 1;
-          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivered', payload: { messageId: message.id, state: receipt.state } });
-        } catch (error) {
-          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivery_failed', payload: { messageId: message.id, message: (error as Error).message } });
-        }
-      }
-    }
+    await drainInbox();
     // FR006: the runtime's own word on what ran. Printed only when it differs
     // from what was configured — the case a person needs to see, because the
     // run path passes an unlisted model through unvalidated.
@@ -1865,11 +1876,26 @@ export function coordinationArgsFor(adapterId: string, config: AttemptBridgeConf
 }
 
 /** The task's bounded inbox, flattened to id and text. A read failure is an empty inbox, never a run failure. */
+/**
+ * A message body is a parsed object, so interpolating it yields
+ * "[object Object]" and the recipient receives nothing it can act on. Render
+ * the shape the bridge actually stores: `send_message` normalizes a string
+ * body to `{ text }` and carries an optional `subject` beside it.
+ */
+export function renderMessageBody(body: Record<string, unknown>): string {
+  const subject = typeof body['subject'] === 'string' ? body['subject'] : null;
+  const rest: Record<string, unknown> = { ...body };
+  delete rest['subject'];
+  const keys = Object.keys(rest);
+  const text = keys.length === 1 && keys[0] === 'text' && typeof rest['text'] === 'string' ? rest['text'] : JSON.stringify(rest);
+  return subject === null ? text : `${subject}: ${text}`;
+}
+
 function deliverableMessages(bridge: CoordinationBridge, taskId: string): ReadonlyArray<{ id: string; text: string }> {
   try {
     return bridge.deliverableFor(taskId).map((message) => ({
       id: message.id,
-      text: `[${message.type} from ${message.senderTaskId ?? 'coordinator'}] ${message.body}`,
+      text: `[${message.type} from ${message.senderTaskId ?? 'coordinator'}] ${renderMessageBody(message.body)}`,
     }));
   } catch {
     return [];
