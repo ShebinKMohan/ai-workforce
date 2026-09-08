@@ -65,7 +65,7 @@ import {
   upsertAgentSnapshot,
 } from '../storage/records.js';
 import { appendEvent } from '../storage/events.js';
-import { createCoordinationBridge, type AttemptBridgeConfig, type CoordinationBridge } from '../coordination/index.js';
+import { createCoordinationBridge, type AttemptBridgeConfig, type CoordinationBridge, type MessageRecord } from '../coordination/index.js';
 import { projectEventsJsonl, recordRuntimeEvent, summarizeTurnEvidence, type TurnEvidence } from '../telemetry/events.js';
 import { PhaseTimer, USAGE_UNAVAILABLE, type UsageReport } from '../telemetry/timing.js';
 import {
@@ -1284,6 +1284,10 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   let bridgeConfig: AttemptBridgeConfig | null = null;
   let bridgeReason: string | null = null;
   let messagesDelivered = 0;
+  // While this is non-null the coordinator is telling every sender that this
+  // task can be reached. It is cleared the moment the session can no longer
+  // take a message, so a peer is refused rather than told a lie.
+  let closeReceiver: (() => void) | null = null;
   if (input.coordinationEnabled === false) {
     bridgeReason = 'coordination was disabled for this run';
   } else if (bridge === null) {
@@ -1455,6 +1459,77 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     appendEvent(db, { runId, taskId, attemptId, type: 'session.opened', payload: { adapter: adapter.id, sessionId: session.sessionId, processId: session.processId ?? null } });
     stream.event({ type: 'session.opened', adapter: adapter.id, sessionId: session.sessionId, processId: session.processId ?? null });
 
+    // Deliver a peer's message while the recipient's turn is still live. Doing
+    // this only before the prompt or after the stream ended means the adapter's
+    // verified active-turn path is never used and a clarification arrives too
+    // late to change the work it was asked about.
+    //
+    // `phase` is the difference between a delivery and a hand-off to nobody.
+    // While the turn runs, a `queued` receipt is a real outcome: the adapter or
+    // the runtime holds the message and flushes it into the turn. Once the
+    // stream has ended and this session is about to be stopped there is no
+    // next turn on it, so a `queued` receipt means the message was handed to
+    // something that is about to die — that is recorded as a failed delivery
+    // and the message is left undelivered rather than acknowledged.
+    const drainInbox = async (phase: 'turn' | 'closing'): Promise<void> => {
+      if (bridge === null || session === null) return;
+      for (const message of deliverableMessages(bridge, taskId)) {
+        try {
+          const receipt = await adapter.deliver(session, { messageId: message.id, body: message.text });
+          if (phase === 'closing' && receipt.state !== 'submitted_to_active_turn') {
+            const reason = `the recipient's turn had already ended, so the runtime only ${receipt.state} it (${receipt.holder ?? 'nobody'} holding) and this session is being stopped`;
+            appendEvent(db, {
+              runId,
+              taskId,
+              attemptId,
+              type: 'coordination.delivery_failed',
+              payload: { messageId: message.id, code: 'turn_already_ended', reason, state: receipt.state, holder: receipt.holder ?? null },
+            });
+            stream.line(`  coordination: a message for this worker could not be delivered (${reason})`);
+            continue;
+          }
+          bridge.acknowledge(message.id);
+          messagesDelivered += 1;
+          appendEvent(db, {
+            runId,
+            taskId,
+            attemptId,
+            type: 'coordination.delivered',
+            payload: { messageId: message.id, state: receipt.state, holder: receipt.holder ?? null, turnId: receipt.turnId },
+          });
+          // "queued" alone does not say whether anyone is holding the message.
+          // The holder is the part a person needs, so print it.
+          stream.line(`  coordination: delivered a message to this worker (${receipt.state}${receipt.holder === undefined ? '' : `, held by the ${receipt.holder}`})`);
+        } catch (error) {
+          // Not terminal while the turn is live: the message stays deliverable
+          // and the next boundary tries again. What must never happen is the
+          // failure going unrecorded.
+          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivery_failed', payload: { messageId: message.id, code: 'delivery_error', reason: (error as Error).message } });
+        }
+      }
+    };
+
+    // Deliveries are serialized. Two of them at once would race the same
+    // session — and a message arriving mid-drain must not start a second
+    // delivery into the turn the first one is already steering.
+    let drainChain: Promise<void> = Promise.resolve();
+    const runDrain = (phase: 'turn' | 'closing'): Promise<void> => {
+      drainChain = drainChain.then(() => drainInbox(phase)).catch(() => undefined);
+      return drainChain;
+    };
+
+    // From here until the session is stopped this task can be reached: it has
+    // a live session, so a peer addressing it is told the truth and the
+    // message is either read into the prompt below or pushed into the turn.
+    // A message that arrives now wakes the drain immediately rather than
+    // waiting for whatever boundary the turn happens to reach next — there is
+    // nothing to poll, because the coordinator is the one who accepted it.
+    if (bridge !== null) {
+      closeReceiver = bridge.openReceiver(taskId, () => {
+        void runDrain('turn');
+      });
+    }
+
     // A safe boundary before the turn: anything a dependency left for this task
     // is in the prompt, not racing the turn that is about to start.
     const inbox = bridge === null ? [] : deliverableMessages(bridge, taskId);
@@ -1503,24 +1578,6 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     // stream still reaches --json, events.jsonl and the adapter's raw capture.
     const workspaceRootForDisplay = workspace.path;
     const shorten = (value: string): string => (isWithin(workspaceRootForDisplay, value) ? path.relative(workspaceRootForDisplay, value) || '.' : value);
-    // Deliver a peer's message while the recipient's turn is still live. Doing
-    // this only before the prompt or after the stream ended means the adapter's
-    // verified active-turn path is never used and a clarification arrives too
-    // late to change the work it was asked about.
-    const drainInbox = async (): Promise<void> => {
-      if (bridge === null || session === null) return;
-      for (const message of deliverableMessages(bridge, taskId)) {
-        try {
-          const receipt = await adapter.deliver(session, { messageId: message.id, body: message.text });
-          bridge.acknowledge(message.id);
-          messagesDelivered += 1;
-          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivered', payload: { messageId: message.id, state: receipt.state } });
-          stream.line(`  coordination: delivered a message to this worker (${receipt.state})`);
-        } catch (error) {
-          appendEvent(db, { runId, taskId, attemptId, type: 'coordination.delivery_failed', payload: { messageId: message.id, message: (error as Error).message } });
-        }
-      }
-    };
 
     for await (const event of adapter.events(turn)) {
       runtimeEvents.push(event);
@@ -1533,14 +1590,19 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       else if (event.kind === 'error' && event.payload['fatal'] === true) turnConclusion = 'runtime_exited';
       // A tool result or an assistant message is a safe boundary inside a turn:
       // the worker is between actions rather than mid-write.
-      if (event.kind === 'tool_result' || event.kind === 'assistant_message') await drainInbox();
+      if (event.kind === 'tool_result' || event.kind === 'assistant_message') await runDrain('turn');
     }
     runtimeSpan.end();
 
-    // A safe boundary after the turn: deliver anything that arrived while it
-    // ran. The adapter either submits it to a live turn or queues it and says
-    // who is holding it; either way the coordinator stops guessing.
-    await drainInbox();
+    // The last safe boundary on this session: deliver anything that arrived as
+    // the turn ended. Only a submission into a still-live turn counts here —
+    // there is no next turn on this session to flush a queued message into.
+    await runDrain('closing');
+    // This task can no longer be reached. Saying so before the checks run is
+    // the whole point: from here a peer that addresses it is told it has
+    // finished, instead of being handed a receipt for a message nobody holds.
+    closeReceiver?.();
+    closeReceiver = null;
     // FR006: the runtime's own word on what ran. Printed only when it differs
     // from what was configured — the case a person needs to see, because the
     // run path passes an unlisted model through unvalidated.
@@ -1659,6 +1721,15 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   } finally {
     clearTimeout(deadlineTimer);
     input.signal?.removeEventListener('abort', onAbort);
+    // However this attempt ended — interrupted, thrown, or finished — this
+    // task stops being reachable with it. An interruption is exactly the case
+    // where the normal close above never ran.
+    try {
+      closeReceiver?.();
+    } catch {
+      // The registration is gone either way.
+    }
+    closeReceiver = null;
     // Revoke this attempt's token whoever owns the bridge; close only a bridge
     // this call started, because a planned run's bridge outlives one task.
     try {
@@ -1667,6 +1738,29 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       // Already revoked or already closed; nothing to keep open.
     }
     if (ownsBridge && bridge !== null) {
+      // This call owns the whole run, so nothing else will ever deliver what
+      // is still waiting. Give up on it explicitly: a message left at
+      // "submitted" reads as still on its way, for ever, to anyone who looks.
+      for (const expired of expireUndeliveredSafely(bridge)) {
+        appendEvent(db, {
+          runId,
+          taskId: expired.recipientTaskId,
+          attemptId: null,
+          type: 'coordination.delivery_failed',
+          payload: {
+            messageId: expired.id,
+            code: 'never_delivered',
+            reason: 'the run ended with this message still undelivered',
+            senderTaskId: expired.senderTaskId,
+            recipientTaskId: expired.recipientTaskId,
+            deliveryState: expired.deliveryState,
+          },
+        });
+        stream.line(`coordination: message ${expired.id} from ${expired.senderTaskId ?? 'the coordinator'} never reached ${expired.recipientTaskId ?? 'anyone'}`);
+        unresolved.push(
+          `a coordination message (${expired.id}) sent by ${expired.senderTaskId ?? 'the coordinator'} to ${expired.recipientTaskId ?? 'nobody'} was never delivered and is recorded as expired; whatever it asked was never answered`,
+        );
+      }
       try {
         await bridge.close();
       } catch {
@@ -2198,6 +2292,21 @@ function deliverableMessages(bridge: CoordinationBridge, taskId: string): Readon
       id: message.id,
       text: `[${message.type} from ${message.senderTaskId ?? 'coordinator'}] ${renderMessageBody(message.body)}`,
     }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fail every message this run never delivered.
+ *
+ * A store that cannot be read is not a reason to crash a run that has already
+ * produced its candidate; it does mean this run cannot say the messages were
+ * resolved, which is what the empty list then reports.
+ */
+function expireUndeliveredSafely(bridge: CoordinationBridge): ReadonlyArray<MessageRecord> {
+  try {
+    return bridge.expireUndelivered();
   } catch {
     return [];
   }

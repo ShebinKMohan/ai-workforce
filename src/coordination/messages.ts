@@ -23,6 +23,14 @@
  * Sender identity is a parameter of these functions, never a field of the
  * body. Callers must pass the identity they authenticated, so a body written
  * by a model can never name a different sender.
+ *
+ * Every message ends somewhere. `submitted` is a promise the coordinator makes
+ * to the sender, so it is not allowed to be the resting place of a message
+ * nobody ever read: a message that reached no recipient is moved to `expired`
+ * (accepted, then never delivered) or `rejected` (refused at submission),
+ * both of which are visible outcomes. `pendingDeliveries` is how the
+ * coordinator asks what is still in flight, and `expireUndelivered` is how it
+ * closes the ones that never arrived.
  */
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
@@ -310,6 +318,78 @@ export function deliverableFor(db: DatabaseSync, query: InboxQuery): MessageReco
     )
     .all(query.runId, query.recipientTaskId, ...states, limit) as unknown as MessageRow[];
   return rows.map(toRecord);
+}
+
+/** Delivery states that mean "this message has not reached anyone yet, and has not been given up on". */
+export const UNDELIVERED_STATES: ReadonlyArray<MessageDeliveryState> = ['recorded', 'submitted'];
+
+/**
+ * Every message addressed to a task that is still waiting to be delivered.
+ *
+ * `deliverableFor` answers a worker's inbox and is deliberately capped, so a
+ * chatty peer cannot turn it into a stream. This answers the coordinator's own
+ * question at the end of a task or a run — "is anything still in flight?" —
+ * where a cap would be exactly the silent loss the cap exists to prevent, so
+ * this one is not capped and messages addressed to the coordinator itself
+ * (null recipient) are excluded: those reached their recipient by being
+ * recorded.
+ */
+export function pendingDeliveries(db: DatabaseSync, runId: string, options: { readonly recipientTaskId?: string } = {}): MessageRecord[] {
+  const placeholders = UNDELIVERED_STATES.map(() => '?').join(', ');
+  const rows =
+    options.recipientTaskId === undefined
+      ? (db
+          .prepare(
+            `SELECT * FROM messages WHERE run_id = ? AND recipient_task_id IS NOT NULL AND delivery_state IN (${placeholders}) ORDER BY created_at, id`,
+          )
+          .all(runId, ...UNDELIVERED_STATES) as unknown as MessageRow[])
+      : (db
+          .prepare(
+            `SELECT * FROM messages WHERE run_id = ? AND recipient_task_id = ? AND delivery_state IN (${placeholders}) ORDER BY created_at, id`,
+          )
+          .all(runId, options.recipientTaskId, ...UNDELIVERED_STATES) as unknown as MessageRow[]);
+  return rows.map(toRecord);
+}
+
+/**
+ * What one task sent, oldest first and bounded.
+ *
+ * A sender that asked a question is entitled to know what became of it. The
+ * delivery state on these records is that answer: `acknowledged` means the
+ * recipient took it, `expired` and `rejected` mean it never arrived.
+ */
+export function listSentBy(db: DatabaseSync, runId: string, senderTaskId: string, limit = 50): MessageRecord[] {
+  const bounded = Math.max(1, Math.min(Number.isFinite(limit) ? Math.floor(limit) : 50, 200));
+  const rows = db
+    .prepare('SELECT * FROM messages WHERE run_id = ? AND sender_task_id = ? ORDER BY created_at, id LIMIT ?')
+    .all(runId, senderTaskId, bounded) as unknown as MessageRow[];
+  return rows.map(toRecord);
+}
+
+/**
+ * Give up, explicitly, on every message that was accepted and never arrived.
+ *
+ * Called when the last worker that could have received them is gone. Each
+ * message moves to `expired`, which is a terminal state the sender and the run
+ * record can both read; nothing is deleted and nothing is left at `submitted`
+ * pretending to still be on its way.
+ */
+export function expireUndelivered(
+  db: DatabaseSync,
+  runId: string,
+  options: { readonly recipientTaskId?: string; readonly now?: string } = {},
+): MessageRecord[] {
+  const now = options.now ?? nowIso();
+  const expired: MessageRecord[] = [];
+  for (const message of pendingDeliveries(db, runId, options.recipientTaskId === undefined ? {} : { recipientTaskId: options.recipientTaskId })) {
+    try {
+      expired.push(expireMessage(db, message.id, now));
+    } catch {
+      // A message that reached a terminal state between the query and here is
+      // already resolved; that is the outcome this function wanted.
+    }
+  }
+  return expired;
 }
 
 /** Every message of a run, oldest first (coordinator-side inspection, not a worker tool). */

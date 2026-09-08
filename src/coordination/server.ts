@@ -29,12 +29,14 @@ import {
   type BridgeToolName,
   type WireResponse,
 } from './bridge.js';
+import { appendEvent } from '../storage/events.js';
 import { evaluateDelegation } from './delegation.js';
 import {
   acknowledge,
   countMessagesFromAttempt,
   deliverableFor,
   findMessage,
+  listSentBy,
   recordMessage,
   submitMessage,
   type MessageRecord,
@@ -107,6 +109,62 @@ function normalizeBody(body: unknown): Record<string, unknown> {
   return { value: body };
 }
 
+function describePosture(posture: RecipientPosture): string {
+  if (posture.kind === 'receiving') return 'The recipient has a live worker session and is being handed this message now.';
+  if (posture.kind === 'not_started') {
+    return `The recipient has not started its turn yet (${posture.taskState}); the message is held and read into its prompt before it starts. Keep working; do not wait for an answer.`;
+  }
+  return `The recipient has no worker session right now (${posture.taskState}), so nothing is holding this message. It will only arrive if that task starts another attempt, and it is reported as undelivered at the end of the run otherwise. Do not wait for an answer.`;
+}
+
+/**
+ * Record, and raise, the fact that a message will not reach anyone.
+ *
+ * Both halves matter: the event is the durable evidence, the notice is what
+ * puts a line in front of the operator while the run is still going. Neither
+ * may take the coordinator down, so both are best effort.
+ */
+function noteUndeliverable(
+  db: DatabaseSync,
+  identity: WorkerIdentity,
+  message: MessageRecord,
+  code: string,
+  detail: string,
+  options: HandlerOptions,
+): void {
+  try {
+    appendEvent(db, {
+      runId: identity.runId,
+      taskId: identity.taskId,
+      attemptId: identity.attemptId,
+      type: 'coordination.delivery_failed',
+      payload: {
+        messageId: message.id,
+        code,
+        reason: detail,
+        senderTaskId: message.senderTaskId,
+        recipientTaskId: message.recipientTaskId,
+        deliveryState: message.deliveryState,
+      },
+    });
+  } catch {
+    // An event that cannot be written must not turn a refusal into a crash;
+    // the message row itself already carries the terminal state.
+  }
+  try {
+    options.onNotice?.({
+      kind: 'message_undeliverable',
+      messageId: message.id,
+      senderTaskId: message.senderTaskId,
+      recipientTaskId: message.recipientTaskId,
+      code,
+      detail,
+    });
+  } catch {
+    // A reporting hook is never allowed to change an outcome.
+  }
+}
+
 function summarize(message: MessageRecord): Record<string, unknown> {
   return {
     messageId: message.id,
@@ -119,9 +177,98 @@ function summarize(message: MessageRecord): Record<string, unknown> {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Who can receive right now (FR033, FR035)
+// ---------------------------------------------------------------------------
+
+/**
+ * The orchestrator's own statement about which tasks have a worker session
+ * that can take a message *now*.
+ *
+ * The message store cannot answer this and neither can the task row: an
+ * attempt stays `running` while its checks are being executed, long after its
+ * session was stopped, and a task is `pending` both before it has ever run and
+ * while it waits for a repair. Only the code holding the session knows, so it
+ * says so here and the coordinator stops guessing.
+ */
+export interface ReceiverRegistry {
+  /** True when a live worker session for this task can be handed a message. */
+  has(taskId: string): boolean;
+  /** Tell that session a message for it exists, so it delivers at its next safe boundary. */
+  notify(message: MessageRecord): void;
+}
+
+/** Something the operator has to be able to see, raised from inside the coordinator. */
+export interface CoordinationNotice {
+  readonly kind: 'message_undeliverable';
+  readonly messageId: string;
+  readonly senderTaskId: string | null;
+  readonly recipientTaskId: string | null;
+  readonly code: string;
+  readonly detail: string;
+}
+
+/** Task states after which no attempt of that task will run again in this run. */
+const FINISHED_TASK_STATES: ReadonlySet<string> = new Set(['accepted', 'failed', 'cancelled', 'superseded']);
+/** Task states from which the task has not yet had (or is between) its worker sessions. */
+const NOT_STARTED_TASK_STATES: ReadonlySet<string> = new Set(['pending', 'ready', 'waiting']);
+
+export type RecipientPosture =
+  /** A worker session is live and will be handed this message. */
+  | { readonly kind: 'receiving' }
+  /** No session yet; the task reads its inbox into the prompt before its turn starts. */
+  | { readonly kind: 'not_started'; readonly taskState: string }
+  /** The task has run but has no session now: only a further attempt could deliver this. */
+  | { readonly kind: 'no_active_session'; readonly taskState: string }
+  /** The task is over. Nothing addressed to it can ever arrive. */
+  | { readonly kind: 'finished'; readonly taskState: string };
+
+/**
+ * Can this recipient still be reached?
+ *
+ * Answered from the recorded task state and the live receiver registry, never
+ * from optimism. `finished` is the case that used to be accepted as if it
+ * would arrive: the message was recorded `submitted`, reported to the sender
+ * as sent, and then read by nobody for ever.
+ */
+export function recipientPosture(db: DatabaseSync, runId: string, taskId: string, receivers?: ReceiverRegistry): RecipientPosture {
+  const row = db.prepare('SELECT state FROM tasks WHERE id = ? AND run_id = ?').get(taskId, runId) as { state: string } | undefined;
+  const taskState = row?.state ?? 'unknown';
+  if (FINISHED_TASK_STATES.has(taskState)) return { kind: 'finished', taskState };
+  if (receivers?.has(taskId) === true) return { kind: 'receiving' };
+  if (NOT_STARTED_TASK_STATES.has(taskState)) return { kind: 'not_started', taskState };
+  return { kind: 'no_active_session', taskState };
+}
+
+/**
+ * One message this task sent, from the sender's point of view.
+ *
+ * The three outcomes are kept apart rather than collapsed into one boolean:
+ * `delivered` (the recipient took it), `failed` (it never arrived and never
+ * will), and neither of the two (still on its way).
+ */
+function summarizeSent(message: MessageRecord): Record<string, unknown> {
+  const failed = message.deliveryState === 'expired' || message.deliveryState === 'rejected';
+  return {
+    messageId: message.id,
+    to: message.recipientTaskId,
+    type: message.type,
+    correlationId: message.correlationId,
+    deliveryState: message.deliveryState,
+    delivered: message.deliveryState === 'acknowledged',
+    failed,
+    createdAt: message.createdAt,
+    ...(failed ? { note: 'this message never reached its recipient; no answer to it is coming' } : {}),
+  };
+}
+
 export interface HandlerOptions {
   readonly maxMessagesPerAttempt?: number;
   readonly now?: () => string;
+  /** Live worker sessions, so the coordinator knows who can actually receive. */
+  readonly receivers?: ReceiverRegistry;
+  /** Raised when a message will not reach anyone, so the operator sees it as it happens. */
+  readonly onNotice?: (notice: CoordinationNotice) => void;
 }
 
 /**
@@ -152,29 +299,75 @@ export function handleCoordinationRequest(
     if (!parsed.success) throw new CoordinationError('invalid_params', formatIssues(parsed.error));
     const params = parsed.data;
     const recipient = params.to ?? null;
+    const body = { ...(params.subject === undefined ? {} : { subject: params.subject }), ...normalizeBody(params.body) };
     if (recipient !== null) {
       const row = db.prepare('SELECT run_id FROM tasks WHERE id = ?').get(recipient) as { run_id: string } | undefined;
       if (row === undefined || row.run_id !== identity.runId) {
         throw new CoordinationError('unknown_recipient', `no task "${recipient}" in this run; address a peer task id from your context or omit "to" to reach the coordinator`);
       }
     }
+    // The coordinator, addressed by a null recipient, is always receiving: it
+    // is the process asking this question.
+    const posture: RecipientPosture =
+      recipient === null ? { kind: 'receiving' } : recipientPosture(db, identity.runId, recipient, options.receivers);
     assertUnderCap();
+
+    // A recipient whose task is over will never read anything. Accepting the
+    // message here would report it as sent, park it at `submitted` for ever
+    // and answer nobody. It is refused instead, and the refusal is persisted
+    // as evidence before the sender is told, exactly like a refused
+    // delegation request.
+    if (posture.kind === 'finished') {
+      const refused = recordMessage(db, {
+        sender,
+        type: 'peer_message',
+        recipientTaskId: recipient,
+        correlationId: params.correlationId ?? null,
+        idempotencyKey: params.idempotencyKey ?? null,
+        deliveryState: 'rejected',
+        body: { ...body, undeliverable: true, code: 'recipient_finished', recipientTaskState: posture.taskState },
+        now: now(),
+      });
+      // Says what is true now and nothing about the future: the task has no
+      // worker session and this message was not taken for delivery. Promising
+      // that it will "never" arrive would be the same kind of overclaim the
+      // silent "submitted" was.
+      const detail = `task "${recipient}" has already finished (${posture.taskState}); it has no worker session, so this message was not accepted for delivery. Whatever that task produced is already recorded — do not wait for an answer; continue with what you can establish yourself and say in your own result what you could not learn.`;
+      noteUndeliverable(db, identity, refused.message, 'recipient_finished', detail, options);
+      throw new CoordinationError('recipient_finished', `${detail} (message recorded as ${refused.message.id})`);
+    }
+
     const recorded = recordMessage(db, {
       sender,
       type: 'peer_message',
       recipientTaskId: recipient,
       correlationId: params.correlationId ?? null,
       idempotencyKey: params.idempotencyKey ?? null,
-      body: { ...(params.subject === undefined ? {} : { subject: params.subject }), ...normalizeBody(params.body) },
+      body,
       now: now(),
     });
     const delivered = recorded.duplicate ? recorded.message : submitMessage(db, recorded.message.id, now());
+    // Wake the recipient's session now rather than at whatever boundary it
+    // happens to reach next: a question that arrives after the last tool call
+    // of a turn is still answerable, and one that waits is not.
+    if (posture.kind === 'receiving' && recipient !== null && delivered.deliveryState === 'submitted') {
+      try {
+        options.receivers?.notify(delivered);
+      } catch {
+        // A notification failure only costs promptness: the recipient still
+        // drains at its own boundaries, and the run-end sweep still resolves it.
+      }
+    }
+    const deliverable = posture.kind === 'receiving' || posture.kind === 'not_started';
     return {
       messageId: delivered.id,
       deliveryState: delivered.deliveryState,
       duplicate: recorded.duplicate,
       from: delivered.senderTaskId,
       to: delivered.recipientTaskId,
+      deliverable,
+      recipientState: posture.kind,
+      note: describePosture(posture),
     };
   }
 
@@ -188,12 +381,22 @@ export function handleCoordinationRequest(
       limit,
       ...(parsed.data.includeAcknowledged === undefined ? {} : { includeAcknowledged: parsed.data.includeAcknowledged }),
     });
+    // What this task itself sent, and what became of it. A worker that asked a
+    // question and got no reply has to be able to tell "not answered yet" from
+    // "never delivered, stop waiting", and this is where it reads that.
+    const sent = listSentBy(db, identity.runId, identity.taskId).map(summarizeSent);
+    const undelivered = sent.filter((entry) => entry['failed'] === true);
     return {
       messages: messages.map(summarize),
       count: messages.length,
       limit: Math.min(limit, MAX_INBOX_LIMIT),
       truncated: messages.length >= Math.min(limit, MAX_INBOX_LIMIT),
-      note: 'Acknowledge what you have handled and continue working; do not poll this tool in a loop.',
+      sent,
+      undeliveredCount: undelivered.length,
+      note:
+        undelivered.length === 0
+          ? 'Acknowledge what you have handled and continue working; do not poll this tool in a loop.'
+          : `Acknowledge what you have handled and continue working; do not poll this tool in a loop. ${undelivered.length} message(s) you sent never reached their recipient — see "sent"; no answer to those is coming, so proceed without one and say so in your result.`,
     };
   }
 
@@ -327,6 +530,10 @@ export interface CoordinationServerOptions {
   readonly maxMessagesPerAttempt?: number;
   /** Observability hook; never used for authorization. */
   readonly onRequest?: (info: { op: BridgeToolName; identity: WorkerIdentity | null; ok: boolean; code?: string }) => void;
+  /** Live worker sessions, so a message to a finished task is refused instead of parked. */
+  readonly receivers?: ReceiverRegistry;
+  /** Raised when a message will not reach anyone. */
+  readonly onNotice?: (notice: CoordinationNotice) => void;
 }
 
 export class CoordinationServer {
@@ -462,6 +669,8 @@ export class CoordinationServer {
     try {
       const result = handleCoordinationRequest(this.#db, identity, op as BridgeToolName, params, {
         ...(this.#options.maxMessagesPerAttempt === undefined ? {} : { maxMessagesPerAttempt: this.#options.maxMessagesPerAttempt }),
+        ...(this.#options.receivers === undefined ? {} : { receivers: this.#options.receivers }),
+        ...(this.#options.onNotice === undefined ? {} : { onNotice: this.#options.onNotice }),
       });
       this.#options.onRequest?.({ op, identity, ok: true });
       return { v: COORDINATION_PROTOCOL_VERSION, id, ok: true, result };

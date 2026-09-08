@@ -16,11 +16,13 @@ import {
   BRIDGE_TOKEN_ENV,
   bridgeEntryPath,
 } from './bridge.js';
-import { CoordinationServer, type WorkerIdentity } from './server.js';
+import { CoordinationServer, type CoordinationNotice, type ReceiverRegistry, type WorkerIdentity } from './server.js';
 import {
   acknowledge as acknowledgeMessage,
   deliverableFor as deliverableForTask,
+  expireUndelivered,
   listMessages,
+  pendingDeliveries,
   recordMessage as recordMessageInStore,
   type MessageRecord,
   type RecordMessageInput,
@@ -84,6 +86,12 @@ export interface CoordinationBridgeOptions {
   readonly db: DatabaseSync;
   readonly socketPath?: string;
   readonly maxMessagesPerAttempt?: number;
+  /**
+   * Raised when a message will not reach anyone. The owner of the run passes
+   * this so the operator sees the fact while the run is still going, instead
+   * of only in the manifest afterwards.
+   */
+  readonly onNotice?: (notice: CoordinationNotice) => void;
 }
 
 export interface CoordinationBridge {
@@ -99,6 +107,18 @@ export interface CoordinationBridge {
   acknowledge(messageId: string): MessageRecord;
   /** Every message of this run, oldest first. */
   messages(limit?: number): MessageRecord[];
+  /**
+   * Declare that a task has a live worker session that can be handed a
+   * message, and be told when one arrives for it. Call the returned function
+   * when that session can no longer receive; from then on the coordinator
+   * knows the task is not reachable and says so to its senders instead of
+   * accepting messages nobody will read.
+   */
+  openReceiver(taskId: string, onMessage: (message: MessageRecord) => void): () => void;
+  /** Messages addressed to a task (or to any task) that have not arrived and have not failed. */
+  pending(taskId?: string): MessageRecord[];
+  /** Give up explicitly on every message that never arrived, so none is left looking like it still might. */
+  expireUndelivered(taskId?: string): MessageRecord[];
   close(): Promise<void>;
 }
 
@@ -114,11 +134,23 @@ function tomlString(value: string): string {
  */
 export async function createCoordinationBridge(options: CoordinationBridgeOptions): Promise<CoordinationBridge> {
   const socketPath = options.socketPath ?? coordinationSocketPath(options.stateRoot, options.runId);
+  // One entry per task, because a task has at most one live worker session at
+  // a time: the coordinator never spawns a second writer for the same task.
+  const receiverByTask = new Map<string, (message: MessageRecord) => void>();
+  const receivers: ReceiverRegistry = {
+    has: (taskId) => receiverByTask.has(taskId),
+    notify: (message) => {
+      if (message.recipientTaskId === null) return;
+      receiverByTask.get(message.recipientTaskId)?.(message);
+    },
+  };
   const server = await CoordinationServer.start({
     socketPath,
     db: options.db,
     runId: options.runId,
+    receivers,
     ...(options.maxMessagesPerAttempt === undefined ? {} : { maxMessagesPerAttempt: options.maxMessagesPerAttempt }),
+    ...(options.onNotice === undefined ? {} : { onNotice: options.onNotice }),
   });
   const entry = bridgeEntryPath();
 
@@ -177,6 +209,17 @@ export async function createCoordinationBridge(options: CoordinationBridgeOption
       }),
     acknowledge: (messageId) => acknowledgeMessage(options.db, messageId),
     messages: (limit) => listMessages(options.db, options.runId, limit),
+    openReceiver: (taskId, onMessage) => {
+      receiverByTask.set(taskId, onMessage);
+      return () => {
+        // Only close the registration this call opened: a repair attempt for
+        // the same task registers a new one, and the old closer running late
+        // must not silently unregister the live session.
+        if (receiverByTask.get(taskId) === onMessage) receiverByTask.delete(taskId);
+      };
+    },
+    pending: (taskId) => pendingDeliveries(options.db, options.runId, taskId === undefined ? {} : { recipientTaskId: taskId }),
+    expireUndelivered: (taskId) => expireUndelivered(options.db, options.runId, taskId === undefined ? {} : { recipientTaskId: taskId }),
     close: () => server.close(),
   };
 }
