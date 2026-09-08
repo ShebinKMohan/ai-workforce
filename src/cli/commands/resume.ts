@@ -4,18 +4,38 @@
  *
  * Unlike `status`, which is deliberately read-only, resume takes the
  * coordinator lock: it is going to decide what happens to a half-finished
- * run. It reconciles first, prints the plan it derived from persisted state,
- * and only then hands execution on.
+ * run. It reconciles first, and then it continues — it creates the attempt
+ * generation the reconciliation decided on, dispatches the work that remains,
+ * and drives the run to a terminal state exactly as a fresh run would, leaving
+ * everything already accepted untouched.
+ *
+ * The order is what keeps that safe. Whatever a continued attempt needs is
+ * read back before anything is minted, so a run that cannot be continued is
+ * refused without first burning a generation nothing will ever dispatch. A
+ * cancelled run is refused outright. A run whose reconciliation could not
+ * classify an attempt safely is reported, not raced.
  *
  * Exit codes (AGENTS.md): 0 nothing is blocked · 2 invalid input · 3 a person
  * has to decide (a live or unidentifiable worker, a cancelled run, or a lock
  * someone else holds) · 4 execution failure · 130 interrupted.
  */
+import { existsSync, readFileSync } from 'node:fs';
 import { LockHeldError } from '../../storage/lock.js';
-import { StateNotFoundError } from '../../storage/db.js';
+import { openStateStore, StateNotFoundError, type StateStore } from '../../storage/db.js';
 import { SchemaTooNewError } from '../../storage/migrations.js';
-import type { StateStore } from '../../storage/db.js';
-import { ResumeError, planSummaryLines, resumeRun, type ResumePlan } from '../../recovery/resume.js';
+import { createStatePaths, PathsManifestSchema, resolveStateRoot } from '../../storage/paths.js';
+import { findRun } from '../../storage/records.js';
+import { loadAgentConfigFile, type LoadedAgentConfig } from '../../core/config.js';
+import { reconcileRun } from '../../recovery/reconcile.js';
+import { ResumeError, planSummaryLines, resumeRun, TERMINAL_RUN_STATES, type ResumePlan } from '../../recovery/resume.js';
+import {
+  ContinueRunError,
+  continueResumedRun,
+  prepareRunContinuation,
+  type ContinueResumedRunDeps,
+  type ContinueResumedRunResult,
+  type RunContinuationSetup,
+} from '../../recovery/continue-run.js';
 import type { ProcessIdentity, ProcessIdentityStatus } from '../../core/process.js';
 import type { AttemptRow } from '../../storage/records.js';
 import { CliError, EXIT_CODES, type CommandResult, type ExitCode } from '../output.js';
@@ -28,9 +48,9 @@ export interface ResumeCommandArgs {
 }
 
 /**
- * How the command continues an unblocked plan. The orchestrator injects this;
- * without it `resume` reconciles, reports and stops — it never pretends to
- * have re-dispatched work it did not.
+ * How the command continues an unblocked plan. It defaults to the real
+ * continuation; injecting one replaces it, which is how a test drives the
+ * command without an orchestrator behind it.
  */
 export type ResumeContinuation = (plan: ResumePlan, store: StateStore) => Promise<CommandResult> | CommandResult;
 
@@ -39,6 +59,8 @@ export interface ResumeCommandOptions {
   readonly probeProcess?: (identity: ProcessIdentity) => ProcessIdentityStatus;
   readonly sessionResumable?: (attempt: AttemptRow) => boolean;
   readonly signal?: AbortSignal;
+  /** Passed through to the real continuation (adapter factory, fake-runtime scenario, progress). */
+  readonly continuation?: Omit<ContinueResumedRunDeps, 'setup' | 'config' | 'signal'>;
 }
 
 function requireRunId(args: ResumeCommandArgs): string {
@@ -50,23 +72,86 @@ function requireRunId(args: ResumeCommandArgs): string {
   return runId;
 }
 
+/**
+ * The state paths of an existing state root.
+ *
+ * `resume` has no `--workspace-root`, so the root the run actually used is
+ * read back from the manifest rather than guessed; guessing would send a
+ * continued attempt's workspace somewhere the run never wrote.
+ */
+function pathsFor(stateDir: string | undefined): ReturnType<typeof createStatePaths> {
+  const root = resolveStateRoot(stateDir);
+  const bare = createStatePaths(root);
+  if (!existsSync(bare.manifestPath)) return bare;
+  const recorded = PathsManifestSchema.safeParse(JSON.parse(readFileSync(bare.manifestPath, 'utf8')));
+  return recorded.success ? createStatePaths(root, { workspaceRoot: recorded.data.workspaceRoot }) : bare;
+}
+
 export async function commandResume(args: ResumeCommandArgs, options: ResumeCommandOptions = {}): Promise<CommandResult> {
   const runId = requireRunId(args);
 
-  let started;
+  let store: StateStore;
   try {
-    started = resumeRun({
-      runId,
-      ...(args.stateDir !== undefined ? { stateRoot: args.stateDir } : {}),
-      ...(options.probeProcess !== undefined ? { probeProcess: options.probeProcess } : {}),
-      ...(options.sessionResumable !== undefined ? { sessionResumable: options.sessionResumable } : {}),
-    });
+    store = openStateStore(pathsFor(args.stateDir), { mode: 'mutating' });
   } catch (error) {
     throw toCliError(error);
   }
 
-  const { plan, store, ownsStore } = started;
   try {
+    const run = findRun(store.db, runId);
+    if (run === null) throw new CliError(EXIT_CODES.invalidInput, 'unknown_run', `run ${runId} not found under ${store.paths.root}`);
+
+    // Everything a continued attempt needs is read back BEFORE reconciliation
+    // mints a generation, so a run that cannot be continued is refused without
+    // leaving a fresh empty generation behind. Whether it will be continued at
+    // all is asked of a read-only reconciliation first: a run that is going to
+    // be blocked, cancelled or already finished continues nothing, and
+    // demanding a configuration for it would refuse a report it can honestly
+    // give.
+    const preview = reconcileRun(store.db, runId, {
+      ...(options.probeProcess !== undefined ? { probeProcess: options.probeProcess } : {}),
+      ...(options.sessionResumable !== undefined ? { sessionResumable: options.sessionResumable } : {}),
+    });
+    const continuable = run.state !== 'cancelled' && !TERMINAL_RUN_STATES.has(run.state) && !preview.blocked;
+    // `--agents` is the fallback binding, not the primary one: the run's own
+    // recorded configuration is what its attempts ran under.
+    let fallback: LoadedAgentConfig | undefined;
+    if (args.agents !== undefined) {
+      try {
+        fallback = loadAgentConfigFile(args.agents);
+      } catch {
+        // An invalid --agents is already an exit-2 invocation at the CLI
+        // boundary; here it simply is not a usable fallback.
+        fallback = undefined;
+      }
+    }
+    let setup: RunContinuationSetup | null = null;
+    if (continuable && options.continue === undefined) {
+      try {
+        setup = prepareRunContinuation(store, runId, fallback);
+      } catch (error) {
+        throw toCliError(error);
+      }
+    }
+
+    let started;
+    try {
+      started = resumeRun({
+        runId,
+        store,
+        // The continuation inserts the attempt row for the slot it dispatches,
+        // so recovery reserves the identity rather than writing a row that
+        // would collide with it.
+        replacementAttempts: 'reserved',
+        ...(options.probeProcess !== undefined ? { probeProcess: options.probeProcess } : {}),
+        ...(options.sessionResumable !== undefined ? { sessionResumable: options.sessionResumable } : {}),
+      });
+    } catch (error) {
+      throw toCliError(error);
+    }
+
+    const { plan } = started;
+
     if (options.signal?.aborted === true) {
       return {
         command: 'resume',
@@ -94,19 +179,60 @@ export async function commandResume(args: ResumeCommandArgs, options: ResumeComm
       };
     }
 
-    if (options.continue === undefined) {
+    if (options.continue !== undefined) {
+      const result = await options.continue(plan, store);
+      // The plan is part of what resume reports, whoever continues it.
       return {
-        command: 'resume',
-        exitCode: EXIT_CODES.verifiedCandidate,
-        data: { runId, plan: planData(plan), status: 'reconciled', continued: false },
-        lines: [...planSummaryLines(plan), 'state reconciled under this coordinator; execution continuation is not wired in this build'],
+        ...result,
+        data: { runId, plan: planData(plan), continued: true, ...result.data },
+        lines: [...planSummaryLines(plan), ...result.lines],
       };
     }
 
-    const result = await options.continue(plan, store);
-    return { ...result, data: { runId, plan: planData(plan), continued: true, ...result.data } };
+    let continued: ContinueResumedRunResult;
+    try {
+      continued = await continueResumedRun(plan, store, {
+        ...options.continuation,
+        ...(setup !== null ? { setup } : {}),
+        ...(fallback !== undefined ? { config: fallback } : {}),
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      });
+    } catch (error) {
+      throw toCliError(error);
+    }
+
+    return {
+      command: 'resume',
+      exitCode: exitCodeFor(continued),
+      data: {
+        runId,
+        plan: planData(plan),
+        continued: true,
+        status: continued.outcome,
+        runState: continued.runState,
+        tasks: continued.continued,
+        preservedTaskIds: continued.preservedTaskIds,
+        notContinued: continued.notContinued,
+        notes: continued.notes,
+      },
+      lines: [...planSummaryLines(plan), ...continued.lines],
+    };
   } finally {
-    if (ownsStore) store.close();
+    store.close();
+  }
+}
+
+function exitCodeFor(result: ContinueResumedRunResult): ExitCode {
+  switch (result.outcome) {
+    case 'accepted':
+    case 'nothing_to_do':
+      return EXIT_CODES.verifiedCandidate;
+    case 'interrupted':
+      return EXIT_CODES.interrupted;
+    case 'blocked':
+      return EXIT_CODES.userActionRequired;
+    case 'failed':
+      return EXIT_CODES.executionFailure;
   }
 }
 
@@ -149,6 +275,14 @@ function toCliError(error: unknown): CliError {
   }
   if (error instanceof StateNotFoundError || error instanceof SchemaTooNewError) {
     return new CliError(EXIT_CODES.invalidInput, 'state_unavailable', error.message);
+  }
+  if (error instanceof ContinueRunError) {
+    return new CliError(
+      error.code === 'unknown_run' ? EXIT_CODES.invalidInput : EXIT_CODES.userActionRequired,
+      error.code,
+      error.message,
+      error.actions,
+    );
   }
   if (error instanceof ResumeError) {
     const exitCode: ExitCode = error.code === 'unknown_run' || error.code === 'state_unavailable' ? EXIT_CODES.invalidInput : EXIT_CODES.userActionRequired;

@@ -15,7 +15,8 @@
  * check receipts are never re-run and never discarded. A cancelled run is
  * never silently resurrected — resuming one is refused and says so.
  */
-import { nowIso } from '../core/ids.js';
+import type { DatabaseSync } from 'node:sqlite';
+import { newId, nowIso } from '../core/ids.js';
 import type { ProcessIdentity, ProcessIdentityStatus } from '../core/process.js';
 import { openStateStore, StateNotFoundError, type StateStore } from '../storage/db.js';
 import { appendEvent } from '../storage/events.js';
@@ -31,6 +32,7 @@ import {
   transitionTask,
   type AttemptRow,
   type RunRow,
+  type TaskRow,
 } from '../storage/records.js';
 import { applyReconciliation, listTaskAttempts, reconcileRun, type AttemptFinding, type ReconciliationReport } from './reconcile.js';
 
@@ -88,6 +90,19 @@ export interface ResumeRunInput {
   readonly store?: StateStore;
   readonly probeProcess?: (identity: ProcessIdentity) => ProcessIdentityStatus;
   readonly sessionResumable?: (attempt: AttemptRow) => boolean;
+  /**
+   * How a planned replacement attempt is recorded.
+   *
+   * - `created` (default): the replacement attempt row is inserted here, so a
+   *   caller that only reports the plan still leaves a durable record of what
+   *   it decided.
+   * - `reserved`: the id, generation and workspace path are minted, but the
+   *   row is left for whoever dispatches the attempt to insert. A caller that
+   *   actually continues the run must use this: the orchestrator inserts the
+   *   attempt row for the slot it is handed, and `(task_id, generation)` is
+   *   unique, so a pre-inserted row would collide with it.
+   */
+  readonly replacementAttempts?: 'created' | 'reserved';
   readonly now?: string;
 }
 
@@ -99,7 +114,8 @@ export interface ResumeRunResult {
   readonly ownsStore: boolean;
 }
 
-const TERMINAL_RUN_STATES: ReadonlySet<RunRow['state']> = new Set<RunRow['state']>(['ready_for_review', 'failed']);
+/** Run states a resume has nothing left to do about. */
+export const TERMINAL_RUN_STATES: ReadonlySet<RunRow['state']> = new Set<RunRow['state']>(['ready_for_review', 'failed']);
 
 /**
  * Reconcile a run and produce the plan for continuing it.
@@ -197,6 +213,8 @@ export function resumeRun(input: ResumeRunInput): ResumeRunResult {
     const steps: ResumeStep[] = [];
     const preserved: string[] = [];
     const userActions: string[] = [];
+    const blocked = reconciliation.blocked;
+    const mode = input.replacementAttempts ?? 'created';
 
     for (const finding of reconciliation.findings) {
       switch (finding.disposition) {
@@ -216,13 +234,25 @@ export function resumeRun(input: ResumeRunInput): ResumeRunResult {
           steps.push(step('reconnect', finding, { reason: finding.reason }));
           break;
         case 'replaceable': {
-          const replacement = createReplacementAttempt(store, finding, now);
+          // A blocked run continues nothing, so it replaces nothing either.
+          // Burning a generation for a sibling task while a human still has to
+          // decide about an ambiguous one is how repeated `resume` calls used
+          // to mint empty generations nobody ever dispatched.
+          if (blocked) {
+            steps.push(
+              step('replace', finding, {
+                reason: `${finding.reason} — deferred: the run is blocked, so no generation is created until the isolated attempt is decided`,
+              }),
+            );
+            break;
+          }
+          const replacement = createReplacementAttempt(store, finding, now, mode);
           steps.push(
             step('replace', finding, {
               reason: finding.reason,
               newAttemptId: replacement.id,
               newGeneration: replacement.generation,
-              workspacePath: replacement.workspace_path,
+              workspacePath: replacement.workspacePath,
             }),
           );
           break;
@@ -230,7 +260,6 @@ export function resumeRun(input: ResumeRunInput): ResumeRunResult {
       }
     }
 
-    const blocked = reconciliation.blocked;
     const plan: ResumePlan = {
       runId: input.runId,
       runState: 'interrupted',
@@ -313,53 +342,104 @@ function refusalPlan(reconciliation: ReconciliationReport, run: RunRow, now: str
 /**
  * Create the attempt that replaces an interrupted one, in a brand new
  * generation. Superseding the old generation is what makes late results from
- * it refusable; the new attempt reuses the same agent snapshot, so the
- * replacement is a retry of the same binding, not a silent re-binding.
+ * it refusable; the replacement reuses the same agent snapshot, so it is a
+ * retry of the same binding, not a silent re-binding.
+ *
+ * In `reserved` mode the row itself is not written: the caller that dispatches
+ * the attempt inserts it. Everything else — the new generation, the superseded
+ * predecessors, the task state and the event — is identical, so the plan
+ * describes the same decision either way.
  */
-function createReplacementAttempt(store: StateStore, finding: AttemptFinding, now: string): AttemptRow {
+function createReplacementAttempt(
+  store: StateStore,
+  finding: AttemptFinding,
+  now: string,
+  mode: 'created' | 'reserved',
+): { readonly id: string; readonly generation: number; readonly workspacePath: string } {
   const db = store.db;
   const previous = listTaskAttempts(db, finding.taskId).find((attempt) => attempt.id === finding.attemptId);
   const snapshotHash = previous?.agent_snapshot_hash ?? '';
   const generation = beginNewGeneration(db, finding.taskId, now);
-  const attempt = insertAttempt(db, {
-    taskId: finding.taskId,
-    agentSnapshotHash: snapshotHash,
-    ...(previous?.runtime_id != null ? { runtimeId: previous.runtime_id } : {}),
-    now,
-  });
-  const run = getTask(db, finding.taskId).run_id;
-  const workspacePath = store.paths.workspaceDir(run, finding.taskId, attempt.id);
-  db.prepare('UPDATE attempts SET workspace_path = ?, updated_at = ? WHERE id = ?').run(workspacePath, now, attempt.id);
+  const runId = getTask(db, finding.taskId).run_id;
 
-  // The task itself has to be dispatchable again. `running -> ready` is not a
-  // legal transition, so an interrupted task passes through `waiting` first,
-  // with the reason recorded rather than implied.
-  const task = getTask(db, finding.taskId);
-  if (task.state === 'running' || task.state === 'validating') {
-    try {
-      transitionTask(db, finding.taskId, 'waiting', { waitReason: 'pause', now });
-    } catch {
-      // fall through; the caller sees the task state in the plan
-    }
+  let id: string;
+  if (mode === 'created') {
+    const attempt = insertAttempt(db, {
+      taskId: finding.taskId,
+      agentSnapshotHash: snapshotHash,
+      ...(previous?.runtime_id != null ? { runtimeId: previous.runtime_id } : {}),
+      now,
+    });
+    id = attempt.id;
+  } else {
+    id = newId();
   }
-  const afterWait = getTask(db, finding.taskId);
-  if (afterWait.state === 'waiting' || afterWait.state === 'failed' || afterWait.state === 'pending') {
-    try {
-      transitionTask(db, finding.taskId, 'ready', { now });
-    } catch {
-      // fall through
-    }
+  const workspacePath = store.paths.workspaceDir(runId, finding.taskId, id);
+  if (mode === 'created') {
+    db.prepare('UPDATE attempts SET workspace_path = ?, updated_at = ? WHERE id = ?').run(workspacePath, now, id);
+    markTaskReady(db, finding.taskId, now);
+  } else {
+    parkTaskForDispatch(db, finding.taskId, now);
   }
 
   appendEvent(db, {
-    runId: run,
+    runId,
     taskId: finding.taskId,
-    attemptId: attempt.id,
+    attemptId: id,
     type: 'recovery.attempt_replaced',
-    payload: { previousAttemptId: finding.attemptId, previousGeneration: finding.generation, generation, workspacePath },
+    payload: { previousAttemptId: finding.attemptId, previousGeneration: finding.generation, generation, workspacePath, attemptRow: mode },
     timestamp: now,
   });
-  return { ...attempt, workspace_path: workspacePath, generation };
+  return { id, generation, workspacePath };
+}
+
+/**
+ * Move an interrupted task out of a state no dispatch can start from.
+ *
+ * `running -> ready` is not a legal transition, so an interrupted task passes
+ * through `waiting` first with the reason recorded rather than implied.
+ */
+function unparkFromWork(db: DatabaseSync, taskId: string, now: string): TaskRow {
+  const task = getTask(db, taskId);
+  if (task.state === 'running' || task.state === 'validating') {
+    try {
+      transitionTask(db, taskId, 'waiting', { waitReason: 'pause', now });
+    } catch {
+      // Fall through; the caller sees the task state in the plan.
+    }
+  }
+  return getTask(db, taskId);
+}
+
+/** Make a task dispatchable again for a caller that will not dispatch it itself. */
+function markTaskReady(db: DatabaseSync, taskId: string, now: string): void {
+  const task = unparkFromWork(db, taskId, now);
+  if (task.state === 'waiting' || task.state === 'failed' || task.state === 'pending' || task.state === 'cancelled') {
+    try {
+      transitionTask(db, taskId, 'ready', { now });
+    } catch {
+      // Fall through; the caller sees the task state in the plan.
+    }
+  }
+}
+
+/**
+ * Leave a task one step short of `ready`, for a caller that is about to
+ * dispatch it.
+ *
+ * The orchestrator makes the task ready itself as part of starting an attempt,
+ * and `ready -> ready` is not a transition, so a task recovery already made
+ * ready is parked in `waiting` rather than handed over in a state the dispatch
+ * would reject.
+ */
+export function parkTaskForDispatch(db: DatabaseSync, taskId: string, now: string = nowIso()): void {
+  const task = unparkFromWork(db, taskId, now);
+  if (task.state !== 'ready') return;
+  try {
+    transitionTask(db, taskId, 'waiting', { waitReason: 'pause', now });
+  } catch {
+    // Fall through; the dispatch reports the illegal transition itself.
+  }
 }
 
 /** Tasks of a run in a shape a plan report can print. */
