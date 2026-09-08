@@ -105,6 +105,8 @@ async function run(repo: string, scenario: FakeScenario): Promise<Outcome> {
   try {
     const loaded = loadAgentConfigFile(configPath);
     const result = await runDirect({
+      // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+      allowUnconfinedWrites: true,
       repoPath: repo,
       config: loaded.config,
       configRaw: loaded.raw,
