@@ -280,7 +280,10 @@ describe('the acceptance surface follows the module graph', () => {
     expect(surface.resolution.unresolved.join(' ')).toContain('imports "./missing.js", which does not resolve to a file in the base revision');
   });
 
-  it('turns a truncated walk into a refusal, not a footnote beside an acceptance', async () => {
+  it('turns a truncated walk into a labelled conservative surface rather than a refusal', async () => {
+    // A cap is a fact about this walk, not about the repository. Refusing here
+    // makes an ordinary-sized closure unverifiable, and a truncated analysis
+    // that says it is truncated is more useful than a run that cannot happen.
     const files = tree({
       'verify/run.js': "import './a.js';\n",
       'verify/a.js': "import './b.js';\n",
@@ -289,12 +292,47 @@ describe('the acceptance surface follows the module graph', () => {
     });
     const surface = await resolveAcceptanceSurface([NODE_CHECK], files.baseFiles, { readBaseFile: files.readBaseFile, limits: { maxFiles: 2 } });
 
-    const blockers = surfaceBlockers(surface);
-    expect(blockers).toHaveLength(1);
-    expect(blockers[0]).toContain('the acceptance surface for criterion "suite" could not be fully resolved, so "suite" is not established by its check');
-    expect(blockers[0]).toContain('the import walk stopped after 2 files');
-    expect(blockers[0]).toContain('narrow what the criterion executes');
-    expect(surface.resolution.gaps.every((gap) => gap.criterionId === 'suite' && gap.kind === 'truncated')).toBe(true);
+    expect(surfaceBlockers(surface)).toEqual([]);
+    expect(surface.resolution.gaps).toEqual([]);
+    // It is still said, in the criterion's own name, and marked conservative.
+    expect(surface.resolution.conservative).toBe(true);
+    expect(surface.resolution.truncated).toBe(true);
+    expect(surface.resolution.limitations).toEqual([
+      { criterionId: 'suite', kind: 'analysis_truncated', detail: 'the import walk stopped after 2 files; files beyond that cap are NOT part of this surface' },
+    ]);
+    expect(surface.resolution.unresolved.join(' ')).toContain('the import walk stopped after 2 files');
+  });
+
+  it('does not reach the default caps on a closure of a size a real repository has', async () => {
+    // The old caps refused a correct run at 400 files in a closure and at 200
+    // module files under a directory a check names. Both are ordinary sizes.
+    const files: Record<string, string> = { 'verify/run.js': '' };
+    const imports: string[] = [];
+    for (let index = 0; index < 600; index += 1) {
+      files[`verify/cases/case-${index}.js`] = `export const value = ${index};\n`;
+      imports.push(`import { value as v${index} } from './cases/case-${index}.js';`);
+    }
+    files['verify/run.js'] = `${imports.join('\n')}\n`;
+    const built = tree(files);
+    const surface = await resolveAcceptanceSurface([NODE_CHECK], built.baseFiles, { readBaseFile: built.readBaseFile });
+
+    expect(surface.resolution.truncated).toBe(false);
+    expect(surface.resolution.conservative).toBe(false);
+    expect(surface.resolution.limitations).toEqual([]);
+    expect(surfaceBlockers(surface)).toEqual([]);
+    expect(surface.byCriterion.get('suite')).toHaveLength(601);
+  });
+
+  it('does not reach the directory cap on a directory a check names', async () => {
+    const files: Record<string, string> = {};
+    for (let index = 0; index < 500; index += 1) files[`test/case-${index}.test.js`] = `export const value = ${index};\n`;
+    const built = tree(files);
+    const check: CheckSpec = { criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], required: true };
+    const surface = await resolveAcceptanceSurface([check], built.baseFiles, { readBaseFile: built.readBaseFile });
+
+    expect(surface.resolution.truncated).toBe(false);
+    expect(surface.resolution.limitations).toEqual([]);
+    expect(surfaceBlockers(surface)).toEqual([]);
   });
 
   it('blocks the caller that follows no module graph at all, rather than reporting a clean surface', () => {
@@ -448,5 +486,269 @@ describe('the acceptance surface follows the module graph', () => {
     expect(surface.byCriterion.get('package-test-script')).toEqual(['package.json', 'verify/acceptance.js']);
     expect(surface.resolution.moduleGraphResolved).toBe(false);
     expect(surface.resolution.truncated).toBe(true);
+  });
+});
+
+/**
+ * Languages the walk cannot read.
+ *
+ * The module graph closed the gutted-helper hole for JavaScript, TypeScript
+ * and Python, and then refused everything else: a Go, Rust, C, Ruby or Swift
+ * repository has no import graph this walk can follow, so every criterion was
+ * unresolved and no run could ever be accepted. That is not a safety property,
+ * it is an outage. The answer is a CONSERVATIVE surface that says what it did
+ * not prove, and a way for the operator to prove it.
+ */
+describe('a repository in a language the walk cannot read', () => {
+  function tree(files: Record<string, string>): { baseFiles: string[]; readBaseFile: (p: string) => Promise<string | null> } {
+    return { baseFiles: Object.keys(files).sort(), readBaseFile: (p: string) => Promise.resolve(files[p] ?? null) };
+  }
+
+  const GO_FILES = {
+    'go.mod': 'module example.com/billing\n\ngo 1.22\n',
+    'internal/billing/total.go': 'package billing\n\nfunc Total(amounts []int) int {\n\treturn 0\n}\n',
+    'internal/billing/total_test.go': 'package billing\n\nimport "testing"\n\nfunc TestTotal(t *testing.T) {}\n',
+  };
+
+  it('resolves a conservative surface instead of refusing every criterion', async () => {
+    const files = tree(GO_FILES);
+    const check: CheckSpec = { criterionId: 'go-tests', command: 'go', args: ['test', './internal/billing'], required: true };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    // The run can happen at all. That is the whole point.
+    expect(surfaceBlockers(surface)).toEqual([]);
+    expect(surface.resolution.gaps).toEqual([]);
+    // And it is labelled, in the criterion's own name, with the residual risk.
+    expect(surface.resolution.conservative).toBe(true);
+    expect(surface.resolution.limitations).toHaveLength(1);
+    expect(surface.resolution.limitations[0]!.criterionId).toBe('go-tests');
+    expect(surface.resolution.limitations[0]!.kind).toBe('language_unsupported');
+    expect(surface.resolution.limitations[0]!.detail).toContain('contain no JavaScript, TypeScript or Python module');
+    expect(surface.resolution.limitations[0]!.detail).toContain('closure was NOT proven');
+    expect(surface.resolution.limitations[0]!.detail).toContain('"fixtures"');
+    // What can be identified without parsing is still protected: the path the
+    // check names, so rewriting the Go suite under it is still a mutation.
+    expect(surfacePaths(surface)).toEqual(['internal/billing']);
+    expect(findSurfaceChanges(surface, [{ status: 'M', path: 'internal/billing/total_test.go' }]).mutations).toEqual([
+      { criterionId: 'go-tests', changedPaths: ['M internal/billing/total_test.go'] },
+    ]);
+  });
+
+  it('is upgraded to an established surface when the operator names the fixtures', async () => {
+    const files = tree(GO_FILES);
+    const check: CheckSpec = {
+      criterionId: 'go-tests',
+      command: 'go',
+      args: ['test', './internal/billing'],
+      fixtures: ['internal/billing/total_test.go'],
+      required: true,
+    };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surface.resolution.limitations).toEqual([]);
+    expect(surface.resolution.conservative).toBe(false);
+    expect(surface.resolution.gaps).toEqual([]);
+    expect(surfaceBlockers(surface)).toEqual([]);
+    expect(surfacePaths(surface)).toEqual(['internal/billing', 'internal/billing/total_test.go']);
+  });
+
+  it('refuses a declared fixture the base revision does not contain, rather than reading a typo as a declaration', async () => {
+    const files = tree(GO_FILES);
+    const check: CheckSpec = { criterionId: 'go-tests', command: 'go', args: ['test', './internal/billing'], fixtures: ['internal/billing/totals_test.go'], required: true };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surface.resolution.gaps).toEqual([
+      {
+        criterionId: 'go-tests',
+        kind: 'declared_fixture_missing',
+        detail:
+          'this criterion declares the fixture path(s) internal/billing/totals_test.go in .workforce/checks.json, and the base revision contains no such path, so the closure they were meant to declare is not established',
+      },
+    ]);
+    expect(surfaceBlockers(surface)[0]).toContain('correct the "fixtures" paths');
+  });
+
+  it('names a criterion whose command matches nothing at all, rather than reporting an empty surface as a clean one', async () => {
+    const files = tree(GO_FILES);
+    const check: CheckSpec = { criterionId: 'go-tests', command: 'go', args: ['test', './...'], required: true };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surfaceBlockers(surface)).toEqual([]);
+    expect(surface.resolution.conservative).toBe(true);
+    expect(surface.resolution.limitations[0]!.kind).toBe('external_toolchain');
+    expect(surface.resolution.limitations[0]!.detail).toContain('names no path this repository contains');
+  });
+
+  it('treats a shell entry point that runs an external toolchain as a limitation, not a refusal', async () => {
+    const files = tree({
+      ...GO_FILES,
+      'package.json': JSON.stringify({ scripts: { test: 'bash scripts/acceptance.sh' } }),
+      'scripts/acceptance.sh': '#!/usr/bin/env bash\nset -e\ngo test ./...\n',
+    });
+    const surface = await resolveAcceptanceSurface([PACKAGE_CHECK], files.baseFiles, {
+      packageManifest: await files.readBaseFile('package.json'),
+      readBaseFile: files.readBaseFile,
+    });
+
+    expect(surfaceBlockers(surface)).toEqual([]);
+    expect(surface.resolution.limitations.some((limitation) => limitation.kind === 'external_toolchain')).toBe(true);
+    expect(surface.resolution.limitations.map((limitation) => limitation.detail).join(' ')).toContain('runs an external toolchain this walk cannot analyse');
+    // The script itself is still pinned: rewriting it still replaces the criterion.
+    expect(surfacePaths(surface)).toContain('scripts/acceptance.sh');
+  });
+
+  it('still refuses a shell entry point whose runner is computed, because nothing bounds what it runs', async () => {
+    const files = tree({
+      'package.json': JSON.stringify({ scripts: { test: 'bash scripts/acceptance.sh' } }),
+      'scripts/acceptance.sh': '#!/usr/bin/env bash\nexec "$RUNNER" --all\n',
+      'verify/run.js': 'console.log("ok");\n',
+    });
+    const surface = await resolveAcceptanceSurface([PACKAGE_CHECK], files.baseFiles, {
+      packageManifest: await files.readBaseFile('package.json'),
+      readBaseFile: files.readBaseFile,
+    });
+
+    expect(surface.resolution.gaps.map((gap) => gap.kind)).toEqual(['entry_not_module']);
+    expect(surfaceBlockers(surface)[0]).toContain('criterion "package-test-script" could not be fully resolved');
+  });
+});
+
+/**
+ * One unresolvable import used to block every criterion in the repository,
+ * including when it sat in a fixture no check runs. A gap belongs to the
+ * criterion whose evidence it undermines, and to no other.
+ */
+describe('a gap belongs to the criterion that executes the file it came from', () => {
+  function tree(files: Record<string, string>): { baseFiles: string[]; readBaseFile: (p: string) => Promise<string | null> } {
+    return { baseFiles: Object.keys(files).sort(), readBaseFile: (p: string) => Promise.resolve(files[p] ?? null) };
+  }
+
+  const FILES = {
+    'test/legacy/retired.test.js': "import { gone } from './gone.js';\ngone();\n",
+    'test/current/pagination.test.js': "import { pageCount } from '../../src/pagination.js';\npageCount(1, 1);\n",
+    'src/pagination.js': 'export function pageCount() { return 0; }\n',
+  };
+
+  it('does not let a file no criterion executes block anything', async () => {
+    const files = tree(FILES);
+    const check: CheckSpec = { criterionId: 'node-tests', command: 'node', args: ['--test', 'test/current'], required: true };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    // The broken import is real and is reported...
+    expect(surface.resolution.unresolved.join(' ')).toContain('test/legacy/retired.test.js imports "./gone.js"');
+    // ... as a limitation about a file the criterion never runs, not a blocker.
+    expect(surface.resolution.gaps).toEqual([]);
+    expect(surfaceBlockers(surface)).toEqual([]);
+    expect(surface.resolution.limitations.some((limitation) => limitation.kind === 'unexecuted_fixture')).toBe(true);
+  });
+
+  it('still refuses, in that criterion\'s name, when the criterion does execute the file', async () => {
+    const files = tree(FILES);
+    const check: CheckSpec = { criterionId: 'node-tests', command: 'node', args: ['--test', 'test'], required: true };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    const blockers = surfaceBlockers(surface);
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]).toContain('criterion "node-tests"');
+    expect(blockers[0]).toContain('test/legacy/retired.test.js imports "./gone.js"');
+    // Never as `*`: "every criterion" is a claim about the whole repository.
+    expect(surface.resolution.gaps.every((gap) => gap.criterionId === 'node-tests')).toBe(true);
+  });
+
+  it('gives the shared closure to a criterion that names no entry point of its own', async () => {
+    // `pytest` with no argument discovers whatever the conventions hold, so a
+    // broken import in that closure really does undermine its evidence.
+    const files = tree({
+      'tests/test_ranges.py': 'from .missing import helper\n',
+      'src/ranges.py': 'def chunk(values, size):\n    return []\n',
+    });
+    const check: CheckSpec = { criterionId: 'pytest', command: 'pytest', args: ['-q'], required: true };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surfaceBlockers(surface)).toHaveLength(1);
+    expect(surfaceBlockers(surface)[0]).toContain('criterion "pytest"');
+  });
+});
+
+/**
+ * Comment stripping used to be a regex over raw source. A string literal
+ * holding a glob (`'cases/*'`) opened a block comment that ran to the next
+ * `*` + `/`, and every import in between vanished from the surface — which is
+ * a FALSE ACCEPT, not a false refusal: the walk reported a clean closure for
+ * files it never read.
+ */
+describe('comment stripping knows what a string is', () => {
+  function tree(files: Record<string, string>): { baseFiles: string[]; readBaseFile: (p: string) => Promise<string | null> } {
+    return { baseFiles: Object.keys(files).sort(), readBaseFile: (p: string) => Promise.resolve(files[p] ?? null) };
+  }
+  const NODE_CHECK: CheckSpec = { criterionId: 'suite', command: 'node', args: ['verify/run.js'], required: true };
+
+  it('does not let a glob in a string literal swallow the imports after it', async () => {
+    const files = tree({
+      'verify/run.js': ["const CASES = 'cases/*';", "import { expectEqual } from './expect.js';", "const SOURCES = 'src/*/index.js';", 'expectEqual(CASES, SOURCES);', ''].join('\n'),
+      'verify/expect.js': 'export function expectEqual(a, b) { if (a !== b) throw new Error("no"); }\n',
+    });
+    const surface = await resolveAcceptanceSurface([NODE_CHECK], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surface.byCriterion.get('suite')).toEqual(['verify/expect.js', 'verify/run.js']);
+    expect(surface.resolution.gaps).toEqual([]);
+  });
+
+  it('handles the same glob in a template literal and in double quotes', async () => {
+    const files = tree({
+      'verify/run.js': ['const CASES = `cases/*`;', "import { expectEqual } from './expect.js';", 'const MORE = "src/*/index.js";', 'expectEqual(CASES, MORE);', ''].join('\n'),
+      'verify/expect.js': 'export function expectEqual(a, b) { if (a !== b) throw new Error("no"); }\n',
+    });
+    const surface = await resolveAcceptanceSurface([NODE_CHECK], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surface.byCriterion.get('suite')).toEqual(['verify/expect.js', 'verify/run.js']);
+  });
+
+  it('does not let a regular-expression literal containing a comment opener swallow an import', async () => {
+    const files = tree({
+      'verify/run.js': ['const BLOCK = /[/*]/;', "import { expectEqual } from './expect.js';", 'const CLOSE = /[*/]/;', 'expectEqual(BLOCK.source, CLOSE.source);', ''].join('\n'),
+      'verify/expect.js': 'export function expectEqual(a, b) { if (a !== b) throw new Error("no"); }\n',
+    });
+    const surface = await resolveAcceptanceSurface([NODE_CHECK], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surface.byCriterion.get('suite')).toEqual(['verify/expect.js', 'verify/run.js']);
+  });
+
+  it('still strips a real comment, including one that trails live code', async () => {
+    const files = tree({
+      'verify/run.js': ["import './current.js'; // import './trailing.js';", "/* import './block.js'; */", "// import './line.js';", ''].join('\n'),
+      'verify/current.js': 'export const current = 1;\n',
+      'verify/trailing.js': 'export const trailing = 1;\n',
+      'verify/block.js': 'export const block = 1;\n',
+      'verify/line.js': 'export const line = 1;\n',
+    });
+    const surface = await resolveAcceptanceSurface([NODE_CHECK], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surface.byCriterion.get('suite')).toEqual(['verify/current.js', 'verify/run.js']);
+  });
+
+  it('does not read a Python docstring as a set of imports the module makes', async () => {
+    const files = tree({
+      'tests/test_ranges.py': ['"""Usage:', '', 'from .retired import helper', '"""', 'from src.ranges import chunk', '', 'def test_chunk():', '    assert chunk([], 1) == []', ''].join('\n'),
+      'src/ranges.py': 'def chunk(values, size):\n    return []\n',
+    });
+    const check: CheckSpec = { criterionId: 'pytest', command: 'pytest', args: ['-q'], required: true };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surface.resolution.unresolved).toEqual([]);
+    expect(surfaceBlockers(surface)).toEqual([]);
+    expect(surfaceDependencyPaths(surface)).toEqual(['src/ranges.py']);
+  });
+
+  it('does not treat a "#" inside a Python string as the start of a comment', async () => {
+    const files = tree({
+      'tests/test_ranges.py': ['ANCHOR = "http://example.com/#top"', 'from src.ranges import chunk', '', 'def test_chunk():', '    assert chunk([], 1) == []', ''].join('\n'),
+      'src/ranges.py': 'def chunk(values, size):\n    return []\n',
+    });
+    const check: CheckSpec = { criterionId: 'pytest', command: 'pytest', args: ['-q'], required: true };
+    const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
+
+    expect(surfaceDependencyPaths(surface)).toEqual(['src/ranges.py']);
+    expect(surface.resolution.unresolved).toEqual([]);
   });
 });

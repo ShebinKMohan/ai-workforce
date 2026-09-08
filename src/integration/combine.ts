@@ -572,11 +572,15 @@ export interface CombineSucceeded {
   readonly branchReceiptIds: ReadonlyArray<string>;
   /**
    * What resolving the acceptance surface from the base revision could not
-   * settle. Empty means the import graph was followed to completion; a
-   * non-empty entry means the fixture comparison above covered less than the
-   * criteria actually execute, and `acceptance` refuses for exactly that
-   * reason — a comparison that missed files cannot say the combination left
-   * them alone.
+   * settle. Empty means the import graph was followed to completion.
+   *
+   * A non-empty entry means the fixture comparison above covered less than the
+   * criteria actually execute. Where that is a GAP — a specifier computed at
+   * run time, an import naming nothing — `acceptance` refuses for exactly that
+   * reason: a comparison that missed files cannot say the combination left
+   * them alone. Where it is a LIMITATION — a language this walk cannot read at
+   * all — the combination proceeds and this list is where the operator learns
+   * the closure was never proven.
    */
   readonly surfaceGaps: ReadonlyArray<string>;
   readonly combinedAt: string;
@@ -817,7 +821,17 @@ async function measureCombinedSurface(
   // What the walk could not settle. A partial surface is a partial comparison,
   // so it refuses the combination rather than being noted beside an
   // "accepted" — the single-task path draws the line in the same place.
-  const surfaceGaps = [...surface.resolution.unresolved];
+  // Two kinds of incompleteness, reported apart because they lead to opposite
+  // decisions. A gap refuses the combination below; a limitation says this
+  // walk has no dependency analysis for the criterion's language at all, which
+  // must not make an entire Go or Rust repository uncombinable.
+  const surfaceGaps = [...new Set(surface.resolution.gaps.map((gap) => gap.detail))].sort();
+  for (const limitation of surface.resolution.limitations) {
+    const who = limitation.criterionId === '*' ? 'every criterion' : `criterion "${limitation.criterionId}"`;
+    surfaceGaps.push(
+      `the acceptance surface for ${who} in this combination is CONSERVATIVE rather than established: ${limitation.detail}. The fixture comparison covered what could be identified without parsing, and no more`,
+    );
+  }
   if (surface.resolution.truncated) {
     surfaceGaps.push(
       `the acceptance surface for this combination is PARTIAL: the walk from ${surface.resolution.entryPoints.length} entry point(s) read ${surface.resolution.filesVisited} file(s) and stopped at a cap, so files a criterion executes may be missing from the fixture comparison`,

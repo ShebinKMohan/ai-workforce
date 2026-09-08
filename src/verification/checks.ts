@@ -103,6 +103,17 @@ export interface CheckSpec {
   /** A non-required check is evidence but does not block acceptance. Defaults to true. */
   readonly required?: boolean;
   readonly description?: string;
+  /**
+   * Repository-relative paths this criterion executes, named by the operator.
+   *
+   * Nothing here reaches the command: these paths are read only by the
+   * acceptance surface, which follows the module graph from them and protects
+   * them. They exist for the repositories the walk cannot analyse — Go, Rust,
+   * C, Ruby, Swift, or any layout the import reader has no parser for — where
+   * declaring the closure is how an operator turns a conservative surface into
+   * an established one.
+   */
+  readonly fixtures?: ReadonlyArray<string>;
 }
 
 export interface CandidateRef {
