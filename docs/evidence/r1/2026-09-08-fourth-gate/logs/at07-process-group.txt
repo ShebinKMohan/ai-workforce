@@ -1,0 +1,4 @@
+coordinator 60958: gone
+worker 61141 : gone
+pgid==61141 : 
+pgid==60958: 

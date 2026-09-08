@@ -1,0 +1,4 @@
+Two deliverables that must agree on one invented codename:
+1. docs/glossary.md, which names the codename.
+2. docs/usage.md, which must reuse the exact codename from docs/glossary.md.
+Only the worker that invents the codename knows it; the other must ask for it.

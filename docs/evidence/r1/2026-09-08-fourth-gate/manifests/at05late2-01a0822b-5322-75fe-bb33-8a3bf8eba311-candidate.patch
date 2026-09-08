@@ -1,0 +1,8 @@
+diff --git a/docs/late.md b/docs/late.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..a966544bdd3f1bfe51f2dd686ad496ea388df2ba
+--- /dev/null
++++ b/docs/late.md
+@@ -0,0 +1,2 @@
++# Late
++Send result: recipient_finished

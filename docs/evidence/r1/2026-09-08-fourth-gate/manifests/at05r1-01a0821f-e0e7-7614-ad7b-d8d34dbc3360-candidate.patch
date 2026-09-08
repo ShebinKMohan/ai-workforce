@@ -1,0 +1,8 @@
+diff --git a/docs/glossary.md b/docs/glossary.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..33bf7854c43e38aa59da2746f5a31052ddd49638
+--- /dev/null
++++ b/docs/glossary.md
+@@ -0,0 +1,2 @@
++# Glossary
++Term: verdant

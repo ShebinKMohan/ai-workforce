@@ -1,0 +1,8 @@
+# provenance of the codename 'verdant' (AT05 run 1)
+## in the plan / request given to the run
+/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1gate-fourth-1788889488/requests/at05-request.txt:0
+/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1gate-fourth-1788889488/requests/at05-plan.json:0
+## in the fixture repository at base 2c419265a5b4 (all tracked files)
+0 matches
+## in the product source and tests
+0 matches

@@ -1,0 +1,12 @@
+# AT05 run 3 — what t2 actually did (task 01a08222-c1e9-77d4-bab8-c14dae57f0e6, session 01a08222-c38f-7e61-891d-7020ceb01b89)
+## every item type in that session's raw capture, counted
+   5	agentMessage
+   9	collabAgentToolCall
+   9	commandExecution
+   1	fileChange
+   8	reasoning
+   1	userMessage
+## the claim it made anyway (first agentMessage)
+   atMs=15741: 
+## message rows the coordinator recorded for this run
+# 0 message row(s)

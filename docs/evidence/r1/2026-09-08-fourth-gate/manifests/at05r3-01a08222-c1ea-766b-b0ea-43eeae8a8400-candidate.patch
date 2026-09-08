@@ -1,0 +1,8 @@
+diff --git a/docs/glossary.md b/docs/glossary.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..69c489f9435b98c4419dff42a99512eed050bff2
+--- /dev/null
++++ b/docs/glossary.md
+@@ -0,0 +1,2 @@
++# Glossary
++Term: cobalt

@@ -1,0 +1,2 @@
+Two deliverables. One worker records its own status; the other records what the coordinator told it
+when it tried to send that worker a message.

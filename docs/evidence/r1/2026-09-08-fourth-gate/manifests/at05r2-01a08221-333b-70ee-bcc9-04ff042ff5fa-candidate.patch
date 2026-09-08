@@ -1,0 +1,8 @@
+diff --git a/docs/glossary.md b/docs/glossary.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..5f92a9aea96d0de0e1f84b2094faae7ff6689a6d
+--- /dev/null
++++ b/docs/glossary.md
+@@ -0,0 +1,2 @@
++# Glossary
++Term: velvet

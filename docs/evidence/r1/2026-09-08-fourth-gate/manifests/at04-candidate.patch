@@ -1,0 +1,8 @@
+diff --git a/docs/handoff.md b/docs/handoff.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..e1c9e3dafee24ae8480224d3b4775f6ce2bf57a1
+--- /dev/null
++++ b/docs/handoff.md
+@@ -0,0 +1,2 @@
++# Handoff
++Continued after: authentication failure on claude-local

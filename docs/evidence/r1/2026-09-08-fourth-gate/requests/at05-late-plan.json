@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "key": "early",
+      "objective": "Create the file docs/early.md and no other file: line 1 exactly \"# Early\", line 2 exactly \"Status: done\". Do not call any coordination tool. Then stop.",
+      "dependencies": []
+    },
+    {
+      "key": "late",
+      "objective": "FIRST, call send_message once with `to` set to the task id of the peer task whose key is \"early\", subject \"Late question\", body text \"Please confirm your status.\". The coordinator may accept that message or refuse it; either way you must find out which, and you must not pretend. SECOND, do not wait for a reply from the peer and do not retry more than once. THIRD, create the file docs/late.md and no other file: line 1 exactly \"# Late\", line 2 exactly \"Send result: <RESULT>\" where <RESULT> is one line reporting what the coordinator told you about that send_message call, quoting its error code verbatim if it refused. Then stop.",
+      "dependencies": ["early"]
+    }
+  ]
+}

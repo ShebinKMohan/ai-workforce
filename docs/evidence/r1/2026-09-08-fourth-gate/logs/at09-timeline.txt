@@ -1,0 +1,22 @@
++    0.0s  2026-09-08T18:01:30.851Z  task.created                 bc6f6172129f
++    0.0s  2026-09-08T18:01:30.855Z  task.created                 f83150876526
++    0.1s  2026-09-08T18:01:30.916Z  coordination.attached        bc6f6172129f
++    0.1s  2026-09-08T18:01:30.967Z  coordination.attached        f83150876526
++    0.3s  2026-09-08T18:01:31.140Z  turn.started                 bc6f6172129f
++    0.4s  2026-09-08T18:01:31.259Z  turn.started                 f83150876526
++   16.1s  2026-09-08T18:01:46.927Z  runtime.turn_completed       f83150876526
++   16.1s  2026-09-08T18:01:46.952Z  runtime.stopped              f83150876526
++   16.3s  2026-09-08T18:01:47.150Z  run.accepted                 f83150876526
++   16.4s  2026-09-08T18:01:47.285Z  task.created                 08a1ffcc93c1
++   16.5s  2026-09-08T18:01:47.337Z  coordination.attached        08a1ffcc93c1
++   16.7s  2026-09-08T18:01:47.569Z  turn.started                 08a1ffcc93c1
++   31.7s  2026-09-08T18:02:02.549Z  runtime.turn_completed       08a1ffcc93c1
++   31.7s  2026-09-08T18:02:02.571Z  runtime.stopped              08a1ffcc93c1
++   31.9s  2026-09-08T18:02:02.767Z  run.accepted                 08a1ffcc93c1
++  174.4s  2026-09-08T18:04:25.291Z  runtime.turn_completed       bc6f6172129f
++  174.5s  2026-09-08T18:04:25.323Z  runtime.stopped              bc6f6172129f
++  174.7s  2026-09-08T18:04:25.512Z  run.accepted                 bc6f6172129f
+# task key -> id (AT09)
+01a0822e-a742-734c-9927-bc6f6172129f accepted "This task is deliberately slow and is unrelated to every oth"
+01a0822e-a742-734a-8a31-f83150876526 accepted "Create the file docs/fast.md and no other file, immediately "
+01a0822e-a742-734b-abeb-08a1ffcc93c1 accepted "Create the file docs/dependent.md and no other file. Line 1 "

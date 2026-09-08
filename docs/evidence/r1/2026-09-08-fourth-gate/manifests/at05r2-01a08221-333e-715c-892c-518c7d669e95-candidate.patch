@@ -1,0 +1,8 @@
+diff --git a/docs/usage.md b/docs/usage.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a4031ad1099a15d5b65549dd4100748e88311fa
+--- /dev/null
++++ b/docs/usage.md
+@@ -0,0 +1,2 @@
++# Usage
++Uses term: velvet

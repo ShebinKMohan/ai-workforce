@@ -1,0 +1,8 @@
+diff --git a/docs/usage.md b/docs/usage.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..4e46963f93b8115d5224625d742284b6272b6f4d
+--- /dev/null
++++ b/docs/usage.md
+@@ -0,0 +1,2 @@
++# Usage
++Uses term: unanswered

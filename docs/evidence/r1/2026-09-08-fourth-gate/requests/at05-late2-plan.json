@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "key": "early",
+      "objective": "Create the file docs/early.md and no other file: line 1 exactly \"# Early\", line 2 exactly \"Status: done\". Do not call any coordination tool. Then stop.",
+      "dependencies": []
+    },
+    {
+      "key": "late",
+      "objective": "FIRST, send one message to the peer task whose key is \"early\", using the coordinator's own tool: the MCP tool named send_message provided by the MCP server named \"workforce\". Do NOT use your runtime's built-in agent-collaboration send_message tool; that one addresses your runtime's own sub-agents, it is not the coordinator, and it will tell you the agent id is not found. Address the workforce tool with `to` set to that peer's task id, subject \"Late question\", body text \"Please confirm your status.\". SECOND, do not wait for a reply and do not retry more than once. THIRD, create the file docs/late.md and no other file: line 1 exactly \"# Late\", line 2 exactly \"Send result: <RESULT>\" where <RESULT> is one line reporting what the workforce coordinator told you about that call, quoting its error code verbatim if it refused. Then stop.",
+      "dependencies": ["early"]
+    }
+  ]
+}

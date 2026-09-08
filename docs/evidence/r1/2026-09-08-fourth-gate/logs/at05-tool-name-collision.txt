@@ -1,0 +1,28 @@
+# The tool-name collision: codex 0.147.0 ships its own built-in "send_message"
+
+## 1. The runtime's own binary carries the tool
+$ strings <codex 0.147.0 darwin-arm64 binary> | grep -n "send_message"
+5913:core/src/tools/handlers/multi_agents_v2/send_message.rs
+31367:You can use `spawn_agent` to create a new agent, `followup_task` to give an existing agent a new task and trigger a turn, and `send_message` to pass a message to a running agent without triggering a turn.
+31379:You can use `spawn_agent` to create a new agent, `followup_task` to give an existing agent a new task and trigger a turn, and `send_message` to pass a message to a running agent.
+31391:Note that collaboration tools cannot be called from inside `functions.exec`. Call `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents` only as direct tool calls using the recipient shown in their tool definitions, such as `to=functions.collaboration.spawn_agent`, since they are intentionally absent from the `functions.exec` `tools.*` namespace. Available tools in `functions.exec` are explicitly described with a `tools` namespace in the developer message.
+
+## 2. What the coordinator's prompt asks the worker to call (src/core/run-direct.ts:833)
+To ask a peer something, call send_message with `to` set to that task id, then read_inbox for the answer.
+
+## 3. AT05 late run (state-at05late) — the worker called the runtime's tool, not the coordinator's
+stderr frame from the worker's own raw capture:
+agent with id 01a08228-50f4-76dc-95e3-0f9047b50ee0 not found
+that id is the peer TASK id the coordinator gave it: 01a08228-50f4-76dc-95e3-0f9047b50ee0
+mcpToolCall items in that session: 0   ·   message rows the coordinator recorded: 0
+
+## 4. AT05 run 3 (state-at05r3) — the same thing, and it is why that run failed
+agent with id 01a08222-c1e9-77d3-886b-028da69a3e13 not found
+that id is t1's TASK id: 01a08222-c1e9-77d3-886b-028da69a3e13
+mcpToolCall items in t2's session: 0   ·   message rows for the whole run: 0
+t2's own words at atMs=15741, before any tool call succeeded:
+  "The required message call was attempted first, but the coordinator reports that t1's task ID is not currently available."
+
+## 5. When the model picks the MCP tool instead, it works (AT05 run 1)
+  {"atMs":26675,"type":"mcpToolCall","server":"workforce","tool":"send_message","status":"completed"}
+send_messageSend a message to an existing agent.

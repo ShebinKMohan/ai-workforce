@@ -1,0 +1,8 @@
+diff --git a/docs/usage.md b/docs/usage.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..4c54a75127b62a7f4ac764fd2ac2aa3fcdd7f8b8
+--- /dev/null
++++ b/docs/usage.md
+@@ -0,0 +1,2 @@
++# Usage
++Uses term: cobalt

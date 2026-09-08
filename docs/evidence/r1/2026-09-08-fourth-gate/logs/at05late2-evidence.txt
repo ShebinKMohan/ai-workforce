@@ -1,0 +1,33 @@
+## run 01a0822a-f8d8-74f4-a4bf-eb51c5646042 state=ready_for_review
+
+### tasks
+01a0822a-f8dc-719b-ba23-29aec93f13e5	accepted	"Create the file docs/early.md and no other file: line 1 exactly \"# Early\", line "
+01a0822a-f8dc-719c-b9db-988adc4c99a2	accepted	"FIRST, send one message to the peer task whose key is \"early\", using the coordin"
+
+### messages (1 row(s))
+{"id":"01a0822b-9646-7504-9ac2-dfc8c8a14af4","run_id":"01a0822a-f8d8-74f4-a4bf-eb51c5646042","sender_task_id":"01a0822a-f8dc-719c-b9db-988adc4c99a2","sender_attempt_id":"01a0822b-5322-75fe-bb33-8a3bf8eba311","recipient_task_id":"01a0822a-f8dc-719b-ba23-29aec93f13e5","correlation_id":null,"idempotency_key":"01a0822a-f8dc-719c-b9db-988adc4c99a2\u0000auto:c38ea90ee5fa6f6d47789fb2f124af7b","type":"peer_message","body_json":"{\"subject\":\"Late question\",\"text\":\"Please confirm your status.\",\"undeliverable\":true,\"code\":\"recipient_finished\",\"recipientTaskState\":\"accepted\"}","contract_version":1,"delivery_state":"rejected","created_at":"2026-09-08T17:58:09.734Z","submitted_at":null,"acknowledged_at":null}
+
+### coordination.* events
+2026-09-08T17:57:29.607Z coordination.attached task=29aec93f13e5 {"socketPath":"/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a0822a-262a9fc5.sock","serverName":"workforce","adapter":"codex","argumentCount":6}
+2026-09-08T17:57:52.731Z coordination.attached task=988adc4c99a2 {"socketPath":"/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a0822a-262a9fc5.sock","serverName":"workforce","adapter":"codex","argumentCount":6}
+2026-09-08T17:58:09.735Z coordination.delivery_failed task=988adc4c99a2 {"messageId":"01a0822b-9646-7504-9ac2-dfc8c8a14af4","code":"recipient_finished","reason":"task \"01a0822a-f8dc-719b-ba23-29aec93f13e5\" has already finished (accepted); it has no worker session, so this message was not accepted for delivery. Whatever that task produced is already recorded — do not wait for an answer; continue with what you can establish yourself and say in your own result what you could not learn.","senderTaskId":"01a0822a-f8dc-719c-b9db-988adc4c99a2","recipientTaskId":"01a0822a-f8dc-719b-ba23-29aec93f13e5","deliveryState":"rejected"}
+
+### timeline
++    0.0s  task.created               Create the file do
++    0.1s  coordination.attached      Create the file do
++    1.8s  turn.started               Create the file do
++   21.7s  runtime.turn_completed     Create the file do
++   22.8s  runtime.stopped            Create the file do
++   23.0s  run.accepted               Create the file do
++   23.1s  task.created               FIRST, send one me
++   23.2s  coordination.attached      FIRST, send one me
++   23.6s  turn.started               FIRST, send one me
++   40.2s  coordination.delivery_failed FIRST, send one me
++   52.8s  runtime.turn_completed     FIRST, send one me
++   52.8s  runtime.stopped            FIRST, send one me
++   53.0s  run.accepted               FIRST, send one me
+
+### raw turn/steer requests (adapter capture)
+
+### "[object Object]" occurrences in raw capture
+0 in 2 capture file(s)

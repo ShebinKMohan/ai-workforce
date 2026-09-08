@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "key": "t1",
+      "objective": "You are the only source of one fact in this run. FIRST, invent a codename: a single lowercase English word of your own choosing, at least five letters, that is NOT any of workforce, gate, term, glossary, usage, codename, lantern, harbour, token, meadow, quartz, saffron. Nothing in this repository records it and no other worker can discover it by reading files, so keep it entirely to yourself except as described next. SECOND, immediately call read_inbox. A peer task is asking you for that codename right now. When its question is in your inbox, answer it at once with send_message addressed to that peer's task id, with the codename as the message text. If the inbox is empty, wait a few seconds using your shell and call read_inbox again; keep doing that until you have answered the peer, for up to two minutes. THIRD, create the file docs/glossary.md and no other file: line 1 exactly \"# Glossary\", line 2 exactly \"Term: <CODENAME>\". Then stop.",
+      "dependencies": []
+    },
+    {
+      "key": "t2",
+      "objective": "You must write a codename that only peer task t1 knows. It appears nowhere in this repository, nowhere in this request and nowhere in your own instructions; t1 invents it at run time, so guessing or inventing one is a failure, not an answer. FIRST, before doing anything else, call send_message with `to` set to t1's task id, asking it to reply with the codename it invented. SECOND, wait for the answer: call read_inbox, and if it has not arrived, wait about ten seconds using your shell and call read_inbox again. The answer may also be handed to you directly in the middle of your turn as a coordinator message — if that happens, use it. Keep alternating waiting and read_inbox for up to three minutes. THIRD, once you have the codename, create the file docs/usage.md and no other file: line 1 exactly \"# Usage\", line 2 exactly \"Uses term: <CODENAME>\", using the codename verbatim as t1 sent it. Only if three minutes pass with no answer at all, write \"Uses term: unanswered\" and say plainly that you never received one. Then stop.",
+      "dependencies": []
+    }
+  ]
+}

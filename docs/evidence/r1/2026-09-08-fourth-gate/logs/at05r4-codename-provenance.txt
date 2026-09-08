@@ -1,0 +1,5 @@
+# provenance of 'cobalt' (AT05 run 4)
+/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1gate-fourth-1788889488/requests/at05-request.txt:0
+/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1gate-fourth-1788889488/requests/at05-plan.json:0
+fixture base: 0
+src/tests/fixtures: 0
