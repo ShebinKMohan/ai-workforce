@@ -68,6 +68,7 @@ import {
   sandboxPolicyForTurn,
   type ThreadItem,
 } from './protocol.js';
+import { provisionedBridgeFromArgs } from './coordination-bridge.js';
 import { CodexRpcClient, CodexRpcError, CodexTransportError, DEFAULT_APP_SERVER_ARGS, denyServerRequest, type RawRecord, type ServerRequestRecord } from './rpc.js';
 
 export const CODEX_ADAPTER = 'codex' as const;
@@ -202,7 +203,10 @@ export const CODEX_CAPABILITIES: Readonly<Record<CapabilityName, CapabilityRepor
   model_selection: report('verified', 'model/list reports available ids; -c model="<id>" is reflected in the thread/start response and used by the turn'),
   effort_selection: report('verified', 'model/list reports supported reasoning efforts per model; -c model_reasoning_effort="<value>" is reflected in the thread/start response'),
   usage_reporting: report('verified', 'thread/tokenUsage/updated reports input, cached input, output and reasoning token counts per turn. Currency cost is not reported by the app server at all and must never be presented as zero'),
-  coordination_bridge: report('unsupported', 'the agent-callable bridge arrives with WP06'),
+  coordination_bridge: report(
+    'verified',
+    'the coordination bridge is injected as `-c mcp_servers.<name>....` and used: on a real 0.147.0 turn a worker called the bridge tool send_message, the app server asked for authorization through mcpServer/elicitation/request, the adapter authorized that one request because the server name and tool are the ones it provisioned, the mcpToolCall item completed with status "completed", and the coordinator stored the message. Every other server -> client request stays refused',
+  ),
 };
 
 /** Build `-c key=value` argument pairs for the app-server process. */
@@ -466,13 +470,22 @@ export class CodexAdapter implements RuntimeAdapter {
     if (input.model !== undefined) overrides['model'] = input.model;
     if (input.effort !== undefined) overrides['model_reasoning_effort'] = input.effort;
 
+    const args = [...this.#options.appServerArgs, ...this.#options.configOverrides, ...configOverrideArgs(overrides), ...(input.extraArgs ?? [])];
+    // Codex gates every MCP tool call behind an approval request, including
+    // calls to the coordination bridge the coordinator itself configured for
+    // this session. The adapter has to be able to tell that bridge apart from
+    // an escalation, so it reads back which server this session's own argv
+    // provisions; when it provisions none, nothing is ever approved.
+    const provisionedBridge = provisionedBridgeFromArgs(args);
+
     const rpc = new CodexRpcClient({
       executablePath: this.#options.executablePath,
-      args: [...this.#options.appServerArgs, ...this.#options.configOverrides, ...configOverrideArgs(overrides), ...(input.extraArgs ?? [])],
+      args,
       cwd: input.cwd,
       requestTimeoutMs: this.#options.requestTimeoutMs,
       stopTimeoutMs: this.#options.stopTimeoutMs,
       ...(input.env !== undefined ? { env: input.env } : {}),
+      ...(provisionedBridge !== null ? { provisionedBridge } : {}),
       serverRequestPolicy: (method) => denyServerRequest(method),
       // The sink closes over `session`, which only exists once the thread id is
       // known; records from the handshake are buffered until then and replayed.
@@ -656,9 +669,18 @@ export class CodexAdapter implements RuntimeAdapter {
     return this.#sessions.get(handle.sessionId)?.queued ?? [];
   }
 
-  /** Every server -> client request the transport refused for this session. */
-  deniedServerRequests(handle: SessionHandle): ReadonlyArray<ServerRequestRecord> {
+  /**
+   * Every server -> client request answered for this session, approved or
+   * refused, each with the reason it was decided that way. This is the audit
+   * trail a reviewer reads to see exactly what the coordinator authorized.
+   */
+  serverRequestDecisions(handle: SessionHandle): ReadonlyArray<ServerRequestRecord> {
     return this.#sessions.get(handle.sessionId)?.rpc.serverRequests ?? [];
+  }
+
+  /** The subset of those decisions that refused the request. */
+  deniedServerRequests(handle: SessionHandle): ReadonlyArray<ServerRequestRecord> {
+    return this.serverRequestDecisions(handle).filter((record) => record.decision.denied);
   }
 
   // -------------------------------------------------------------------------

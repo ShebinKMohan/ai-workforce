@@ -7,6 +7,7 @@ import { classifyCodexError, sandboxModeForPolicy, sandboxPolicyForTurn } from '
 import { AdapterError, RuntimeEventSchema, isTurnTerminalEvent, type RuntimeEvent, type SessionHandle } from '../../../src/adapters/types.js';
 import { isProcessAlive, isProcessGroupAlive } from '../../../src/core/process.js';
 import { summarizeTurnEvidence } from '../../../src/telemetry/events.js';
+import { BRIDGE_SERVER_NAME, bridgeEntryPath } from '../../../src/coordination/bridge.js';
 import { collect, fixturePath, openReplaySession, replayAdapter, tempWorkspace, writeTranscript } from './helpers.js';
 
 const roots: string[] = [];
@@ -490,9 +491,10 @@ describe('codex adapter: policy, settings and capability reporting', () => {
       expect(report.os, name).toBe('darwin');
       expect(report.note, name).toBeTruthy();
     }
-    // Only the bridge is unsupported for 0.147.0; everything else was executed against the installed runtime.
-    expect(CODEX_CAPABILITIES.coordination_bridge.status).toBe('unsupported');
-    expect(Object.entries(CODEX_CAPABILITIES).filter(([, capability]) => capability.status !== 'verified').map(([name]) => name)).toEqual(['coordination_bridge']);
+    // Every capability is now claimed as verified, so every one of them has to
+    // have a real-runtime check behind it; coordination_bridge is the newest.
+    expect(Object.entries(CODEX_CAPABILITIES).filter(([, capability]) => capability.status !== 'verified').map(([name]) => name)).toEqual([]);
+    expect(CODEX_CAPABILITIES.coordination_bridge.note).toContain('mcpServer/elicitation/request');
     // Token counts are reported, currency cost is not; the note must not let a caller read cost as zero.
     expect(CODEX_CAPABILITIES.usage_reporting.note).toContain('Currency cost is not reported');
   });
@@ -504,5 +506,118 @@ describe('codex adapter: temp fixtures', () => {
     expect(existsSync(dir)).toBe(true);
     rmSync(dir, { recursive: true, force: true });
     expect(existsSync(dir)).toBe(false);
+  });
+});
+
+/**
+ * AT05: a planned multi-worker run has to be able to exchange messages. Codex
+ * 0.147.0 asks permission before every MCP tool call, so a session that
+ * refuses all of them cannot use the coordination bridge the coordinator
+ * spawned for it — the frames below are what the real app server sent when a
+ * worker called `send_message`, and declining failed the call outright.
+ */
+describe('codex adapter: the coordination bridge it was configured with', () => {
+  const THREAD = 'thread-bridge';
+
+  /** The argv `coordinationArgsFor('codex', config)` splices into the session. */
+  function coordinationArgs(): string[] {
+    const prefix = `mcp_servers.${BRIDGE_SERVER_NAME}`;
+    return [
+      '-c',
+      `${prefix}.command="${process.execPath}"`,
+      '-c',
+      `${prefix}.args=["${bridgeEntryPath()}"]`,
+      '-c',
+      `${prefix}.env={ WORKFORCE_BRIDGE_SOCKET = "/tmp/wf-at05.sock", WORKFORCE_BRIDGE_TOKEN = "session-token" }`,
+    ];
+  }
+
+  function bridgeTurnTranscript(root: string, name: string): string {
+    return writeTranscript(root, name, [
+      { dir: 'out', line: JSON.stringify({ id: 1, method: 'initialize' }) },
+      { dir: 'in', line: JSON.stringify({ id: 1, result: {} }) },
+      { dir: 'out', line: JSON.stringify({ method: 'initialized' }) },
+      { dir: 'out', line: JSON.stringify({ id: 2, method: 'thread/start' }) },
+      { dir: 'in', line: JSON.stringify({ id: 2, result: { thread: { id: THREAD } } }) },
+      { dir: 'out', line: JSON.stringify({ id: 3, method: 'turn/start' }) },
+      { dir: 'in', line: JSON.stringify({ id: 3, result: { turn: { id: 'turn-bridge', items: [], status: 'inProgress' } } }) },
+      { dir: 'in', line: JSON.stringify({ method: 'turn/started', params: { threadId: THREAD, turn: { id: 'turn-bridge', items: [], status: 'inProgress' } } }) },
+      {
+        dir: 'in',
+        line: JSON.stringify({
+          method: 'item/started',
+          params: { threadId: THREAD, turnId: 'turn-bridge', item: { id: 'exec-1', type: 'mcpToolCall', server: BRIDGE_SERVER_NAME, tool: 'send_message', status: 'inProgress', arguments: { to: 'task-2', body: 'schema is ready' } } },
+        }),
+      },
+      {
+        dir: 'in',
+        line: JSON.stringify({
+          id: 'elicit-1',
+          method: 'mcpServer/elicitation/request',
+          params: {
+            threadId: THREAD,
+            turnId: 'turn-bridge',
+            serverName: BRIDGE_SERVER_NAME,
+            mode: 'form',
+            message: `Allow the ${BRIDGE_SERVER_NAME} MCP server to run tool "send_message"?`,
+            requestedSchema: { type: 'object', properties: {} },
+            _meta: { codex_approval_kind: 'mcp_tool_call', persist: ['session', 'always'] },
+          },
+        }),
+      },
+      { dir: 'out', line: JSON.stringify({ id: 'elicit-1', result: {} }) },
+      {
+        dir: 'in',
+        line: JSON.stringify({
+          method: 'item/completed',
+          params: { threadId: THREAD, turnId: 'turn-bridge', item: { id: 'exec-1', type: 'mcpToolCall', server: BRIDGE_SERVER_NAME, tool: 'send_message', status: 'completed', result: { structuredContent: { messageId: 'msg-1', recorded: true } } } },
+        }),
+      },
+      // The very next thing the worker asks for IS an escalation.
+      { dir: 'in', line: JSON.stringify({ id: 'approve-1', method: 'item/commandExecution/requestApproval', params: { command: 'sudo rm -rf /' } }) },
+      { dir: 'out', line: JSON.stringify({ id: 'approve-1', result: {} }) },
+      { dir: 'in', line: JSON.stringify({ method: 'turn/completed', params: { threadId: THREAD, turn: { id: 'turn-bridge', items: [], status: 'completed' } } }) },
+    ]);
+  }
+
+  it('authorizes a bridge tool call, refuses the escalation beside it, and records both with reasons', async () => {
+    const cwd = workspace();
+    const root = path.dirname(cwd);
+    const adapter = replayAdapter(bridgeTurnTranscript(root, 'bridge-attached.jsonl'));
+    const handle = track(adapter, await openReplaySession(adapter, cwd, { extraArgs: coordinationArgs() }));
+    const turn = await adapter.startTurn(handle, { prompt: 'tell task-2 the schema is ready' });
+    await collect(adapter, turn);
+
+    const decisions = adapter.serverRequestDecisions(handle);
+    expect(decisions.map((record) => record.method)).toEqual(['mcpServer/elicitation/request', 'item/commandExecution/requestApproval']);
+
+    const authorized = decisions[0]!;
+    expect(authorized.decision.denied).toBe(false);
+    expect(authorized.decision.result).toEqual({ action: 'accept', content: {} });
+    expect(authorized.decision.reason).toContain('send_message');
+
+    const refused = decisions[1]!;
+    expect(refused.decision.denied).toBe(true);
+    expect(refused.decision.result).toEqual({ decision: 'decline' });
+
+    // The refusals view stays a refusals view: the authorization is not in it.
+    expect(adapter.deniedServerRequests(handle).map((record) => record.method)).toEqual(['item/commandExecution/requestApproval']);
+  });
+
+  it('refuses the identical tool call when the session was given no bridge', async () => {
+    const cwd = workspace();
+    const root = path.dirname(cwd);
+    const adapter = replayAdapter(bridgeTurnTranscript(root, 'bridge-absent.jsonl'));
+    // Same transcript, no coordination arguments: there is nothing this
+    // coordinator provisioned, so there is nothing it may authorize.
+    const handle = track(adapter, await openReplaySession(adapter, cwd));
+    const turn = await adapter.startTurn(handle, { prompt: 'tell task-2 the schema is ready' });
+    await collect(adapter, turn);
+
+    const decisions = adapter.serverRequestDecisions(handle);
+    expect(decisions).toHaveLength(2);
+    expect(decisions.every((record) => record.decision.denied)).toBe(true);
+    expect(decisions[0]!.decision.result).toEqual({ action: 'decline' });
+    expect(decisions[0]!.decision.reason).toMatch(/not a coordination-bridge tool authorization|never approves an escalation/);
   });
 });

@@ -74,10 +74,11 @@ present in the raw capture.
 
 ### Server → client requests, and how they are answered
 
-Every server → client request in `ServerRequest.json` asks the client to authorize something. The
-transport answers all of them from a fixed refusal table and **cannot be configured to approve one**:
-a policy hook may only change the shape of a refusal, and a decision that claims not to be denied is
-discarded in favour of the built-in denial.
+Every server → client request in `ServerRequest.json` asks the client to authorize something. All but
+one are escalations — a request for reach the run was not configured with — and the transport answers
+those from a fixed refusal table. The policy hook **cannot be configured to approve one**: it may only
+change the shape of a refusal, and a decision that claims not to be denied is discarded in favour of
+the built-in denial.
 
 | Request | Answer |
 | --- | --- |
@@ -85,14 +86,51 @@ discarded in favour of the built-in denial.
 | `item/fileChange/requestApproval` | `{ decision: "decline" }` |
 | `execCommandApproval`, `applyPatchApproval` (legacy) | `{ decision: { denied: { rejection: … } } }` |
 | `item/permissions/requestApproval` | `{ permissions: {}, scope: "turn" }` — grants nothing |
-| `mcpServer/elicitation/request` | `{ action: "decline" }` |
+| `mcpServer/elicitation/request` | `{ action: "decline" }`, except a coordination-bridge tool call (below) |
 | `item/tool/requestUserInput` | `{ answers: {} }` — the coordinator is not the user |
 | `item/tool/call` | `{ success: false, contentItems: [ … refusal text … ] }` |
 | `account/chatgptAuthTokens/refresh`, `attestation/generate`, anything unknown | a JSON-RPC error, never data |
 
-With `approvalPolicy: "never"` on both the thread and every turn, no approval request was observed
-during the real runs; the table exists so that a build which asks anyway is refused rather than
-silently widened.
+With `approvalPolicy: "never"` on both the thread and every turn, no *command or patch* approval
+request was observed during the real runs; those rows exist so that a build which asks anyway is
+refused rather than silently widened.
+
+#### The one request that is not an escalation
+
+`approvalPolicy: "never"` does **not** cover MCP tool calls. 0.147.0 gates every one of them behind
+`mcpServer/elicitation/request`, observed as:
+
+```json
+{"method":"mcpServer/elicitation/request","params":{
+  "threadId":"…","turnId":"…","serverName":"workforce","mode":"form",
+  "message":"Allow the workforce MCP server to run tool \"send_message\"?",
+  "requestedSchema":{"type":"object","properties":{}},
+  "_meta":{"codex_approval_kind":"mcp_tool_call","persist":["session","always"],
+           "tool_description":"…","tool_params":{"body":"probe hello"}}}}
+```
+
+Answering `{ action: "decline" }` fails the call with `error.message: "user rejected MCP tool call"`,
+so a blanket refusal makes the coordination bridge (FR033) unusable: the coordinator withdraws the
+channel it configured, and a multi-worker run exchanges nothing.
+
+The transport therefore approves this request with `{ action: "accept", content: {} }` when, and only
+when, **all** of the following hold (`bridgeToolUnderAuthorization` in `src/adapters/codex/rpc.ts`):
+
+1. the session was provisioned with a bridge at all — recognized from this session's own
+   `-c mcp_servers.<name>.args=["<bridge entry>"]` override, where the entry path is the
+   coordinator's own bridge module, not a name anyone else can choose;
+2. `params.serverName` **equals** that registered server name (never a substring or prefix test);
+3. `mode` is `form` and `_meta.codex_approval_kind`, when present, is `mcp_tool_call`;
+4. `requestedSchema` asks for no fields — we answer with empty content, and inventing form input
+   would be answering for the human;
+5. the tool is one the bridge exposes. The elicitation does not name it, so it is taken from the
+   `mcpToolCall` item the server starts immediately before asking (`server` + `tool`), and every MCP
+   call in flight on the thread must be a bridge call for the attribution to be unambiguous.
+
+Anything else — including an elicitation from any other MCP server, a `url`-mode flow, a form asking
+for data, or a tool the bridge does not expose — keeps the ordinary refusal, with the failed clause
+appended to the recorded reason. Every decision, approval and refusal alike, is kept in
+`serverRequestDecisions(handle)` with its reason.
 
 ### Two deviations from textbook JSON-RPC 2.0
 
@@ -182,7 +220,7 @@ Machine-readable copy: `docs/verified-capabilities.json`.
 | `model_selection` | verified | `model/list` reports ids; `-c model=` echoed by `thread/start` and used by the turn |
 | `effort_selection` | verified | `model/list` reports efforts per model; `-c model_reasoning_effort=` echoed by `thread/start` |
 | `usage_reporting` | verified (tokens only) | `thread/tokenUsage/updated` reports input, cached input, output and reasoning tokens. **Currency cost is not reported at all** |
-| `coordination_bridge` | unsupported | arrives with WP06 |
+| `coordination_bridge` | verified | injected as `-c mcp_servers.<name>....`; a real turn called the bridge tool `send_message`, the app server asked through `mcpServer/elicitation/request`, the adapter authorized that one request, the `mcpToolCall` item completed with status `completed`, and the coordinator stored the message |
 
 Models reported by `model/list` on this machine: `gpt-5.6-sol` (default), `gpt-5.6-terra`,
 `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`.
