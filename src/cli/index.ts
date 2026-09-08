@@ -5,7 +5,7 @@
  * WP01 wired argument parsing, configuration validation (exit 2 on invalid
  * input) and state-root resolution. WP02 implements `doctor` (passive runtime
  * discovery), WP04 implements `run` and `status`, and WP09 implements
- * `resume`.
+ * `resume`, which reconciles an interrupted run and then continues it.
  *
  * `run` now chooses its own route: the direct path for one bounded task (the
  * proven R0 path, unchanged), the planned path when the request enumerates
@@ -18,7 +18,7 @@ import { parseArgs } from 'node:util';
 import { ContractValidationError } from '../core/contracts.js';
 import { loadAgentConfigFile, type LoadedAgentConfig } from '../core/config.js';
 import { commandDoctor as runDoctor } from './commands/doctor.js';
-import { commandRun } from './commands/run.js';
+import { commandRun, createRunStream } from './commands/run.js';
 import { commandStatus } from './commands/status.js';
 import { commandResume as runResume } from './commands/resume.js';
 import { CliError, EXIT_CODES, Reporter, type CommandResult, type ExitCode, type Streams } from './output.js';
@@ -66,8 +66,9 @@ Options:
   --workspace-root <dir>
                        candidate workspace root (default: <state-root>/workspaces)
   --json               machine-readable stdout; diagnostics go to stderr.
-                       "run --json" emits JSONL: one event object per line, then
-                       the final result object.
+                       "run --json", and "resume --json" once it continues a
+                       run, emit JSONL: one event object per line, then the
+                       final result object.
   -h, --help           show this help
 
 Exit codes: 0 verified candidate · 2 invalid input/config · 3 user action required · 4 execution/validation failure · 130 interrupted`;
@@ -179,14 +180,18 @@ function commandDoctor(args: ParsedArgs): Promise<CommandResult> {
 
 /**
  * WP09 recovery: reconcile what the run actually left behind, plan what may be
- * reconnected, replaced, preserved or isolated, and hold the coordinator lock
- * while doing it.
+ * reconnected, replaced, preserved or isolated, hold the coordinator lock
+ * while doing it — and then continue the run.
  *
- * The plan is reported, not executed: no continuation is injected here, so
- * `resume` never claims to have re-dispatched work it did not. Validating the
- * configuration first keeps an invalid `--agents` an exit-2 invocation.
+ * The plan is executed, not just reported: an unblocked plan creates the
+ * attempt generation it decided on, dispatches the work that remains and
+ * drives the run to a terminal state, leaving every already-accepted task
+ * untouched. A blocked plan continues nothing and says what a person has to
+ * decide. Validating the configuration first keeps an invalid `--agents` an
+ * exit-2 invocation; the run's own recorded configuration is what a continued
+ * attempt is bound to, and `--agents` is the fallback when the run has none.
  */
-function commandResume(args: ParsedArgs, signal?: AbortSignal): Promise<CommandResult> {
+function commandResume(args: ParsedArgs, deps: { reporter: Reporter; streams: Streams; signal?: AbortSignal }): Promise<CommandResult> {
   requireRunId(args, 'resume');
   if (args.agents !== undefined) loadConfigOrFail(args.agents);
   return runResume(
@@ -196,7 +201,12 @@ function commandResume(args: ParsedArgs, signal?: AbortSignal): Promise<CommandR
       ...(args.stateDir !== undefined ? { stateDir: args.stateDir } : {}),
       ...(args.agents !== undefined ? { agents: args.agents } : {}),
     },
-    signal !== undefined ? { signal } : {},
+    {
+      // A continued attempt is a run in progress; it reports itself the same
+      // way `run` does rather than going quiet until it is over.
+      continuation: { stream: createRunStream(deps.reporter, deps.streams) },
+      ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+    },
   );
 }
 
@@ -222,7 +232,7 @@ export async function runCli(argv: ReadonlyArray<string>, streams: Streams = pro
       case 'status':
         return reporter.result(commandStatus(args));
       case 'resume':
-        return reporter.result(await commandResume(args, signal));
+        return reporter.result(await commandResume(args, { reporter, streams, ...(signal !== undefined ? { signal } : {}) }));
       default:
         throw new CliError(EXIT_CODES.invalidInput, 'unknown_command', `unknown command "${args.command}"`, ['commands: doctor, run, status, resume']);
     }
