@@ -83,9 +83,17 @@ import type { CheckSpec, FixtureMutation } from './checks.js';
  * criterion means.
  */
 const FIXTURE_PATH_PATTERNS: ReadonlyArray<RegExp> = [
-  /(^|\/)(tests?|spec|specs|__tests__)\//,
+  /(^|\/)(tests?|Tests?|spec|specs|__tests__|testdata)\//,
   /\.(test|spec)\.[cm]?[jt]sx?$/,
   /(^|\/)(test_[^/]*\.py|[^/]*_test\.py|conftest\.py)$/,
+  // The same convention in the languages the module walk cannot read. Where
+  // no import graph can be followed, a file whose NAME says "test" is the only
+  // evidence there is, and it is strong evidence: `_test.go` and `_spec.rb`
+  // are as load-bearing in their ecosystems as `.test.js` is here.
+  /(^|\/)[^/]*_test\.(go|rb|exs?|cc|cpp|cxx|c|swift|rs|java|kt)$/,
+  /(^|\/)[^/]*_spec\.(rb|exs?)$/,
+  /(^|\/)[^/]*Tests?\.(swift|java|kt|cs)$/,
+  /(^|\/)[^/]*Test\.php$/,
 ];
 
 /**
@@ -403,6 +411,20 @@ interface CriterionEntries {
   /** Paths that belong to the surface without being a module entry (`package.json`, the check's cwd). */
   readonly implicit: ReadonlyArray<string>;
   /**
+   * The subset of `explicit` the candidate must not rewrite.
+   *
+   * A named path is an entry point of the walk and, usually, a protected path
+   * too. A named DIRECTORY is where the two roles come apart: `node --test
+   * test/` names a directory that is entirely acceptance material, while
+   * `go test ./internal/billing` names one holding the suite AND the code
+   * under test in the same folder. Protecting the second wholesale forbids
+   * exactly the file the task exists to change, which turns a conservative
+   * surface back into a wall. So a directory that does not itself read as a
+   * fixture path is protected through the test-named files inside it, and only
+   * falls back to the whole directory when it holds none.
+   */
+  readonly protectedPaths: ReadonlyArray<string>;
+  /**
    * True when the check's own `fixtures` list named at least one path that
    * exists at the base revision. The operator has then declared what this
    * criterion executes, which is what upgrades a conservative surface to an
@@ -417,6 +439,7 @@ function entriesForCheck(check: CheckSpec, baseFiles: ReadonlyArray<string>, scr
   const explicit = new Set<string>();
   const implicit = new Set<string>();
   const missingFixtures: string[] = [];
+  const declaredFixturePaths = new Set<string>();
   let fixturesDeclared = false;
 
   // Paths the operator declared in `.workforce/checks.json`. They are entry
@@ -429,6 +452,7 @@ function entriesForCheck(check: CheckSpec, baseFiles: ReadonlyArray<string>, scr
       continue;
     }
     explicit.add(relative);
+    declaredFixturePaths.add(relative);
     fixturesDeclared = true;
   }
 
@@ -459,7 +483,50 @@ function entriesForCheck(check: CheckSpec, baseFiles: ReadonlyArray<string>, scr
     }
   }
 
-  return { criterionId: check.criterionId, explicit: [...explicit], implicit: [...implicit], fixturesDeclared, missingFixtures };
+  return {
+    criterionId: check.criterionId,
+    explicit: [...explicit],
+    implicit: [...implicit],
+    protectedPaths: protectedPathsOf([...explicit], baseFiles, declaredFixturePaths),
+    fixturesDeclared,
+    missingFixtures,
+  };
+}
+
+/**
+ * Which of a criterion's named paths the candidate must not rewrite.
+ *
+ * A named file is always protected. A named directory is protected wholesale
+ * when its own path reads as a fixture path (`test/`, `spec/`, `testdata/`),
+ * and otherwise only through the files inside it whose names say "test" —
+ * because a Go, Ruby or Swift package directory holds the suite and the code
+ * under test side by side, and forbidding both leaves no correct candidate.
+ * A directory that holds no test-named file at all falls back to the whole
+ * directory: there is nothing finer to go on, and saying nothing would protect
+ * nothing.
+ *
+ * A path the operator declared under `fixtures` is exempt: they said what this
+ * criterion executes, and the surface does not second-guess them.
+ */
+function protectedPathsOf(explicit: ReadonlyArray<string>, baseFiles: ReadonlyArray<string>, declaredFixturePaths: ReadonlySet<string>): string[] {
+  const baseFileSet = new Set(baseFiles);
+  const paths = new Set<string>();
+  for (const entry of explicit) {
+    if (baseFileSet.has(entry) || declaredFixturePaths.has(entry)) {
+      paths.add(entry);
+      continue;
+    }
+    if (FIXTURE_PATH_PATTERNS.some((pattern) => pattern.test(`${entry}/`))) {
+      paths.add(entry);
+      continue;
+    }
+    const named = baseFiles.filter(
+      (file) => file.startsWith(`${entry}/`) && (FIXTURE_PATH_PATTERNS.some((pattern) => pattern.test(file)) || TEST_SUPPORT_PATTERNS.some((pattern) => pattern.test(file))),
+    );
+    if (named.length === 0) paths.add(entry);
+    else for (const file of named) paths.add(file);
+  }
+  return [...paths];
 }
 
 /** Files that match a conventional fixture path — the shared `*` entry points. */
@@ -1321,7 +1388,7 @@ function assemble(
 
   if (shared.length > 0 || (reachedByCriterion.get('*')?.dependencies.length ?? 0) > 0) put('*', shared);
   for (const entry of entries) {
-    const direct = [...entry.explicit, ...entry.implicit];
+    const direct = [...entry.protectedPaths, ...entry.implicit];
     if (direct.length === 0 && (reachedByCriterion.get(entry.criterionId)?.dependencies.length ?? 0) === 0) continue;
     put(entry.criterionId, direct);
   }

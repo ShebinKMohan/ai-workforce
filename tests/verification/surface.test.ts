@@ -4,9 +4,24 @@
  * path. Rewriting that suite has to count as a fixture mutation, or a worker
  * can manufacture a pass by replacing the thing that judges it.
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { acceptanceSurface, findSurfaceChanges, resolveAcceptanceSurface, surfaceBlockers, surfaceDependencyPaths, surfacePaths } from '../../src/verification/surface.js';
 import type { CheckSpec } from '../../src/verification/checks.js';
+
+describe('the surface module is reviewable text', () => {
+  it('contains no control bytes, so git, grep and file can all read it', () => {
+    // Two literal NUL bytes used as map-key separators made this module binary
+    // to every tool anyone would review it with. A separator has to be spelled
+    // as an escape, not embedded.
+    const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../src/verification/surface.ts'), 'utf8');
+    // eslint-disable-next-line no-control-regex
+    const offending = [...source].filter((ch) => ch !== '\n' && ch !== '\t' && ch.charCodeAt(0) < 0x20);
+    expect(offending).toEqual([]);
+  });
+});
 
 const PACKAGE_CHECK: CheckSpec = { criterionId: 'package-test-script', command: 'npm', args: ['test', '--silent'], required: true };
 
@@ -526,12 +541,20 @@ describe('a repository in a language the walk cannot read', () => {
     expect(surface.resolution.limitations[0]!.detail).toContain('contain no JavaScript, TypeScript or Python module');
     expect(surface.resolution.limitations[0]!.detail).toContain('closure was NOT proven');
     expect(surface.resolution.limitations[0]!.detail).toContain('"fixtures"');
-    // What can be identified without parsing is still protected: the path the
-    // check names, so rewriting the Go suite under it is still a mutation.
-    expect(surfacePaths(surface)).toEqual(['internal/billing']);
+    // What can be identified without parsing is still protected: Go's own
+    // `_test.go` convention is as load-bearing as `.test.js` is here, so
+    // rewriting the suite is still a mutation...
+    expect(surfacePaths(surface)).toEqual(['internal/billing/total_test.go']);
     expect(findSurfaceChanges(surface, [{ status: 'M', path: 'internal/billing/total_test.go' }]).mutations).toEqual([
+      // Shared, because `_test.go` is a fixture path whatever the check is, and
+      // named for this criterion, because its check runs that package.
+      { criterionId: '*', changedPaths: ['M internal/billing/total_test.go'] },
       { criterionId: 'go-tests', changedPaths: ['M internal/billing/total_test.go'] },
     ]);
+    // ... and the code under test, which shares the package directory the
+    // check names, stays writable. Protecting that directory wholesale would
+    // forbid the one file the task exists to change.
+    expect(findSurfaceChanges(surface, [{ status: 'M', path: 'internal/billing/total.go' }]).mutations).toEqual([]);
   });
 
   it('is upgraded to an established surface when the operator names the fixtures', async () => {
@@ -549,7 +572,8 @@ describe('a repository in a language the walk cannot read', () => {
     expect(surface.resolution.conservative).toBe(false);
     expect(surface.resolution.gaps).toEqual([]);
     expect(surfaceBlockers(surface)).toEqual([]);
-    expect(surfacePaths(surface)).toEqual(['internal/billing', 'internal/billing/total_test.go']);
+    expect(surfacePaths(surface)).toEqual(['internal/billing/total_test.go']);
+    expect(findSurfaceChanges(surface, [{ status: 'M', path: 'internal/billing/total.go' }]).mutations).toEqual([]);
   });
 
   it('refuses a declared fixture the base revision does not contain, rather than reading a typo as a declaration', async () => {
@@ -569,8 +593,14 @@ describe('a repository in a language the walk cannot read', () => {
   });
 
   it('names a criterion whose command matches nothing at all, rather than reporting an empty surface as a clean one', async () => {
-    const files = tree(GO_FILES);
-    const check: CheckSpec = { criterionId: 'go-tests', command: 'go', args: ['test', './...'], required: true };
+    // Rust keeps its unit tests inside the module they test, so there is no
+    // test-named file and no conventional directory: nothing at all can be
+    // identified without parsing, and the run must say exactly that.
+    const files = tree({
+      'Cargo.toml': '[package]\nname = "billing"\n',
+      'src/lib.rs': 'pub fn total(amounts: &[i64]) -> i64 {\n    0\n}\n\n#[cfg(test)]\nmod tests {}\n',
+    });
+    const check: CheckSpec = { criterionId: 'cargo-tests', command: 'cargo', args: ['test'], required: true };
     const surface = await resolveAcceptanceSurface([check], files.baseFiles, { readBaseFile: files.readBaseFile });
 
     expect(surfaceBlockers(surface)).toEqual([]);
