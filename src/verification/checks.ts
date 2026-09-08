@@ -9,7 +9,9 @@
  *
  * For each check:
  *   1. A disposable copy of the frozen candidate revision is materialized
- *      under `outputRoot`. `git archive` extraction is preferred because the
+ *      inside a verification root that is *disjoint from the coordinator's
+ *      state root* — never under `outputRoot`, which lives inside it.
+ *      `git archive` extraction is preferred because the
  *      result has no Git administration at all, so a test cannot reach the
  *      shared object database or the preserved candidate; `git worktree
  *      --detach` is the fallback when archive/tar is unavailable, and the
@@ -28,7 +30,12 @@
  *   4. Tracked files are hashed again. Any change to a tracked file is an
  *      integrity failure: build output belongs in the disposable copy's
  *      scratch paths, never in the candidate's tracked source.
- *   5. The command's own output is summarized for recognized runners, so a
+ *   5. The coordinator's state root is fingerprinted on both sides of the same
+ *      window (`src/verification/containment.ts`). A check that reached it —
+ *      which no choice of working directory can prevent without an OS sandbox,
+ *      because an absolute path needs no traversal — is an integrity failure
+ *      rather than a silent pass.
+ *   6. The command's own output is summarized for recognized runners, so a
  *      suite that exits 0 having executed zero tests is recorded as
  *      `no_tests_executed` rather than read as a pass.
  *
@@ -38,12 +45,18 @@
  * profile in plan section 8 asks for more than R0 delivers: repository test
  * code runs with the coordinator's own user privileges. Only the environment
  * is sanitized — no coordinator credentials are inherited and no variable
- * whose name matches the redaction rule is passed — and the candidate itself
- * is a throwaway copy. There is no OS-level containment, so a repository test
- * can still read and write anything this user can, including the coordinator
- * state root. That boundary is FR042 (an R1 gate) and no R0 run claims it;
- * `decideAcceptance` therefore treats a candidate that rewrote the files a
- * criterion executes as compromised evidence rather than as a pass.
+ * whose name matches the redaction rule is passed — the candidate itself is a
+ * throwaway copy, and that copy, the check's HOME and its TMPDIR all sit
+ * outside the coordinator's state root, so no relative path from the check's
+ * working directory reaches coordinator state. There is still no OS-level
+ * containment: a repository test can name an absolute path and write anything
+ * this user can. That boundary is FR042 (an R1 gate) and no R0 run claims it.
+ * What this module does instead is refuse to run a check whose working
+ * directory is inside the state root, and fingerprint the state root on both
+ * sides of the check window so a write that reached it anyway is recorded as
+ * an integrity failure. `decideAcceptance` therefore treats a candidate that
+ * rewrote the files a criterion executes as compromised evidence rather than
+ * as a pass.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync } from 'node:fs';
@@ -57,6 +70,15 @@ import { isWithin, type StatePaths } from '../storage/paths.js';
 import { isSensitiveKey } from '../telemetry/redaction.js';
 import { git, gitOrThrow } from '../workspaces/git.js';
 import { runCommand } from '../workspaces/exec.js';
+import {
+  compareStateRootFingerprints,
+  createVerificationRoot,
+  findEnclosingStateRoot,
+  fingerprintStateRoot,
+  isDisjoint,
+  type StateRootGuardReport,
+  type VerificationRoot,
+} from './containment.js';
 
 export const DEFAULT_CHECK_TIMEOUT_MS = 10 * 60 * 1000;
 export const EVIDENCE_PROVENANCE = 'verifier_executed' as const;
@@ -173,6 +195,28 @@ export interface IntegrityReport {
   readonly scope: 'complete' | 'bounded';
 }
 
+/**
+ * Where the check's process was placed, recorded so the boundary is auditable
+ * from the receipt alone rather than taken on trust.
+ */
+export interface ContainmentReport {
+  /** Absolute path of the disposable copy the command ran against. */
+  readonly copyRoot: string;
+  /** The HOME and TMPDIR the command saw. Both are inside the verification root and deleted afterwards. */
+  readonly home: string;
+  readonly tmp: string;
+  /** Absolute path of the check's working directory. */
+  readonly cwd: string;
+  /** The coordinator state root that was kept out of the check's ancestry, or null when none encloses the output location. */
+  readonly stateRoot: string | null;
+  /** True only when the state root is not an ancestor of the cwd, HOME or TMPDIR. A false here means no check ran. */
+  readonly outsideStateRoot: boolean;
+  /** Where the verification root came from: an explicit request, the environment, or the OS temp directory. */
+  readonly verificationRootOrigin: VerificationRoot['origin'];
+  /** Where the receipts, logs and hashes were written — inside the run directory, by design. */
+  readonly evidenceRoot: string;
+}
+
 export interface CheckReceipt {
   readonly id: string;
   readonly criterionId: string;
@@ -196,6 +240,14 @@ export interface CheckReceipt {
   readonly integrity: IntegrityReport;
   /** What the command's own output says it executed; `runner: null` when unrecognized. */
   readonly outputSummary: CheckOutputSummary;
+  /**
+   * Where the check actually ran, and which coordinator directories that
+   * location was kept out of. Optional only so that a receipt built by hand in
+   * a decision test stays valid; every receipt this module produces has it.
+   */
+  readonly containment?: ContainmentReport;
+  /** What the coordinator's state root looked like on both sides of the check window. */
+  readonly stateRootGuard?: StateRootGuardReport;
   readonly stdoutPath: string;
   readonly stderrPath: string;
   readonly stdoutBytes: number;
@@ -211,12 +263,29 @@ export interface CheckReceipt {
 export interface RunChecksInput {
   readonly candidate: CandidateRef;
   readonly checks: ReadonlyArray<CheckSpec>;
-  /** Coordinator-owned directory for disposable copies and logs. */
+  /**
+   * Coordinator-owned directory for the *evidence*: receipts, stdout/stderr
+   * logs and hashes. It normally lives inside the run directory, and therefore
+   * inside the state root — which is exactly why no check ever runs in it.
+   */
   readonly outputRoot: string;
+  /**
+   * The coordinator state root to keep the check out of and to fingerprint.
+   * Defaults to the state root that encloses `outputRoot`, so the ordinary
+   * caller needs to pass nothing; pass `null` only when there is genuinely no
+   * state root to protect.
+   */
+  readonly stateRoot?: string | null;
+  /**
+   * Parent directory for the disposable copies, HOME and TMPDIR. Must be
+   * disjoint from the state root. Defaults to `WORKFORCE_VERIFICATION_DIR`, or
+   * the OS temp directory.
+   */
+  readonly verificationRoot?: string;
   readonly defaultTimeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly onReceipt?: (receipt: CheckReceipt) => void;
-  /** Keep the disposable copies (debugging). They are deleted by default. */
+  /** Keep the disposable copies (debugging). They are deleted by default; each receipt records where they were. */
   readonly keepCopies?: boolean;
 }
 
@@ -625,36 +694,82 @@ export async function runChecks(input: RunChecksInput): Promise<CheckReceipt[]> 
     seen.add(check.criterionId);
   }
 
+  // The evidence stays under the run directory; the *execution* moves out of
+  // the state root entirely, so a relative path from a check's cwd cannot
+  // reach state.sqlite, the coordinator lock or another run's artifacts.
+  const stateRoot = input.stateRoot === undefined ? findEnclosingStateRoot(outputRoot) : input.stateRoot === null ? null : path.resolve(input.stateRoot);
+  const verificationRoot = createVerificationRoot({
+    ...(input.verificationRoot !== undefined ? { requested: input.verificationRoot } : {}),
+    protect: stateRoot === null ? [] : [stateRoot],
+  });
+
   const receipts: CheckReceipt[] = [];
-  let index = 0;
-  for (const check of input.checks) {
-    index += 1;
-    const receipt = await runOneCheck(check, input, outputRoot, index);
-    receipts.push(receipt);
-    input.onReceipt?.(receipt);
+  try {
+    let index = 0;
+    for (const check of input.checks) {
+      index += 1;
+      const receipt = await runOneCheck(check, input, { outputRoot, stateRoot, verificationRoot }, index);
+      receipts.push(receipt);
+      input.onReceipt?.(receipt);
+    }
+  } finally {
+    if (input.keepCopies !== true) verificationRoot.dispose();
   }
   return receipts;
 }
 
-async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: string, index: number): Promise<CheckReceipt> {
+interface CheckPlacement {
+  readonly outputRoot: string;
+  readonly stateRoot: string | null;
+  readonly verificationRoot: VerificationRoot;
+}
+
+async function runOneCheck(check: CheckSpec, input: RunChecksInput, placement: CheckPlacement, index: number): Promise<CheckReceipt> {
+  const outputRoot = placement.outputRoot;
   const id = newId();
   const required = check.required ?? true;
   const args = [...(check.args ?? [])];
   const timeoutMs = check.timeoutMs ?? input.defaultTimeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS;
   const slug = `${String(index).padStart(2, '0')}-${safeSegment(check.criterionId)}`;
-  const workDir = path.join(outputRoot, slug, 'candidate');
+  // Execution lives in the verification root; evidence lives in the run directory.
+  const scratch = path.join(placement.verificationRoot.path, slug);
+  mkdirSync(scratch, { recursive: true, mode: 0o700 });
+  const workDir = path.join(scratch, 'candidate');
   const logDir = path.join(outputRoot, slug, 'logs');
   mkdirSync(logDir, { recursive: true, mode: 0o700 });
   const stdoutPath = path.join(logDir, 'stdout.log');
   const stderrPath = path.join(logDir, 'stderr.log');
 
-  const diagnostics: string[] = [];
-  const home = mkdtempSync(path.join(outputRoot, `${slug}-home-`));
-  const tmp = mkdtempSync(path.join(outputRoot, `${slug}-tmp-`));
+  const diagnostics: string[] = [...placement.verificationRoot.diagnostics];
+  if (input.keepCopies === true) diagnostics.push(`the disposable copy, HOME and TMPDIR are kept under ${scratch}, outside the coordinator state root`);
+  const home = mkdtempSync(path.join(scratch, 'home-'));
+  const tmp = mkdtempSync(path.join(scratch, 'tmp-'));
   const { env, dropped } = buildCheckEnv(home, tmp, check.env);
   if (dropped.length > 0) diagnostics.push(`dropped ${dropped.length} environment variable(s) whose names match the redaction rule: ${dropped.sort().join(', ')}`);
   const identity = environmentIdentity(env);
   const candidate = { repoRoot: input.candidate.repoRoot, revision: input.candidate.revision, patchHash: input.candidate.patchHash ?? null };
+
+  const stateRoot = placement.stateRoot;
+  const containmentAt = (cwd: string): ContainmentReport => ({
+    copyRoot: workDir,
+    home,
+    tmp,
+    cwd,
+    stateRoot,
+    outsideStateRoot: stateRoot === null || [cwd, home, tmp].every((location) => isDisjoint(stateRoot, location)),
+    verificationRootOrigin: placement.verificationRoot.origin,
+    evidenceRoot: logDir,
+  });
+  const unmeasuredGuard = (reason: string): StateRootGuardReport => ({
+    stateRoot,
+    checked: false,
+    violations: [],
+    observations: [],
+    before: '',
+    after: '',
+    scope: 'unavailable',
+    note: reason,
+  });
 
   const failReceipt = (outcome: CheckOutcome, startedAt: string, message: string, strategy: CopyStrategy): CheckReceipt => ({
     id,
@@ -677,6 +792,8 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
     copyStrategy: strategy,
     integrity: { before: '', after: '', mutated: false, mutatedFiles: [], addedFiles: [], fileCount: 0, scope: 'bounded' },
     outputSummary: { runner: null, testsRun: null, note: 'the command never ran, so it reported nothing' },
+    containment: containmentAt(path.resolve(workDir, check.cwd ?? '.')),
+    stateRootGuard: unmeasuredGuard('the command never ran, so there was no check window to compare the coordinator state root across'),
     stdoutPath,
     stderrPath,
     stdoutBytes: 0,
@@ -715,8 +832,23 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
     if (!existsSync(cwd)) {
       return failReceipt('error', startedAt, `check cwd "${check.cwd ?? '.'}" does not exist in candidate ${input.candidate.revision}`, copy.strategy);
     }
+    // The boundary this module can actually enforce: untrusted repository code
+    // never runs with the coordinator's state root as an ancestor of its
+    // working directory, its HOME or its TMPDIR. If that cannot be arranged,
+    // no check runs.
+    const containment = containmentAt(cwd);
+    if (!containment.outsideStateRoot) {
+      return failReceipt(
+        'error',
+        startedAt,
+        `refusing to run this check: its working directory, HOME or TMPDIR is inside the coordinator state root ${String(stateRoot)} ` +
+          `(cwd ${cwd}, HOME ${home}, TMPDIR ${tmp}), where a relative path from the check would reach state.sqlite, the coordinator lock and every run's artifacts`,
+        copy.strategy,
+      );
+    }
 
     const before = scanTrackedFiles(copy.root);
+    const guardBefore = fingerprintStateRoot(stateRoot);
     const run = await runCommand({
       command: check.command,
       args,
@@ -727,8 +859,12 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
       stderrFile: stderrPath,
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
     });
+    const guard = compareStateRootFingerprints(guardBefore, fingerprintStateRoot(stateRoot));
     const after = scanTrackedFiles(copy.root);
     const integrity = compareScans(before, after);
+    if (guard.checked && guard.observations.length > 0) {
+      diagnostics.push(`the coordinator wrote to its own state while the check ran, which is expected and is not attributed to the check: ${guard.observations.slice(0, 3).join(', ')}`);
+    }
     if (integrity.addedFiles.length > 0) {
       diagnostics.push(`the check created ${integrity.addedFiles.length} file(s) in the disposable copy (for example ${integrity.addedFiles.slice(0, 3).join(', ')}); they were discarded with the copy`);
     }
@@ -739,6 +875,15 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
     if (run.spawnError !== null) {
       outcome = 'error';
       diagnostics.push(`the check command could not be started: ${run.spawnError}`);
+    } else if (guard.violations.length > 0) {
+      // Nothing about the working directory can stop an absolute path, so this
+      // is detection rather than prevention — and it is recorded as what it
+      // is: evidence produced by a check that reached coordinator state.
+      outcome = 'integrity_failed';
+      diagnostics.push(
+        `the coordinator state root ${String(guard.stateRoot)} changed while this check ran (${guard.violations.slice(0, 5).join(', ')}); ` +
+          'a check runs outside the state root, so nothing it does through a relative path can reach it — this result therefore cannot be trusted as evidence',
+      );
     } else if (run.timedOut) {
       outcome = 'timeout';
       diagnostics.push(`the check exceeded its ${timeoutMs}ms deadline; the process group was terminated with ${run.signalsSent.join(' then ') || 'no signal'}`);
@@ -779,6 +924,8 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
       copyStrategy: copy.strategy,
       integrity,
       outputSummary,
+      containment,
+      stateRootGuard: guard,
       stdoutPath,
       stderrPath,
       stdoutBytes: run.stdoutBytes,
@@ -790,9 +937,9 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, outputRoot: 
       diagnostics,
     };
   } finally {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(tmp, { recursive: true, force: true });
     if (input.keepCopies !== true) {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true });
       try {
         await copy.dispose();
       } catch {
@@ -946,8 +1093,13 @@ function describeOutcome(receipt: CheckReceipt): string {
       return `failed with exit ${String(receipt.exitCode)}`;
     case 'timeout':
       return `exceeded its ${receipt.timeoutMs}ms deadline and was terminated`;
-    case 'integrity_failed':
+    case 'integrity_failed': {
+      const escaped = receipt.stateRootGuard?.violations ?? [];
+      if (escaped.length > 0) {
+        return `changed the coordinator's own state root while it ran (${escaped.slice(0, 5).join(', ')}), so its result is not evidence about the candidate`;
+      }
       return `changed files of the frozen candidate it was validating (${receipt.integrity.mutatedFiles.slice(0, 5).join(', ')})`;
+    }
     case 'no_tests_executed':
       return `exited 0 without executing any test (${receipt.outputSummary.note})`;
     case 'error':

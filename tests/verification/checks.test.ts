@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -16,9 +16,10 @@ import {
   type CheckReceipt,
 } from '../../src/verification/checks.js';
 import { insertRun } from '../../src/storage/records.js';
+import { ensureRunDir, isWithin } from '../../src/storage/paths.js';
 import { getArtifact, verifyArtifact } from '../../src/storage/artifacts.js';
 import { createCandidateWorkspace, snapshotCandidate } from '../../src/workspaces/candidate.js';
-import { openTempState, sampleRequest, TEST_LIMITS } from '../helpers/state.js';
+import { openTempState, sampleRequest, TEST_LIMITS, type TempState } from '../helpers/state.js';
 import { cleanupAll, fingerprintCheckout, fixedPaginationSource, registerCleanup, tempDir, useFixture } from '../workspaces/support.js';
 
 afterEach(() => cleanupAll());
@@ -488,5 +489,223 @@ describe('persistCheckReceipts stores evidence durably', () => {
     expect(rows[0]!.candidate_revision).toBe(candidate.ref.revision);
     expect(rows[0]!.candidate_hash).toBe(candidate.ref.patchHash);
     expect(JSON.parse(rows[0]!.criterion_ids_json)).toEqual(['node-tests']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Where a check is allowed to run (plan section 9)
+// ---------------------------------------------------------------------------
+
+interface HostedCandidate extends Candidate {
+  readonly state: TempState;
+  readonly runId: string;
+  readonly runDir: string;
+  /** Parent of the disposable copies; a registered temp dir so traversal writes are cleaned up. */
+  readonly verificationRoot: string;
+}
+
+/**
+ * A candidate whose check output lands where a real run puts it:
+ * `<state-root>/runs/<run-id>/verification`, inside the coordinator's own
+ * state directory.
+ */
+async function candidateInsideStateRoot(options: { fix: boolean }): Promise<HostedCandidate> {
+  const candidate = await frozenCandidate(options);
+  const state = openTempState();
+  registerCleanup(() => state.cleanup());
+  const run = insertRun(state.store.db, { request: sampleRequest(), policy: 'verification', limits: TEST_LIMITS });
+  ensureRunDir(state.paths, run.id);
+  const runDir = state.paths.runDir(run.id);
+  return {
+    ...candidate,
+    outputRoot: path.join(runDir, 'verification'),
+    state,
+    runId: run.id,
+    runDir,
+    verificationRoot: tempDir('workforce-vroot-'),
+  };
+}
+
+/** Every path under `root` whose basename is `name`. */
+function findByName(root: string, name: string): string[] {
+  const found: string[] = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (entry.name === name) found.push(full);
+    }
+  }
+  return found;
+}
+
+const TRAVERSAL_SCRIPT = [
+  "const fs = require('node:fs');",
+  "const notes = [];",
+  "for (const relative of ['../PWNED.txt', '../../PWNED.txt', '../../../PWNED.txt', '../../../../PWNED.txt']) {",
+  "  try { fs.writeFileSync(relative, 'owned by the check'); notes.push('wrote ' + relative); }",
+  "  catch (error) { notes.push('failed ' + relative + ': ' + error.code); }",
+  "}",
+  "process.stdout.write(notes.join('\\n'));",
+].join('\n');
+
+describe('a check never runs inside the coordinator state root (plan section 9)', () => {
+  it('cannot reach coordinator state by walking up from its working directory', async () => {
+    const candidate = await candidateInsideStateRoot({ fix: true });
+
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'traverses-upwards', command: 'node', args: ['-e', TRAVERSAL_SCRIPT], timeoutMs: 30_000 }],
+      outputRoot: candidate.outputRoot,
+      verificationRoot: candidate.verificationRoot,
+    });
+
+    const receipt = receipts[0]!;
+    const containment = receipt.containment!;
+
+    // The check ran outside the state root, so the run directory was never an ancestor of its cwd.
+    expect(containment.outsideStateRoot).toBe(true);
+    expect(containment.stateRoot).toBe(candidate.state.root);
+    expect(isWithin(candidate.state.root, containment.cwd)).toBe(false);
+    expect(isWithin(candidate.state.root, containment.copyRoot)).toBe(false);
+    expect(isWithin(candidate.state.root, containment.home)).toBe(false);
+    expect(isWithin(candidate.state.root, containment.tmp)).toBe(false);
+    expect(isWithin(candidate.verificationRoot, containment.copyRoot)).toBe(true);
+
+    // The escape attempt was real: some of those writes did land somewhere.
+    const targets = ['..', '../..', '../../..', '../../../..'].map((up) => path.resolve(containment.copyRoot, up, 'PWNED.txt'));
+    for (const target of targets) registerCleanup(() => rmSync(target, { force: true }));
+    expect(targets.some((target) => existsSync(target))).toBe(true);
+    for (const target of targets) expect(isWithin(candidate.state.root, target)).toBe(false);
+
+    // And none of it reached the coordinator's state.
+    expect(findByName(candidate.state.root, 'PWNED.txt')).toEqual([]);
+    expect(existsSync(path.join(candidate.runDir, 'PWNED.txt'))).toBe(false);
+    expect(existsSync(path.join(candidate.outputRoot, 'PWNED.txt'))).toBe(false);
+    expect(receipt.stateRootGuard!.checked).toBe(true);
+    expect(receipt.stateRootGuard!.violations).toEqual([]);
+    expect(receipt.stateRootGuard!.before).toBe(receipt.stateRootGuard!.after);
+
+    // What it did do is on the record, in the log kept under the run directory.
+    expect(readFileSync(receipt.stdoutPath, 'utf8')).toContain('PWNED.txt');
+    expect(isWithin(candidate.runDir, receipt.stdoutPath)).toBe(true);
+  });
+
+  it('records a write that reached the state root by absolute path as an integrity failure', async () => {
+    const candidate = await candidateInsideStateRoot({ fix: true });
+    const target = path.join(candidate.state.root, 'PWNED.txt');
+
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [
+        {
+          criterionId: 'node-tests',
+          command: 'node',
+          args: ['-e', "require('node:fs').writeFileSync(process.env.PWN_TARGET, 'owned'); process.exit(0);"],
+          env: { PWN_TARGET: target },
+          timeoutMs: 30_000,
+        },
+      ],
+      outputRoot: candidate.outputRoot,
+      verificationRoot: candidate.verificationRoot,
+    });
+
+    const receipt = receipts[0]!;
+    // Nothing about the working directory can stop an absolute path, so this
+    // is detection: the check exited 0 and is still not a pass.
+    expect(receipt.exitCode).toBe(0);
+    expect(receipt.outcome).toBe('integrity_failed');
+    expect(receipt.integrity.mutated).toBe(false); // the candidate copy itself is intact
+    expect(receipt.stateRootGuard!.checked).toBe(true);
+    expect(receipt.stateRootGuard!.violations).toContain('PWNED.txt (created)');
+    expect(receipt.stateRootGuard!.before).not.toBe(receipt.stateRootGuard!.after);
+    expect(receipt.diagnostics.join(' ')).toContain('coordinator state root');
+
+    const decision = decideAcceptance([{ id: 'node-tests', description: 'the suite passes' }], receipts);
+    expect(decision.accepted).toBe(false);
+    expect(decision.criteria[0]!.status).toBe('failed');
+    expect(decision.reasons.join(' ')).toContain("changed the coordinator's own state root");
+  });
+
+  it('keeps the receipts, logs and hashes under the run directory and the execution outside it', async () => {
+    const candidate = await candidateInsideStateRoot({ fix: true });
+
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], timeoutMs: 60_000 }],
+      outputRoot: candidate.outputRoot,
+      verificationRoot: candidate.verificationRoot,
+    });
+
+    const receipt = receipts[0]!;
+    // Unchanged behaviour: a fixed candidate still passes, with the same evidence.
+    expect(receipt.outcome).toBe('passed');
+    expect(receipt.exitCode).toBe(0);
+    expect(receipt.evidenceProvenance).toBe('verifier_executed');
+    expect(receipt.integrity.mutated).toBe(false);
+    expect(receipt.integrity.before).toBe(receipt.integrity.after);
+    expect(receipt.integrity.fileCount).toBeGreaterThan(0);
+    expect(receipt.outputSummary.testsRun).toBeGreaterThan(0);
+
+    // Evidence under the run directory...
+    expect(isWithin(candidate.runDir, receipt.stdoutPath)).toBe(true);
+    expect(isWithin(candidate.runDir, receipt.stderrPath)).toBe(true);
+    expect(existsSync(receipt.stdoutPath)).toBe(true);
+    expect(existsSync(receipt.stderrPath)).toBe(true);
+    expect(receipt.containment!.evidenceRoot.startsWith(candidate.outputRoot)).toBe(true);
+
+    // ...and no candidate copy under it, then or now.
+    expect(findByName(candidate.outputRoot, 'candidate')).toEqual([]);
+    expect(isWithin(candidate.state.root, receipt.containment!.copyRoot)).toBe(false);
+    // The disposable copy and the verification root that held it are gone.
+    expect(existsSync(receipt.containment!.copyRoot)).toBe(false);
+    expect(existsSync(receipt.containment!.home)).toBe(false);
+    expect(existsSync(path.dirname(path.dirname(receipt.containment!.copyRoot)))).toBe(false);
+
+    // The receipt persists with everything else it always carried.
+    const persisted = persistCheckReceipts(candidate.state.store.db, candidate.state.paths, { runId: candidate.runId, receipts });
+    expect(persisted[0]!.logArtifact.relativePath).toBe('checks/node-tests/stdout.log');
+    expect(verifyArtifact(candidate.state.store.db, candidate.state.paths, persisted[0]!.receiptArtifact.id).ok).toBe(true);
+    expect(listChecks(candidate.state.store.db, candidate.runId)[0]!.outcome).toBe('passed');
+  });
+
+  it('still fails an unfixed candidate for its own reason, with the state root untouched', async () => {
+    const candidate = await candidateInsideStateRoot({ fix: false });
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], timeoutMs: 60_000 }],
+      outputRoot: candidate.outputRoot,
+      verificationRoot: candidate.verificationRoot,
+    });
+
+    const receipt = receipts[0]!;
+    expect(receipt.outcome).toBe('failed');
+    expect(receipt.exitCode).not.toBe(0);
+    expect(receipt.integrity.mutated).toBe(false);
+    expect(receipt.stateRootGuard!.violations).toEqual([]);
+    expect(decideAcceptance([{ id: 'node-tests' }], receipts).accepted).toBe(false);
+  });
+
+  it('says plainly when there was no state root to guard', async () => {
+    const candidate = await frozenCandidate({ fix: true });
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], timeoutMs: 60_000 }],
+      outputRoot: candidate.outputRoot,
+    });
+    const receipt = receipts[0]!;
+    expect(receipt.outcome).toBe('passed');
+    expect(receipt.containment!.stateRoot).toBeNull();
+    expect(receipt.containment!.outsideStateRoot).toBe(true);
+    expect(receipt.stateRootGuard!.checked).toBe(false);
+    expect(receipt.stateRootGuard!.note).toContain('nothing was compared');
   });
 });
