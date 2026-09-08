@@ -1,0 +1,4 @@
+error: coordinator lock /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at15/coordinator.lock is held by pid 82576 on Shebins-MacBook-Pro.local since 2026-09-08T16:00:10.327Z (holder process is alive); use "workforce status" for read-only inspection
+  another coordinator owns this state root; stop it (or wait for it) and resume again
+  use "workforce status <run-id>" for read-only inspection in the meantime
+second resume EXIT=3

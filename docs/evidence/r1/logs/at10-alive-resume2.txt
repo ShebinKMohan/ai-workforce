@@ -1,0 +1,28 @@
+continuing task 01a081b9-bcb0-7686-a1db-2d9c610c0b06 as attempt 01a081ba-1d9a-7015-89a5-ce810813d373 (generation 2)
+WARNING: no enforced write boundary — the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081b9-bcb0-7685-88cf-52e3fa19e685
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at10-alive @ 1de271eb61e0 (main)
+agent engineer-fake via fake-local (fake)
+write boundary: fake reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at10-alive/01a081b9-bcb0-7685-88cf-52e3fa19e685/01a081b9-bcb0-7686-a1db-2d9c610c0b06/01a081ba-1d9a-7015-89a5-ce810813d373 on branch workforce/01a081b9-bcb0-7685-88cf-52e3fa19e685/01a081b9-bcb0-7686-a1db-2d9c610c0b06/01a081ba-1d9a-7015-89a5-ce810813d373
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081b9-41f8dd1c.sock
+  runtime session fake-0bdadaf9-a68f-459d-9cd7-66ddc135ec6a started
+  turn started
+  message: done
+  turn completed
+worker stopped: process_tree_terminated
+candidate is identical to the base 1de271eb61e0: the worker changed nothing
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 37ms
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at10-alive/runs/01a081b9-bcb0-7685-88cf-52e3fa19e685/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+not accepted: the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done
+run 01a081b9-bcb0-7685-88cf-52e3fa19e685: running (ownership epoch 2)
+reconciled 1 attempt, 1 open operation
+  replace 01a081b9-bcb0-7687-a2db-e9d08c6f9f7e (task 01a081b9-bcb0-7686-a1db-2d9c610c0b06, gen 1 -> 2 as 01a081ba-1d9a-7015-89a5-ce810813d373) — the recorded worker process 64097 is gone; session fake-e9d434ee-184b-4eac-b8d1-76a613d13da9 cannot be rejoined, so a new generation may take over
+task 01a081b9-bcb0-7686-a1db-2d9c610c0b06: failed (attempt 01a081ba-1d9a-7015-89a5-ce810813d373, generation 2)
+run 01a081b9-bcb0-7685-88cf-52e3fa19e685: failed
+EXIT=4

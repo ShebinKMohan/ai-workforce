@@ -1,0 +1,44 @@
+route: direct — the operator asked for the direct route
+WARNING: no enforced write boundary — the claude-code adapter reports write_containment "unsupported" for 2.1.260 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081b9-006e-70eb-9e3c-c50a53979a92
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at08b @ 3b51fc215514 (main)
+agent eng-h via claude-harness (claude-code)
+write boundary: claude-code reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at08b/01a081b9-006e-70eb-9e3c-c50a53979a92/01a081b9-006e-70ec-b3d5-71e5639a1ff3/01a081b9-006e-70ed-9ea7-28e79ace1b7e on branch workforce/01a081b9-006e-70eb-9e3c-c50a53979a92/01a081b9-006e-70ec-b3d5-71e5639a1ff3/01a081b9-006e-70ed-9ea7-28e79ace1b7e
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081b9-e625760d.sock
+  runtime session 01a081b9-00c2-7287-af85-0b5fd9bb527b started
+  turn started
+  tool Write
+  tool Write -> ok
+  changed docs/note.md
+  message: Wrote docs/note.md and submitted the same coordination message twice with one idempotency key.
+  turn completed
+  (1 further runtime event(s) kept verbatim as evidence, not shown here)
+worker stopped: process_tree_terminated (process group 58214 is empty after stdin close)
+candidate c1312b529fff on workforce/01a081b9-006e-70eb-9e3c-c50a53979a92/01a081b9-006e-70ec-b3d5-71e5639a1ff3/01a081b9-006e-70ed-9ea7-28e79ace1b7e: 1 changed file(s), patch f3290e797b02
+  A docs/note.md
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 31ms
+candidate diff (3b51fc215514 → c1312b529fff):
+  diff --git a/docs/note.md b/docs/note.md
+  new file mode 100644
+  index 0000000000000000000000000000000000000000..7f92fe8050be2ee4d0540ebb0a794057105cac32
+  --- /dev/null
+  +++ b/docs/note.md
+  @@ -0,0 +1,3 @@
+  +# Note
+  +
+  +Written by the harness worker.
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at08b/runs/01a081b9-006e-70eb-9e3c-c50a53979a92/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+accepted: 1/1 required criteria passed with verifier-executed evidence
+run 01a081b9-006e-70eb-9e3c-c50a53979a92: accepted
+task 01a081b9-006e-70ec-b3d5-71e5639a1ff3: accepted
+  PASS check-1: passed (exit 0, 31ms)
+evidence and manifest: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at08b/runs/01a081b9-006e-70eb-9e3c-c50a53979a92
+unresolved:
+  - this run had no enforced write boundary: the claude-code adapter reports write_containment "unsupported" for 2.1.260 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process It was allowed by an explicit --allow-unconfined-writes, so acceptance here means the configured criteria passed, not that the worker's effects were confined
+EXIT=0

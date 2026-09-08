@@ -1,0 +1,12 @@
+coordinator pid 66169
+coordinator children before SIGKILL: 66338 
+log tail before SIGKILL:
+  turn started
+  tool write_file docs/note.md
+  changed docs/note.md
+  tool write_file -> ok
+  exec hang
+killed worker group(s): 66338 
+SIGKILLed coordinator 66169 at 2026-09-08T15:54:34Z
+surviving worker pids:
+  PID  PPID COMMAND

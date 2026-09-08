@@ -1,0 +1,42 @@
+continuing task 01a081ba-61a9-73c4-a19b-41057b5be11e as attempt 01a081ba-9865-740c-bac6-c63975529fc9 (generation 2)
+WARNING: no enforced write boundary — the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081ba-61a9-73c3-aae4-5a77c6664a7e
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at10-gone @ 0bcb2b19bbcf (main)
+agent engineer-fake via fake-local (fake)
+write boundary: fake reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at10-gone/01a081ba-61a9-73c3-aae4-5a77c6664a7e/01a081ba-61a9-73c4-a19b-41057b5be11e/01a081ba-9865-740c-bac6-c63975529fc9 on branch workforce/01a081ba-61a9-73c3-aae4-5a77c6664a7e/01a081ba-61a9-73c4-a19b-41057b5be11e/01a081ba-9865-740c-bac6-c63975529fc9
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081ba-1ccbf8a2.sock
+  runtime session fake-adb725ec-a142-49b1-9930-66d90df6b5a9 started
+  turn started
+  tool write_file docs/note.md
+  changed docs/note.md
+  tool write_file -> ok
+  message: finished the note
+  turn completed
+worker stopped: process_tree_terminated
+candidate b694e85d1841 on workforce/01a081ba-61a9-73c3-aae4-5a77c6664a7e/01a081ba-61a9-73c4-a19b-41057b5be11e/01a081ba-9865-740c-bac6-c63975529fc9: 1 changed file(s), patch bc0a48d7a38f
+  A docs/note.md
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 32ms
+candidate diff (0bcb2b19bbcf → b694e85d1841):
+  diff --git a/docs/note.md b/docs/note.md
+  new file mode 100644
+  index 0000000000000000000000000000000000000000..eb3c1bde2715c157e377a5280a039f590b06f3ca
+  --- /dev/null
+  +++ b/docs/note.md
+  @@ -0,0 +1,3 @@
+  +# Note
+  +
+  +Finished on the new generation after the crash.
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at10-gone/runs/01a081ba-61a9-73c3-aae4-5a77c6664a7e/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+accepted: 1/1 required criteria passed with verifier-executed evidence
+run 01a081ba-61a9-73c3-aae4-5a77c6664a7e: running (ownership epoch 1)
+reconciled 1 attempt, 1 open operation
+  replace 01a081ba-61a9-73c5-9416-e69c29391a0d (task 01a081ba-61a9-73c4-a19b-41057b5be11e, gen 1 -> 2 as 01a081ba-9865-740c-bac6-c63975529fc9) — the recorded worker process 66338 is gone; session fake-76920dc5-0dcd-42ea-9790-b63fb75f87e9 cannot be rejoined, so a new generation may take over
+task 01a081ba-61a9-73c4-a19b-41057b5be11e: accepted (attempt 01a081ba-9865-740c-bac6-c63975529fc9, generation 2)
+run 01a081ba-61a9-73c3-aae4-5a77c6664a7e: ready_for_review
+EXIT=0

@@ -1,0 +1,8 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"malformed_output"},
+ {"action":"unknown_event"},
+ {"action":"edit_file","path":"docs/note.md","content":"# Note\n\nWritten while a second coordinator tried to take over.\n"},
+ {"action":"malformed_output"},
+ {"action":"sleep","ms":25000},
+ {"action":"claim_done","message":"done after the noise"}
+]}

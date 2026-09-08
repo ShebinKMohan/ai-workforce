@@ -1,0 +1,12 @@
+coordinator pid 63922
+coordinator children before SIGKILL: 64097 
+log tail before SIGKILL:
+  turn started
+  tool write_file docs/note.md
+  changed docs/note.md
+  tool write_file -> ok
+  exec hang
+SIGKILLed coordinator 63922 at 2026-09-08T15:53:52Z
+surviving worker pids:
+  PID  PPID COMMAND
+64097     1 /opt/homebrew/Cellar/node/26.8.1/bin/node /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/fixtures/fake-runtime/fake-runtime.mjs --scenario /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/scen/hang.json --model fake-default --effort low

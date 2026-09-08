@@ -1,0 +1,4 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"claim_done","message":"I have added docs/note.md exactly as requested. The task is complete."},
+ {"action":"exit","code":0}
+]}

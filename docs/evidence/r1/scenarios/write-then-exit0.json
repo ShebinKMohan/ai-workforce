@@ -1,0 +1,5 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"edit_file","path":"docs/note.md","content":"# Note\n\nWritten, then the process exited 0 mid-turn.\n"},
+ {"action":"claim_done","message":"Done. Exiting cleanly."},
+ {"action":"exit","code":0}
+]}

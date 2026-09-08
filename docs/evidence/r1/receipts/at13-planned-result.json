@@ -1,0 +1,108 @@
+{
+  "manifestVersion": 1,
+  "runId": "01a081b4-e87d-705a-a22b-40e4f4ccbf41",
+  "path": "planned",
+  "createdAt": "2026-09-08T15:48:31.997Z",
+  "request": {
+    "text": "Produce docs/a.md and docs/b.md, each with a heading and a Token line.\n",
+    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/req/at13.txt",
+    "contextRefs": []
+  },
+  "base": {
+    "revision": "e29a6fb42c108627b398f18aa63d7a64f69c0bf7",
+    "repoPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at13"
+  },
+  "accepted": false,
+  "reason": "the combined candidate is not established: \"check-2\" reported \"failed\" against the combined revision a8c01bfb6e03f4d1ea3653132efbd7cde3ca07b8",
+  "tasks": [
+    {
+      "key": "ta",
+      "taskId": "01a081b4-e880-70a1-8455-82db4135b311",
+      "objective": "Write docs/a.md with a heading and the line 'Token: alpha'.",
+      "accepted": true,
+      "repairsUsed": 0,
+      "attempts": [
+        {
+          "attemptId": "01a081b4-e881-7576-a9bd-4bde7cc13b0b",
+          "outcome": "accepted",
+          "candidateRevision": "9f767d2c17a400b95ff3b48b64205c73145a7953"
+        }
+      ]
+    },
+    {
+      "key": "tb",
+      "taskId": "01a081b4-e880-70a2-9569-996573d5c432",
+      "objective": "Write docs/b.md with a heading and the line 'Token: beta'.",
+      "accepted": true,
+      "repairsUsed": 0,
+      "attempts": [
+        {
+          "attemptId": "01a081b4-e883-71fa-8c53-d81aa73f4303",
+          "outcome": "accepted",
+          "candidateRevision": "b9a4d3f8fddb4e0d6aed48227923427cffa6fd0e"
+        }
+      ]
+    }
+  ],
+  "combination": {
+    "status": "combined",
+    "combinedRevision": "a8c01bfb6e03f4d1ea3653132efbd7cde3ca07b8",
+    "order": [
+      "01a081b4-e881-7576-a9bd-4bde7cc13b0b",
+      "01a081b4-e883-71fa-8c53-d81aa73f4303"
+    ],
+    "acceptance": {
+      "accepted": false,
+      "combinedRevision": "a8c01bfb6e03f4d1ea3653132efbd7cde3ca07b8",
+      "verdicts": [
+        {
+          "criterionId": "check-1",
+          "required": true,
+          "satisfied": true,
+          "receiptId": "01a081b4-eb7d-7005-9d81-303c21de5a4f",
+          "outcome": "passed",
+          "reason": "\"check-1\" passed against the combined revision a8c01bfb6e03f4d1ea3653132efbd7cde3ca07b8"
+        },
+        {
+          "criterionId": "check-2",
+          "required": true,
+          "satisfied": false,
+          "receiptId": "01a081b4-ebbb-77b1-9083-018e34838115",
+          "outcome": "failed",
+          "reason": "\"check-2\" reported \"failed\" against the combined revision a8c01bfb6e03f4d1ea3653132efbd7cde3ca07b8"
+        }
+      ],
+      "unverifiedCriteria": [],
+      "ignoredReceiptIds": [
+        "01a081b4-e9e8-7233-a86d-82f1c6dfa136",
+        "01a081b4-ea2d-75f2-a722-bf62e2164d28",
+        "01a081b4-e9bc-7639-805a-c79a83ec7b68",
+        "01a081b4-ea00-7395-b05e-237aa23a241d"
+      ],
+      "reason": "the combined candidate is not established: \"check-2\" reported \"failed\" against the combined revision a8c01bfb6e03f4d1ea3653132efbd7cde3ca07b8"
+    },
+    "checks": [
+      {
+        "criterionId": "check-1",
+        "outcome": "passed",
+        "exitCode": 0
+      },
+      {
+        "criterionId": "check-2",
+        "outcome": "failed",
+        "exitCode": 1
+      }
+    ]
+  },
+  "review": null,
+  "reviewDecision": {
+    "warranted": false,
+    "triggers": [],
+    "thresholds": {
+      "largeChangeLines": 400,
+      "manyFilesCount": 10
+    },
+    "reason": "the change is small, narrow and fully covered by executable checks"
+  },
+  "unresolved": []
+}

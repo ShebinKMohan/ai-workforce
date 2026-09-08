@@ -1,0 +1,23 @@
+  candidate.snapshot 1
+  coordination.attached 1
+  operation.completed 1
+  operation.dispatched 1
+  operation.intended 1
+  run.accepted 1
+  run.created 1
+  runtime.assistant_message 1
+  runtime.command_exec 1
+  runtime.file_change 1
+  runtime.raw 5
+  runtime.session_started 1
+  runtime.stopped 1
+  runtime.tool_call 1
+  runtime.tool_result 1
+  runtime.turn_completed 1
+  runtime.turn_started 1
+  session.opened 1
+  turn.started 1
+  workspace.created 1
+operations BEFORE replay:
+   {"id":"01a081bf-90ca-754e-9229-d7976e9d6c59","kind":"dispatch_worker","generation":1,"state":"completed"}
+attempts: {"n":1}

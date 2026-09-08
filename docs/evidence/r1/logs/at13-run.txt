@@ -1,0 +1,90 @@
+route: planned — the operator asked for the planned route
+run 01a081b4-e87d-705a-a22b-40e4f4ccbf41 (planned, 2 tasks)
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at13 @ e29a6fb42c10
+acceptance: 2 check(s) from --check flags
+coordination: /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081b4-ef2d900b.sock
+task "ta": Write docs/a.md with a heading and the line 'Token: [REDACTED]
+task "tb": Write docs/b.md with a heading and the line 'Token: [REDACTED]
+WARNING: no enforced write boundary — the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 2 check(s) from --check flags
+WARNING: no enforced write boundary — the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 2 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081b4-e87d-705a-a22b-40e4f4ccbf41
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at13 @ e29a6fb42c10 (main)
+agent eng-b via fake-b (fake)
+write boundary: fake reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081b4-e87d-705a-a22b-40e4f4ccbf41
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at13 @ e29a6fb42c10 (main)
+agent eng-a via fake-a (fake)
+write boundary: fake reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at13/01a081b4-e87d-705a-a22b-40e4f4ccbf41/01a081b4-e880-70a2-9569-996573d5c432/01a081b4-e883-71fa-8c53-d81aa73f4303 on branch workforce/01a081b4-e87d-705a-a22b-40e4f4ccbf41/01a081b4-e880-70a2-9569-996573d5c432/01a081b4-e883-71fa-8c53-d81aa73f4303
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081b4-ef2d900b.sock
+  runtime session fake-fe7ea9ac-052d-43f0-8c2e-f8f0070785a9 started
+  turn started
+  tool write_file docs/b.md
+  changed docs/b.md
+  tool write_file -> ok
+  message: wrote docs/b.md with Token: [REDACTED]
+  turn completed
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at13/01a081b4-e87d-705a-a22b-40e4f4ccbf41/01a081b4-e880-70a1-8455-82db4135b311/01a081b4-e881-7576-a9bd-4bde7cc13b0b on branch workforce/01a081b4-e87d-705a-a22b-40e4f4ccbf41/01a081b4-e880-70a1-8455-82db4135b311/01a081b4-e881-7576-a9bd-4bde7cc13b0b
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081b4-ef2d900b.sock
+worker stopped: process_tree_terminated
+  runtime session fake-84f339bf-0f1e-4ef9-9b2b-081d07541c33 started
+  turn started
+  tool write_file docs/a.md
+  changed docs/a.md
+  tool write_file -> ok
+  message: wrote docs/a.md with Token: [REDACTED]
+  turn completed
+worker stopped: process_tree_terminated
+candidate b9a4d3f8fddb on workforce/01a081b4-e87d-705a-a22b-40e4f4ccbf41/01a081b4-e880-70a2-9569-996573d5c432/01a081b4-e883-71fa-8c53-d81aa73f4303: 1 changed file(s), patch 7b9bcbc85af8
+  A docs/b.md
+running 2 acceptance check(s) against the frozen candidate
+candidate 9f767d2c17a4 on workforce/01a081b4-e87d-705a-a22b-40e4f4ccbf41/01a081b4-e880-70a1-8455-82db4135b311/01a081b4-e881-7576-a9bd-4bde7cc13b0b: 1 changed file(s), patch 4732c60c391c
+  A docs/a.md
+running 2 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 34ms
+  check check-1: passed (exit 0) in 31ms
+  check check-2: passed (exit 0) in 33ms
+candidate diff (e29a6fb42c10 → b9a4d3f8fddb):
+  diff --git a/docs/b.md b/docs/b.md
+  new file mode 100644
+  index 0000000000000000000000000000000000000000..f8123b8a7029d542c93b27dc921dc9abcd803607
+  --- /dev/null
+  +++ b/docs/b.md
+  @@ -0,0 +1,3 @@
+  +# B
+  +
+  +Token: [REDACTED]
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at13/runs/01a081b4-e87d-705a-a22b-40e4f4ccbf41/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+accepted: 2/2 required criteria passed with verifier-executed evidence
+  check check-2: passed (exit 0) in 34ms
+candidate diff (e29a6fb42c10 → 9f767d2c17a4):
+  diff --git a/docs/a.md b/docs/a.md
+  new file mode 100644
+  index 0000000000000000000000000000000000000000..ce01f5d1c706da5c8130d182e46381f84a42628d
+  --- /dev/null
+  +++ b/docs/a.md
+  @@ -0,0 +1,3 @@
+  +# A
+  +
+  +Token: [REDACTED]
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at13/runs/01a081b4-e87d-705a-a22b-40e4f4ccbf41/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+accepted: 2/2 required criteria passed with verifier-executed evidence
+integrating 2 approved artifact(s) and re-running the checks against the combined revision
+  combined check check-1: passed (exit 0)
+  combined check check-2: failed (exit 1)
+not accepted: the combined candidate is not established: "check-2" reported "failed" against the combined revision a8c01bfb6e03f4d1ea3653132efbd7cde3ca07b8
+evidence and manifest: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at13/runs/01a081b4-e87d-705a-a22b-40e4f4ccbf41
+run 01a081b4-e87d-705a-a22b-40e4f4ccbf41: failed (planned, 2 tasks)
+  PASS ta: Write docs/a.md with a heading and the line 'Token: [REDACTED]
+  PASS tb: Write docs/b.md with a heading and the line 'Token: [REDACTED]
+combined candidate a8c01bfb6e03: not accepted — the combined candidate is not established: "check-2" reported "failed" against the combined revision a8c01bfb6e03f4d1ea3653132efbd7cde3ca07b8
+evidence and manifest: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at13/runs/01a081b4-e87d-705a-a22b-40e4f4ccbf41
+EXIT=4

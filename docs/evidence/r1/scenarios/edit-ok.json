@@ -1,0 +1,4 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"edit_file","path":"docs/note.md","content":"# Note\n\nWritten inside the candidate.\n"},
+ {"action":"claim_done","message":"wrote docs/note.md"}
+]}

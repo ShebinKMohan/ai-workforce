@@ -1,0 +1,272 @@
+{
+  "manifestVersion": 1,
+  "runId": "01a081bd-bc76-70d1-8e72-dd527c8dd275",
+  "taskId": "01a081bd-bc76-70d2-8b14-8c7668b77de2",
+  "attemptId": "01a081bd-bc76-70d3-9156-ecc28677a3db",
+  "outcome": "failed",
+  "createdAt": "2026-09-08T15:58:10.574Z",
+  "request": {
+    "text": "Add docs/note.md with a heading.\n",
+    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/req/at12.txt",
+    "contextRefs": []
+  },
+  "project": {
+    "canonicalPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at14",
+    "requestedPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at14",
+    "repositoryIdentity": {
+      "rootCommit": "0432c53f6413e40d32e1794ab247c53f2b81816f",
+      "rootCommits": [
+        "0432c53f6413e40d32e1794ab247c53f2b81816f"
+      ],
+      "originUrl": null,
+      "identityHash": "0f4fba0781c9252b3edd3614bdc01b5ad97fad46a1bd52495772a42ad498f000"
+    },
+    "branch": "main",
+    "detachedHead": false,
+    "hasSubmodules": false,
+    "projectId": "01a081bd-bc8f-7558-895a-625823b5150b"
+  },
+  "base": {
+    "mode": "head",
+    "revision": "0432c53f6413e40d32e1794ab247c53f2b81816f",
+    "uncommittedChangesExcluded": null,
+    "note": "the checkout was clean; the committed HEAD is the complete base"
+  },
+  "candidate": {
+    "created": true,
+    "branch": "workforce/01a081bd-bc76-70d1-8e72-dd527c8dd275/01a081bd-bc76-70d2-8b14-8c7668b77de2/01a081bd-bc76-70d3-9156-ecc28677a3db",
+    "revision": "0432c53f6413e40d32e1794ab247c53f2b81816f",
+    "patchHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "patchBytes": 0,
+    "checkpointCreated": false,
+    "changedFiles": [],
+    "workspacePath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at14/01a081bd-bc76-70d1-8e72-dd527c8dd275/01a081bd-bc76-70d2-8b14-8c7668b77de2/01a081bd-bc76-70d3-9156-ecc28677a3db",
+    "patchArtifactId": "01a081bd-bfca-7323-bb2a-f29165bbef4c"
+  },
+  "agent": {
+    "id": "eng-primary",
+    "snapshotHash": "84fbf2d29a010fe46a825925bcddebb846abdefa49f08439325dea4efa94be1b",
+    "policy": "local-development",
+    "instructionsCharacters": 19,
+    "limits": {
+      "maxActiveTurns": 2,
+      "maxActiveWriters": 2,
+      "maxTasksPerRun": 8,
+      "maxDelegationDepth": 2,
+      "maxRepairAttempts": 0,
+      "maxTransientRetries": 0,
+      "runTimeoutMinutes": 10
+    }
+  },
+  "runtime": {
+    "adapter": "claude-code",
+    "runtimeId": "claude-authfail",
+    "executable": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/runtimes/claude-authfail.mjs",
+    "model": "sonnet",
+    "modelStatus": "supported_unverified",
+    "effort": "low",
+    "effortStatus": "supported",
+    "effectiveModel": "claude-opus-5[1m]",
+    "effectiveEffort": null,
+    "effectiveSettingsSource": "runtime_reported",
+    "sessionId": "01a081bd-bcc3-76d7-bde6-f15ac2716dbe",
+    "turnId": "turn-1",
+    "turnConclusion": "turn_failed",
+    "stopReceipt": {
+      "sessionId": "01a081bd-bcc3-76d7-bde6-f15ac2716dbe",
+      "state": "process_tree_terminated",
+      "processId": 76731,
+      "signal": null,
+      "at": "2026-09-08T15:58:11.244Z",
+      "detail": "process group 76731 is empty after stdin close"
+    },
+    "interruptReason": null
+  },
+  "requirements": [
+    {
+      "criterionId": "check-1",
+      "description": "--check \"node scripts/check.mjs lint\"",
+      "required": true,
+      "status": "passed",
+      "outcome": "passed",
+      "receiptId": "01a081bd-bf71-728c-995a-af3e149080d6",
+      "detail": "passed (exit 0, 29ms)"
+    }
+  ],
+  "checks": [
+    {
+      "criterionId": "check-1",
+      "outcome": "passed",
+      "exitCode": 0,
+      "durationMs": 29,
+      "command": "node",
+      "args": [
+        "scripts/check.mjs",
+        "lint"
+      ],
+      "cwd": ".",
+      "timeoutMs": 600000,
+      "environmentIdentity": {
+        "node": "v26.8.1",
+        "os": "darwin",
+        "osRelease": "25.6.0",
+        "arch": "arm64",
+        "pathHash": "d748646b6b84d31d3c94ce52937abae6d53b97341150ee0fb10b18b6345585e7",
+        "envKeys": [
+          "HOME",
+          "PATH",
+          "TMPDIR"
+        ]
+      },
+      "integrity": {
+        "before": "519f8273ba75313501024d2b86647e73f093de01b44de18e48bc82caad7d74b2",
+        "after": "519f8273ba75313501024d2b86647e73f093de01b44de18e48bc82caad7d74b2",
+        "mutated": false,
+        "mutatedFiles": [],
+        "addedFiles": [],
+        "fileCount": 2,
+        "scope": "complete"
+      },
+      "outputSummary": {
+        "runner": null,
+        "testsRun": null,
+        "note": "the command is not a runner this verifier recognizes, so its exit status is the only evidence of what it executed"
+      },
+      "copyStrategy": "git_archive",
+      "evidenceProvenance": "verifier_executed",
+      "logArtifactId": "01a081bd-bfb6-7211-a124-4aee08721226",
+      "diagnostics": []
+    }
+  ],
+  "acceptance": {
+    "accepted": false,
+    "requiredTotal": 1,
+    "requiredPassed": 1,
+    "reasons": [
+      "the runtime's own terminal record says the turn failed (subtype \"success\", terminal reason \"api_error\", error class \"authentication\", result text \"Failed to authenticate: OAuth session expired and could not be refreshed\"); a candidate produced by a failed turn is not accepted, whatever the checks report",
+      "the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done"
+    ]
+  },
+  "evidence": {
+    "checkSource": "cli_flags",
+    "checkSourceDetail": "1 check(s) from --check flags",
+    "runtimeClaimedDone": false,
+    "runtimeReportedTurnFailure": "subtype \"success\", terminal reason \"api_error\", error class \"authentication\", result text \"Failed to authenticate: OAuth session expired and could not be refreshed\"",
+    "sessionIdentityMismatches": [],
+    "runtimeReportedFileChanges": [],
+    "runtimeDeniedFileChanges": [],
+    "writesOutsideGrantedPaths": [],
+    "writeObservation": {
+      "basis": "runtime_reported_tool_events",
+      "enforcedWriteBoundary": false,
+      "expectedWriteBoundary": false,
+      "complete": false,
+      "boundaryFindings": [
+        "the runtime enforces no write boundary (write_containment \"unsupported\"), so there was never one to hold"
+      ],
+      "note": "This run had no write boundary that held, so an unreported write outside the granted paths would leave no trace here: every entry is a write the claude-code runtime itself reported through a tool event; the coordinator does not watch the filesystem, so this list can only be as complete as the runtime's reporting. An empty list means nothing was reported, NOT that nothing was written."
+    },
+    "deniedWritesOutsideGrantedPaths": [],
+    "unconfirmedWritesOutsideGrantedPaths": [],
+    "runtimeToolCalls": 0,
+    "runtimeCommands": 0,
+    "runtimeErrors": 1,
+    "acceptanceFixturePaths": [
+      "scripts/check.mjs"
+    ],
+    "acceptanceFixtureMutations": [],
+    "acceptanceFixtureAdditions": [],
+    "acceptanceDefinitionChanges": [],
+    "acceptanceExecutedDependencies": [],
+    "acceptanceDependencyChanges": [],
+    "acceptanceSurfaceResolution": {
+      "moduleGraphResolved": true,
+      "entryPoints": [
+        "scripts/check.mjs"
+      ],
+      "filesVisited": 1,
+      "partial": false
+    },
+    "acceptanceSurfaceUnresolved": [],
+    "unnormalizedRuntimeEvents": 1,
+    "verificationCopyStrategy": "git_archive",
+    "note": "acceptance is decided from verifier-executed check receipts, the integrity of the fixtures those receipts executed, and the run-level blockers listed under acceptance.reasons; the runtime-reported fields above are context, not evidence of correctness",
+    "containment": {
+      "policy": "local-development",
+      "profileWrites": true,
+      "adapter": "claude-code",
+      "writeContainment": "unsupported",
+      "writeContainmentNote": "Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process",
+      "statusTestedVersion": "2.1.260",
+      "statusOs": "darwin",
+      "enforcedWriteBoundary": false,
+      "expectedWriteBoundary": false,
+      "boundaryFindings": [
+        "the runtime enforces no write boundary (write_containment \"unsupported\"), so there was never one to hold"
+      ],
+      "unplaceableChanges": [],
+      "unconfinedWritesAcknowledged": true,
+      "unenforceable": [
+        {
+          "aspect": "process_containment",
+          "reason": "Claude Code has no OS sandbox: it bounds what its own tools will do, not what the processes it starts may do. A SessionStart hook launched by the installed 2.1.260 build wrote outside every granted directory, wrote to /tmp, read outside and reached the network (docs/runtime-claude-code.md, \"Containment truth\"). Kernel-level containment must come from the environment around the process."
+        },
+        {
+          "aspect": "worker_network",
+          "reason": "no flag on this build denies worker-tool network access. `--restricted` removes WebFetch from the tool set unless --tools names it, which is a tool-surface reduction, not a network boundary."
+        },
+        {
+          "aspect": "external_delivery",
+          "reason": "no flag prevents a worker from attempting a push or a deployment; the coordinator denies external delivery by withholding credentials and remotes, not through this adapter."
+        }
+      ]
+    },
+    "containmentNote": "THIS RUN HAD NO ENFORCED WRITE BOUNDARY. the claude-code adapter reports write_containment \"unsupported\" for 2.1.260 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process It ran under an explicit --allow-unconfined-writes, so writes outside the granted candidate were possible and were not prevented; the file changes listed above are what the runtime reported, not what a boundary permitted. The candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Neither installed runtime confines reads at all — a worker can read files outside the repository, and this run did not prevent that. Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, with that copy, its HOME and its TMPDIR placed outside the coordinator state root, so no relative path from a check reaches coordinator state; the state root is fingerprinted on both sides of each check window, so a write that reached it by absolute path is recorded as an integrity failure instead of passing silently. Each receipt's `containment` and `stateRootGuard` report what was actually placed and actually measured. That is placement and detection, not confinement: repository test code still runs with this user's own filesystem privileges and can name any absolute path, so it can still read or write anything this user can — the home directory and the registered project checkout included — and an in-place overwrite that does not change a file's identity is recorded as an observation rather than a violation. An enforced execution boundary for tool and test subprocesses (FR042) is an R1 gate and is not claimed here; acceptance compensates only by refusing evidence whose fixtures the candidate changed."
+  },
+  "timing": {
+    "dispatchMs": 147,
+    "startupMs": 611,
+    "runtimeMs": 4,
+    "validationMs": 126,
+    "elapsedMs": 892
+  },
+  "usage": {
+    "status": "measured",
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "costUsd": null,
+    "source": "claude-code: the turn made no provider call (duration_api_ms is 0 and no tokens were counted), so the reported total_cost_usd is not a measurement (cost unavailable, reported as null rather than zero)"
+  },
+  "unresolved": [
+    "this run had no enforced write boundary: the claude-code adapter reports write_containment \"unsupported\" for 2.1.260 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process It was allowed by an explicit --allow-unconfined-writes, so acceptance here means the configured criteria passed, not that the worker's effects were confined",
+    "the runtime ended the turn reporting that it failed (subtype \"success\", terminal reason \"api_error\", error class \"authentication\", result text \"Failed to authenticate: OAuth session expired and could not be refreshed\"); the candidate contains only what the worker had written by then",
+    "the worker produced no change to the repository"
+  ],
+  "artifacts": [
+    {
+      "type": "candidate_patch",
+      "path": "candidate.patch",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "type": "runtime_event_log",
+      "path": "logs/runtime-events.jsonl",
+      "sha256": "a8e8342bfdf0bd75e577083d112a9464f5a4e5791d4bafb749b52595405f7845"
+    },
+    {
+      "type": "check_stdout",
+      "path": "checks/check-1/stdout.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "type": "check_stderr",
+      "path": "checks/check-1/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "type": "check_receipt",
+      "path": "checks/check-1/receipt.json",
+      "sha256": "887323be65c88ccd7ef37a3b7313335d665fdeb83783465e1d0d20ebb9def792"
+    }
+  ]
+}

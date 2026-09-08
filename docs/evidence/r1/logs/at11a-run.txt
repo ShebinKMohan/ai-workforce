@@ -1,0 +1,32 @@
+route: direct — the operator asked for the direct route
+WARNING: no enforced write boundary — the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/requires-note.mjs
+run 01a081bb-3d9f-7683-9880-9c5510c3fc99
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at11a @ d92b6e65db4a (main)
+agent engineer-fake via fake-local (fake)
+write boundary: fake reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at11a/01a081bb-3d9f-7683-9880-9c5510c3fc99/01a081bb-3d9f-7684-8701-9afc07d7713f/01a081bb-3d9f-7685-be97-5f0dd84ab9a2 on branch workforce/01a081bb-3d9f-7683-9880-9c5510c3fc99/01a081bb-3d9f-7684-8701-9afc07d7713f/01a081bb-3d9f-7685-be97-5f0dd84ab9a2
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081bb-0a37a5b6.sock
+  runtime session fake-02b06434-52ad-4978-9409-1f7409c89e15 started
+  turn started
+  message: I have added docs/note.md exactly as requested. The task is complete.
+  message: exiting unexpectedly with code 0
+  runtime error: {"fatal":true,"reason":"process_exited","exitCode":0,"signal":null,"expected":false}
+worker stopped: process_tree_terminated
+candidate is identical to the base d92b6e65db4a: the worker changed nothing
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: failed (exit 1) in 33ms
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at11a/runs/01a081bb-3d9f-7683-9880-9c5510c3fc99/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+not accepted: criterion "check-1" failed with exit 1; the runtime process ended before the turn completed (reason process_exited, exit 0); a candidate produced by a crashed turn is not accepted; the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done
+run 01a081bb-3d9f-7683-9880-9c5510c3fc99: failed
+task 01a081bb-3d9f-7684-8701-9afc07d7713f: failed
+  FAIL check-1: failed with exit 1
+evidence and manifest: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at11a/runs/01a081bb-3d9f-7683-9880-9c5510c3fc99
+unresolved:
+  - this run had no enforced write boundary: the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence It was allowed by an explicit --allow-unconfined-writes, so acceptance here means the configured criteria passed, not that the worker's effects were confined
+  - the runtime process ended before the turn completed (reason process_exited, exit 0); the candidate contains only what it had written by then
+  - the worker produced no change to the repository
+EXIT=4

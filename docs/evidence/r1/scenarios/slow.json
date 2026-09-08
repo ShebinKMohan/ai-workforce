@@ -1,0 +1,5 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"sleep","ms":30000},
+ {"action":"edit_file","path":"docs/slow.md","content":"# Slow\n\nFinished last.\n"},
+ {"action":"claim_done","message":"slow task done"}
+]}

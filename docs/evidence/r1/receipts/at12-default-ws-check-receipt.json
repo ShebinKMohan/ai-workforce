@@ -1,0 +1,81 @@
+{
+  "id": "01a081c2-ac64-77d8-8f0b-ed0adc89f9c3",
+  "criterionId": "check-1",
+  "description": "--check \"node scripts/check.mjs lint\"",
+  "required": true,
+  "command": "node",
+  "args": [
+    "scripts/check.mjs",
+    "lint"
+  ],
+  "cwd": ".",
+  "timeoutMs": 600000,
+  "outcome": "passed",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "startedAt": "2026-09-08T16:03:34.147Z",
+  "endedAt": "2026-09-08T16:03:34.177Z",
+  "durationMs": 30,
+  "environmentIdentity": {
+    "node": "v26.8.1",
+    "os": "darwin",
+    "osRelease": "25.6.0",
+    "arch": "arm64",
+    "pathHash": "d748646b6b84d31d3c94ce52937abae6d53b97341150ee0fb10b18b6345585e7",
+    "envKeys": [
+      "HOME",
+      "PATH",
+      "TMPDIR"
+    ]
+  },
+  "candidate": {
+    "repoRoot": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at12e",
+    "revision": "d8f20ab0a22224f5689abea926409bf2061d0927",
+    "patchHash": "aecc207ac1ebda97b379ba0b5b1fdba11e04c92455e4c19c6fa5ed86280f0731"
+  },
+  "copyStrategy": "git_archive",
+  "integrity": {
+    "before": "a06f9041445f2c633845521b08547b52c8ba78347e4a9e67ce533ef0b709e2f0",
+    "after": "a06f9041445f2c633845521b08547b52c8ba78347e4a9e67ce533ef0b709e2f0",
+    "mutated": false,
+    "mutatedFiles": [],
+    "addedFiles": [],
+    "fileCount": 3,
+    "scope": "complete"
+  },
+  "outputSummary": {
+    "runner": null,
+    "testsRun": null,
+    "note": "the command is not a runner this verifier recognizes, so its exit status is the only evidence of what it executed"
+  },
+  "containment": {
+    "copyRoot": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-bOs7Np/01-check-1/candidate",
+    "home": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-bOs7Np/01-check-1/home-GxpCla",
+    "tmp": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-bOs7Np/01-check-1/tmp-pboey7",
+    "cwd": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-bOs7Np/01-check-1/candidate",
+    "stateRoot": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12e",
+    "outsideStateRoot": true,
+    "verificationRootOrigin": "os_temp",
+    "evidenceRoot": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12e/runs/01a081c2-ab7e-753f-bf58-27f520dce9e9/verification/01-check-1/logs"
+  },
+  "stateRootGuard": {
+    "stateRoot": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12e",
+    "checked": true,
+    "violations": [],
+    "observations": [],
+    "before": "2b917d8cec0d053404e7b654690f00318134cff87a66e7703d3eccbe1affceb2",
+    "after": "2b917d8cec0d053404e7b654690f00318134cff87a66e7703d3eccbe1affceb2",
+    "scope": "complete",
+    "note": "the coordinator state root was unchanged, apart from bytes inside runs/ and workspaces/ and the database and lock files that the coordinator itself writes during a run"
+  },
+  "stdoutPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12e/runs/01a081c2-ab7e-753f-bf58-27f520dce9e9/verification/01-check-1/logs/stdout.log",
+  "stderrPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12e/runs/01a081c2-ab7e-753f-bf58-27f520dce9e9/verification/01-check-1/logs/stderr.log",
+  "stdoutBytes": 0,
+  "stderrBytes": 0,
+  "outputTruncated": false,
+  "stdoutTail": "",
+  "stderrTail": "",
+  "evidenceProvenance": "verifier_executed",
+  "diagnostics": []
+}

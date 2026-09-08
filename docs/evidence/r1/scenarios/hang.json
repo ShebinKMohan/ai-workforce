@@ -1,0 +1,4 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"edit_file","path":"docs/note.md","content":"# Note\n\nPartial work before the crash.\n"},
+ {"action":"hang"}
+]}

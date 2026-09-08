@@ -1,0 +1,14 @@
+{
+  "provenance": "SYNTHETIC test harness scenario for the R1 gate: a minimal complete Claude Code worker turn that writes one file.",
+  "steps": [
+    { "on": "user", "emit": [
+      { "type": "system", "subtype": "init", "cwd": "{{cwd}}", "session_id": "{{sessionId}}", "tools": ["Read","Write"], "mcp_servers": [], "model": "sonnet", "permissionMode": "acceptEdits", "apiKeySource": "none", "claude_code_version": "2.1.260", "output_style": "default", "capabilities": ["interrupt_receipt_v1"], "uuid": "11111111-1111-4111-8111-111111111111" },
+      { "__replay": true },
+      { "type": "assistant", "message": { "id": "msg_1", "model": "sonnet", "role": "assistant", "type": "message", "stop_reason": null, "content": [ { "type": "tool_use", "id": "toolu_note", "name": "Write", "input": { "file_path": "docs/note.md", "content": "# Note\n\nWritten by the harness worker.\n" } } ], "usage": { "input_tokens": 10, "output_tokens": 5 } }, "parent_tool_use_id": null, "session_id": "{{sessionId}}", "uuid": "22222222-2222-4222-8222-222222222222" },
+      { "__write": { "path": "docs/note.md", "content": "# Note\n\nWritten by the harness worker.\n" } },
+      { "type": "user", "message": { "role": "user", "content": [ { "type": "tool_result", "tool_use_id": "toolu_note", "is_error": false, "content": "File created" } ] }, "parent_tool_use_id": null, "session_id": "{{sessionId}}", "uuid": "33333333-3333-4333-8333-333333333333" },
+      { "type": "assistant", "message": { "id": "msg_2", "model": "sonnet", "role": "assistant", "type": "message", "stop_reason": null, "content": [ { "type": "text", "text": "Wrote docs/note.md and submitted the same coordination message twice with one idempotency key." } ], "usage": { "input_tokens": 10, "output_tokens": 5 } }, "parent_tool_use_id": null, "session_id": "{{sessionId}}", "uuid": "22222222-2222-4222-8222-222222222223" },
+      { "type": "result", "subtype": "success", "session_id": "{{sessionId}}", "is_error": false, "result": "done", "num_turns": 2, "duration_ms": 100, "duration_api_ms": 80, "total_cost_usd": 0.0001, "usage": { "input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0, "service_tier": "standard" }, "modelUsage": { "sonnet": { "inputTokens": 10, "outputTokens": 5 } }, "permission_denials": [], "queued_turn_count": 0, "uuid": "44444444-4444-4444-8444-444444444444" }
+    ] }
+  ]
+}

@@ -1,0 +1,2 @@
+{"spawnedStaleCaller":72516,"socket":"/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081bc-7bf51ce5.sock"}
+{"at":"2026-09-08T15:56:39.742Z","socket":"/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081bc-7bf51ce5.sock","calls":{"send_message":{"v":1,"id":"cmtsur0lbfnivn7m1","ok":false,"error":{"code":"unauthenticated","message":"this connection is not a registered worker session"}},"report_result":{"v":1,"id":"cmtsur0lenqs09dfg","ok":false,"error":{"code":"unauthenticated","message":"this connection is not a registered worker session"}}}}

@@ -1,0 +1,85 @@
+{
+  "id": "01a081b2-2d2d-7799-bf7b-d8d93a893636",
+  "criterionId": "check-2",
+  "description": "--check \"node scripts/tamper.mjs\"",
+  "required": true,
+  "command": "node",
+  "args": [
+    "scripts/tamper.mjs"
+  ],
+  "cwd": ".",
+  "timeoutMs": 600000,
+  "outcome": "integrity_failed",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "startedAt": "2026-09-08T15:45:33.011Z",
+  "endedAt": "2026-09-08T15:45:33.049Z",
+  "durationMs": 38,
+  "environmentIdentity": {
+    "node": "v26.8.1",
+    "os": "darwin",
+    "osRelease": "25.6.0",
+    "arch": "arm64",
+    "pathHash": "d748646b6b84d31d3c94ce52937abae6d53b97341150ee0fb10b18b6345585e7",
+    "envKeys": [
+      "HOME",
+      "PATH",
+      "TMPDIR"
+    ]
+  },
+  "candidate": {
+    "repoRoot": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at12c",
+    "revision": "32733a5923d81ad0fc7cb687a26c945c5815a971",
+    "patchHash": "aecc207ac1ebda97b379ba0b5b1fdba11e04c92455e4c19c6fa5ed86280f0731"
+  },
+  "copyStrategy": "git_archive",
+  "integrity": {
+    "before": "35d044c7ca2ef208cfe0c97f59f0c07cc7dfcd54dfa6b4b1d397c0e9bab56140",
+    "after": "35d044c7ca2ef208cfe0c97f59f0c07cc7dfcd54dfa6b4b1d397c0e9bab56140",
+    "mutated": false,
+    "mutatedFiles": [],
+    "addedFiles": [],
+    "fileCount": 4,
+    "scope": "complete"
+  },
+  "outputSummary": {
+    "runner": null,
+    "testsRun": null,
+    "note": "the command is not a runner this verifier recognizes, so its exit status is the only evidence of what it executed"
+  },
+  "containment": {
+    "copyRoot": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-6xmxVm/02-check-2/candidate",
+    "home": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-6xmxVm/02-check-2/home-ThLPmd",
+    "tmp": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-6xmxVm/02-check-2/tmp-iQtGRs",
+    "cwd": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-6xmxVm/02-check-2/candidate",
+    "stateRoot": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12c",
+    "outsideStateRoot": true,
+    "verificationRootOrigin": "os_temp",
+    "evidenceRoot": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12c/runs/01a081b2-2baa-7466-9cac-2ab2de78cb3e/verification/02-check-2/logs"
+  },
+  "stateRootGuard": {
+    "stateRoot": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12c",
+    "checked": true,
+    "violations": [
+      "evil.txt (created)",
+      "manifest.json (modified)"
+    ],
+    "observations": [],
+    "before": "006c58c919a5fdef3db044f564fec0f786f28fb81d8822248d5a085fb5dea5d1",
+    "after": "b13826f01aa15f7c06740a2763bc7fde621d78a41e647c88a034a8ed12e44a57",
+    "scope": "complete",
+    "note": "the coordinator state root changed while the check ran: 2 guarded path(s) created, modified, deleted or replaced"
+  },
+  "stdoutPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12c/runs/01a081b2-2baa-7466-9cac-2ab2de78cb3e/verification/02-check-2/logs/stdout.log",
+  "stderrPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12c/runs/01a081b2-2baa-7466-9cac-2ab2de78cb3e/verification/02-check-2/logs/stderr.log",
+  "stdoutBytes": 61,
+  "stderrBytes": 0,
+  "outputTruncated": false,
+  "stdoutTail": "planted evil.txt in the state root\nappended to manifest.json\n",
+  "stderrTail": "",
+  "evidenceProvenance": "verifier_executed",
+  "diagnostics": [
+    "the coordinator state root /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12c changed while this check ran (evil.txt (created), manifest.json (modified)); a check runs outside the state root, so nothing it does through a relative path can reach it — this result therefore cannot be trusted as evidence"
+  ]
+}

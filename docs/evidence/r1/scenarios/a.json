@@ -1,0 +1,4 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"edit_file","path":"docs/a.md","content":"# A\n\nToken: alpha\n"},
+ {"action":"claim_done","message":"wrote docs/a.md with Token: alpha"}
+]}

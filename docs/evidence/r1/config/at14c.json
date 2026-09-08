@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "runtimes": {
+    "codex-quota": { "adapter": "codex", "executable": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/runtimes/codex-quota.mjs", "model": "gpt-5.6-sol", "effort": "low" },
+    "fake-fallback": { "adapter": "fake", "executable": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/runtimes/fake-fixer.mjs", "model": "fake-default", "effort": "low" }
+  },
+  "defaults": {
+    "workerAgent": "eng-primary", "plannerAgent": "arch", "reviewerAgent": "rev",
+    "maxActiveTurns": 2, "maxActiveWriters": 2, "maxTasksPerRun": 8,
+    "maxDelegationDepth": 2, "maxRepairAttempts": 0, "maxTransientRetries": 0, "runTimeoutMinutes": 10
+  },
+  "agents": [
+    { "id": "eng-primary", "runtime": "codex-quota", "instructions": "Write docs/note.md.", "capabilities": ["coding"], "policy": "local-development" },
+    { "id": "eng-fallback", "runtime": "fake-fallback", "instructions": "Write docs/note.md.", "capabilities": ["coding"], "policy": "local-development" },
+    { "id": "arch", "runtime": "fake-fallback", "instructions": "Plan.", "capabilities": ["planning"], "policy": "analysis" },
+    { "id": "rev", "runtime": "fake-fallback", "instructions": "Review.", "capabilities": ["review"], "policy": "analysis" }
+  ]
+}

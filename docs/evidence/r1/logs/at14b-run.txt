@@ -1,0 +1,81 @@
+route: direct — the operator asked for the direct route
+WARNING: no enforced write boundary — the claude-code adapter reports write_containment "unsupported" for 2.1.260 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. Claude Code 2.1.260 has no OS sandbox. Executed proof: a SessionStart hook the runtime itself launched wrote outside every granted directory, wrote to /tmp, read a file outside them and reached https://example.com — under `--restricted --permission-mode plan --permission-prompts none` as well as without them. What the flags do bound is the *tool surface* offered to the model (verified: `--restricted --tools …` yields exactly the named tools), which is a permission boundary, not a containment boundary. A kernel-level boundary must come from the environment around the process
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081be-d16e-740c-a8de-cb4ba18e8665
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at14b @ 0b14b3fe852f (main)
+agent eng-primary via claude-authfail (claude-code)
+write boundary: claude-code reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at14b/01a081be-d16e-740c-a8de-cb4ba18e8665/01a081be-d16e-740d-a2a3-4afdc7b6daa4/01a081be-d16e-740e-8c11-2f2a87463033 on branch workforce/01a081be-d16e-740c-a8de-cb4ba18e8665/01a081be-d16e-740d-a2a3-4afdc7b6daa4/01a081be-d16e-740e-8c11-2f2a87463033
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081be-5f30f3ca.sock
+  runtime session 01a081be-d1b9-74f4-8928-389d1adb8c24 started
+  turn started
+  runtime error: {"fatal":false,"message":"Failed to authenticate: OAuth session expired and could not be refreshed","errorClass":"authentication","runtimeError":"authenticatio…
+  tool Write
+  tool Write -> ok
+  changed docs/partial.md
+  turn completed
+  note: requested model "sonnet" but the runtime reports "claude-opus-5[1m]" ran
+  (1 further runtime event(s) kept verbatim as evidence, not shown here)
+worker stopped: process_tree_terminated (process group 80413 is empty after stdin close)
+candidate 18eb20e680cf on workforce/01a081be-d16e-740c-a8de-cb4ba18e8665/01a081be-d16e-740d-a2a3-4afdc7b6daa4/01a081be-d16e-740e-8c11-2f2a87463033: 1 changed file(s), patch 6c524db623ad
+  A docs/partial.md
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 30ms
+candidate diff (0b14b3fe852f → 18eb20e680cf):
+  diff --git a/docs/partial.md b/docs/partial.md
+  new file mode 100644
+  index 0000000000000000000000000000000000000000..6ba0833744b1cf7b28f2a1cc8357f3c7b711c69e
+  --- /dev/null
+  +++ b/docs/partial.md
+  @@ -0,0 +1,3 @@
+  +# Partial
+  +
+  +Half the work, done before the credential expired.
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at14b/runs/01a081be-d16e-740c-a8de-cb4ba18e8665/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+not accepted: the runtime's own terminal record says the turn failed (subtype "success", terminal reason "api_error", error class "authentication", result text "Failed to authenticate: OAuth session expired and could not be refreshed"); a candidate produced by a failed turn is not accepted, whatever the checks report
+WARNING: no enforced write boundary — the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081be-d16e-740c-a8de-cb4ba18e8665
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at14b @ 0b14b3fe852f (main)
+agent eng-fallback via fake-fallback (fake)
+write boundary: fake reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at14b/01a081be-d16e-740c-a8de-cb4ba18e8665/01a081be-d16e-740d-a2a3-4afdc7b6daa4/01a081be-d4df-7628-a037-1494c2fdc4d8 on branch workforce/01a081be-d16e-740c-a8de-cb4ba18e8665/01a081be-d16e-740d-a2a3-4afdc7b6daa4/01a081be-d4df-7628-a037-1494c2fdc4d8
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081be-c6363998.sock
+  runtime session fake-682ac760-910b-4548-9fc2-3c08e8eb63e3 started
+  turn started
+  tool write_file docs/note.md
+  changed docs/note.md
+  tool write_file -> ok
+  message: wrote docs/note.md
+  turn completed
+worker stopped: process_tree_terminated
+candidate 68ef058643de on workforce/01a081be-d16e-740c-a8de-cb4ba18e8665/01a081be-d16e-740d-a2a3-4afdc7b6daa4/01a081be-d4df-7628-a037-1494c2fdc4d8: 1 changed file(s), patch aecc207ac1eb
+  A docs/note.md
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 28ms
+candidate diff (0b14b3fe852f → 68ef058643de):
+  diff --git a/docs/note.md b/docs/note.md
+  new file mode 100644
+  index 0000000000000000000000000000000000000000..77b41b71dbc4f150161381374ac5e4c32e9c5774
+  --- /dev/null
+  +++ b/docs/note.md
+  @@ -0,0 +1,3 @@
+  +# Note
+  +
+  +Written inside the candidate.
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at14b/runs/01a081be-d16e-740c-a8de-cb4ba18e8665/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+accepted: 1/1 required criteria passed with verifier-executed evidence
+runtime fallback: claude-authfail (claude-code) -> fake-fallback (fake) after a authentication failure
+run 01a081be-d16e-740c-a8de-cb4ba18e8665: accepted
+task 01a081be-d16e-740d-a2a3-4afdc7b6daa4: accepted
+  PASS check-1: passed (exit 0, 28ms)
+evidence and manifest: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at14b/runs/01a081be-d16e-740c-a8de-cb4ba18e8665
+unresolved:
+  - this run had no enforced write boundary: the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence It was allowed by an explicit --allow-unconfined-writes, so acceptance here means the configured criteria passed, not that the worker's effects were confined
+EXIT=0

@@ -1,0 +1,4 @@
+{"tasks":[
+  {"key":"ta","objective":"Write docs/note.md with a heading.","dependencies":[],"agentId":"eng-fast"},
+  {"key":"tb","objective":"Write docs/slow.md with a heading, slowly.","dependencies":[],"agentId":"eng-slow"}
+]}

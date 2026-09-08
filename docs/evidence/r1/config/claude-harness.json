@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "runtimes": {
+    "claude-harness": { "adapter": "claude-code", "executable": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/runtimes/claude-at08.mjs", "model": "sonnet", "effort": "low" }
+  },
+  "defaults": {
+    "workerAgent": "eng-h",
+    "plannerAgent": "arch-h",
+    "reviewerAgent": "rev-h",
+    "maxActiveTurns": 2, "maxActiveWriters": 2, "maxTasksPerRun": 8,
+    "maxDelegationDepth": 2, "maxRepairAttempts": 0, "maxTransientRetries": 0, "runTimeoutMinutes": 10
+  },
+  "agents": [
+    { "id": "eng-h", "runtime": "claude-harness", "instructions": "Write docs/note.md.", "capabilities": ["coding"], "policy": "local-development" },
+    { "id": "arch-h", "runtime": "claude-harness", "instructions": "Plan.", "capabilities": ["planning"], "policy": "analysis" },
+    { "id": "rev-h", "runtime": "claude-harness", "instructions": "Review.", "capabilities": ["review"], "policy": "analysis" }
+  ]
+}

@@ -1,0 +1,24 @@
+route: direct — the operator asked for the direct route
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081c1-736a-7212-af8e-06c3dda4fd4e
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at14c @ e4b4e3cef57f (main)
+agent eng-primary via codex-quota (codex)
+write boundary: codex reports write_containment "verified"
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at14c/01a081c1-736a-7212-af8e-06c3dda4fd4e/01a081c1-736a-7213-8afb-c1c431e65c7e/01a081c1-736a-7214-9c47-e6e2531b7f95 on branch workforce/01a081c1-736a-7212-af8e-06c3dda4fd4e/01a081c1-736a-7213-8afb-c1c431e65c7e/01a081c1-736a-7214-9c47-e6e2531b7f95
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081c1-590fb0f8.sock
+  runtime session 01a07a9b-9862-7db2-aac9-31c27a916bc7 started
+  turn started
+  runtime error: {"fatal":false,"message":"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 12th, 2026 1…
+  turn completed
+  (32 further runtime event(s) kept verbatim as evidence, not shown here)
+worker stopped: process_tree_terminated
+candidate is identical to the base e4b4e3cef57f: the worker changed nothing
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 31ms
+write boundary: held in this run — no reported write landed outside the granted paths, and every reported change could be placed inside them
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at14c/runs/01a081c1-736a-7212-af8e-06c3dda4fd4e/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+not accepted: the runtime's own terminal record says the turn failed (status "failed", error class "usage_limit", error "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 12th, 2026 10:36 PM."); a candidate produced by a failed turn is not accepted, whatever the checks report; the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done
+error: agent "eng-fallback" runs the "local-development" profile, which lets the worker change files, but the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence Plan section 8 requires an adapter that cannot enforce a required profile to fail that mode rather than silently broaden it. Bind this agent to a runtime with a verified write boundary, give it the read-only "analysis" profile, or pass --allow-unconfined-writes to accept an unconfined run — which is recorded in the run manifest and cannot be mistaken for a contained one.
+EXIT=2

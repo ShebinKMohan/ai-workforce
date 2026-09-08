@@ -1,0 +1,17 @@
+route: direct — the operator asked for the direct route
+WARNING: no enforced write boundary — the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081b9-bcb0-7685-88cf-52e3fa19e685
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at10-alive @ 1de271eb61e0 (main)
+agent engineer-fake via fake-local (fake)
+write boundary: fake reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at10-alive/01a081b9-bcb0-7685-88cf-52e3fa19e685/01a081b9-bcb0-7686-a1db-2d9c610c0b06/01a081b9-bcb0-7687-a2db-e9d08c6f9f7e on branch workforce/01a081b9-bcb0-7685-88cf-52e3fa19e685/01a081b9-bcb0-7686-a1db-2d9c610c0b06/01a081b9-bcb0-7687-a2db-e9d08c6f9f7e
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081b9-a3a1c778.sock
+  runtime session fake-e9d434ee-184b-4eac-b8d1-76a613d13da9 started
+  turn started
+  tool write_file docs/note.md
+  changed docs/note.md
+  tool write_file -> ok
+  exec hang

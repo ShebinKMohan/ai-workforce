@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "runtimes": {
+    "fake-a": { "adapter": "fake", "executable": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/runtimes/fake-a.mjs", "model": "fake-default", "effort": "low" },
+    "fake-b": { "adapter": "fake", "executable": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/runtimes/fake-b.mjs", "model": "fake-default", "effort": "low" }
+  },
+  "defaults": {
+    "workerAgent": "eng-a",
+    "plannerAgent": "arch-a",
+    "reviewerAgent": "rev-a",
+    "maxActiveTurns": 2,
+    "maxActiveWriters": 2,
+    "maxTasksPerRun": 8,
+    "maxDelegationDepth": 2,
+    "maxRepairAttempts": 0,
+    "maxTransientRetries": 0,
+    "runTimeoutMinutes": 10
+  },
+  "agents": [
+    { "id": "eng-a", "runtime": "fake-a", "instructions": "Write docs/a.md.", "capabilities": ["coding"], "policy": "local-development" },
+    { "id": "eng-b", "runtime": "fake-b", "instructions": "Write docs/b.md.", "capabilities": ["coding"], "policy": "local-development" },
+    { "id": "arch-a", "runtime": "fake-a", "instructions": "Plan.", "capabilities": ["planning"], "policy": "analysis" },
+    { "id": "rev-a", "runtime": "fake-a", "instructions": "Review.", "capabilities": ["review"], "policy": "analysis" }
+  ]
+}

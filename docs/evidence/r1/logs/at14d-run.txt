@@ -1,0 +1,65 @@
+route: direct — the operator asked for the direct route
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081c1-eb9e-7568-9f99-208ce951c784
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at14d @ 188a16b522c6 (main)
+agent eng-primary via codex-quota (codex)
+write boundary: codex reports write_containment "verified"
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at14d/01a081c1-eb9e-7568-9f99-208ce951c784/01a081c1-eb9e-7569-a3d8-9218b6481e6f/01a081c1-eb9e-756a-8f29-fefebdd504f1 on branch workforce/01a081c1-eb9e-7568-9f99-208ce951c784/01a081c1-eb9e-7569-a3d8-9218b6481e6f/01a081c1-eb9e-756a-8f29-fefebdd504f1
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081c1-26ce29d2.sock
+  runtime session 01a07a9b-9862-7db2-aac9-31c27a916bc7 started
+  turn started
+  runtime error: {"fatal":false,"message":"You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 12th, 2026 1…
+  turn completed
+  (32 further runtime event(s) kept verbatim as evidence, not shown here)
+worker stopped: process_tree_terminated
+candidate is identical to the base 188a16b522c6: the worker changed nothing
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 33ms
+write boundary: held in this run — no reported write landed outside the granted paths, and every reported change could be placed inside them
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at14d/runs/01a081c1-eb9e-7568-9f99-208ce951c784/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+not accepted: the runtime's own terminal record says the turn failed (status "failed", error class "usage_limit", error "You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 12th, 2026 10:36 PM."); a candidate produced by a failed turn is not accepted, whatever the checks report; the worker produced no change, so there is no candidate to accept; passing checks on an unchanged base are not evidence that the task was done
+WARNING: no enforced write boundary — the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 1 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs
+run 01a081c1-eb9e-7568-9f99-208ce951c784
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at14d @ 188a16b522c6 (main)
+agent eng-fallback via fake-fallback (fake)
+write boundary: fake reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at14d/01a081c1-eb9e-7568-9f99-208ce951c784/01a081c1-eb9e-7569-a3d8-9218b6481e6f/01a081c1-ecd5-7405-831a-b3f341111326 on branch workforce/01a081c1-eb9e-7568-9f99-208ce951c784/01a081c1-eb9e-7569-a3d8-9218b6481e6f/01a081c1-ecd5-7405-831a-b3f341111326
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081c1-896cb704.sock
+  runtime session fake-b9017015-4645-4d34-970a-76c3a97915b2 started
+  turn started
+  tool write_file docs/note.md
+  changed docs/note.md
+  tool write_file -> ok
+  message: wrote docs/note.md
+  turn completed
+worker stopped: process_tree_terminated
+candidate 20e5cba1bcb0 on workforce/01a081c1-eb9e-7568-9f99-208ce951c784/01a081c1-eb9e-7569-a3d8-9218b6481e6f/01a081c1-ecd5-7405-831a-b3f341111326: 1 changed file(s), patch aecc207ac1eb
+  A docs/note.md
+running 1 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 33ms
+candidate diff (188a16b522c6 → 20e5cba1bcb0):
+  diff --git a/docs/note.md b/docs/note.md
+  new file mode 100644
+  index 0000000000000000000000000000000000000000..77b41b71dbc4f150161381374ac5e4c32e9c5774
+  --- /dev/null
+  +++ b/docs/note.md
+  @@ -0,0 +1,3 @@
+  +# Note
+  +
+  +Written inside the candidate.
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at14d/runs/01a081c1-eb9e-7568-9f99-208ce951c784/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+accepted: 1/1 required criteria passed with verifier-executed evidence
+runtime fallback: codex-quota (codex) -> fake-fallback (fake) after a quota failure
+run 01a081c1-eb9e-7568-9f99-208ce951c784: accepted
+task 01a081c1-eb9e-7569-a3d8-9218b6481e6f: accepted
+  PASS check-1: passed (exit 0, 33ms)
+evidence and manifest: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at14d/runs/01a081c1-eb9e-7568-9f99-208ce951c784
+unresolved:
+  - this run had no enforced write boundary: the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence It was allowed by an explicit --allow-unconfined-writes, so acceptance here means the configured criteria passed, not that the worker's effects were confined
+EXIT=0

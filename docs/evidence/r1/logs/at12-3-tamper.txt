@@ -1,0 +1,45 @@
+route: direct — the operator asked for the direct route
+WARNING: no enforced write boundary — the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence
+  continuing because --allow-unconfined-writes was given; this run's evidence records that its writes were not contained
+acceptance: 2 check(s) from --check flags
+acceptance fixtures (the worker must not rewrite these; new test files are fine): scripts/check.mjs, scripts/tamper.mjs
+run 01a081b2-2baa-7466-9cac-2ab2de78cb3e
+repo /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/repos/at12c @ ddaa4686e9ab (main)
+agent engineer-fake via fake-local (fake)
+write boundary: fake reports write_containment "unsupported" — writes in this run are NOT contained by the runtime
+candidate workspace /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/ws/at12c/01a081b2-2baa-7466-9cac-2ab2de78cb3e/01a081b2-2baa-7467-9900-5d79fed9c3fa/01a081b2-2baa-7468-8aad-e18d8c1fe6ba on branch workforce/01a081b2-2baa-7466-9cac-2ab2de78cb3e/01a081b2-2baa-7467-9900-5d79fed9c3fa/01a081b2-2baa-7468-8aad-e18d8c1fe6ba
+coordination: worker tools on /var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-01a081b2-3a7e35aa.sock
+  runtime session fake-f8466748-f1c6-4d83-9c11-a522f94af54a started
+  turn started
+  tool write_file docs/note.md
+  changed docs/note.md
+  tool write_file -> ok
+  message: wrote docs/note.md
+  turn completed
+worker stopped: process_tree_terminated
+candidate 32733a5923d8 on workforce/01a081b2-2baa-7466-9cac-2ab2de78cb3e/01a081b2-2baa-7467-9900-5d79fed9c3fa/01a081b2-2baa-7468-8aad-e18d8c1fe6ba: 1 changed file(s), patch aecc207ac1eb
+  A docs/note.md
+running 2 acceptance check(s) against the frozen candidate
+  check check-1: passed (exit 0) in 38ms
+  check check-2: integrity_failed (exit 0) in 38ms
+candidate diff (ddaa4686e9ab → 32733a5923d8):
+  diff --git a/docs/note.md b/docs/note.md
+  new file mode 100644
+  index 0000000000000000000000000000000000000000..77b41b71dbc4f150161381374ac5e4c32e9c5774
+  --- /dev/null
+  +++ b/docs/note.md
+  @@ -0,0 +1,3 @@
+  +# Note
+  +
+  +Written inside the candidate.
+artifacts: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12c/runs/01a081b2-2baa-7466-9cac-2ab2de78cb3e/artifacts
+  result.json · summary.md · candidate.patch · checks/ · logs/
+not accepted: criterion "check-2" changed the coordinator's own state root while it ran (evil.txt (created), manifest.json (modified)), so its result is not evidence about the candidate
+run 01a081b2-2baa-7466-9cac-2ab2de78cb3e: failed
+task 01a081b2-2baa-7467-9900-5d79fed9c3fa: failed
+  PASS check-1: passed (exit 0, 38ms)
+  FAIL check-2: changed the coordinator's own state root while it ran (evil.txt (created), manifest.json (modified)), so its result is not evidence about the candidate
+evidence and manifest: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/det-gate-23503/state/at12c/runs/01a081b2-2baa-7466-9cac-2ab2de78cb3e
+unresolved:
+  - this run had no enforced write boundary: the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin: nothing outside the runtime's own tool permissions bounds where a process it starts may write. the fake runtime enforces no write boundary at all: it writes wherever its scenario says, including outside the granted paths, and this adapter only labels such a write withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one, so no run on this runtime has a boundary behind its evidence It was allowed by an explicit --allow-unconfined-writes, so acceptance here means the configured criteria passed, not that the worker's effects were confined
+EXIT=4

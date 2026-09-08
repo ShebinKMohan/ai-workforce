@@ -1,0 +1,4 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"edit_file","path":"docs/note.md","content":"# Note\n\nFinished on the new generation after the crash.\n"},
+ {"action":"claim_done","message":"finished the note"}
+]}

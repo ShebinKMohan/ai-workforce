@@ -1,477 +1,567 @@
-# R1 gate record — AT04, AT05, AT06, AT07, AT09 against real runtimes
+# R1 gate record — the deterministic tests: AT08, AT10, AT11, AT12, AT13, AT14, AT15
 
 Release gate: **R1** · Work package: **WP10 (gate)** · Recorded 8 September 2026 on the author's
-macOS machine against `main` at `744eb74` ("Fix the acceptance-surface module graph and move
-verification out of the state root"), with `dist/` built by `npm run build` from that tree (exit 0).
+macOS machine against `main` at `f901ca1` ("R1 final round: observed containment and a surface that
+refuses when it cannot be established"), with `dist/` built by `npm run build` from that tree
+(exit 0).
 
-This record **supersedes** the earlier 8 September one, kept unchanged in
-[`2026-09-08-second-gate/`](2026-09-08-second-gate/), and the 7 September one, kept unchanged in
-[`2026-09-07-first-gate/`](2026-09-07-first-gate/). The second-gate record found AT05 failing; the
-fix in `92c4516` was landed after it and is confirmed end to end here.
+This record covers the **deterministic** half of the R1 suite. The real-runtime half (AT04, AT05,
+AT06, AT07, AT09) was executed in the 8 September record now kept unchanged — apart from two
+relative links repointed one directory up so they still resolve — in
+[`2026-09-08-third-gate/`](2026-09-08-third-gate/); the earlier records are in
+[`2026-09-08-second-gate/`](2026-09-08-second-gate/) and
+[`2026-09-07-first-gate/`](2026-09-07-first-gate/). **No real runtime was used here and no quota was
+spent:** every runtime in this record is either the shipped fake runtime or a shipped replay fixture
+driven through the shipped CLI.
 
-**Verdict: R1 passes.** All five acceptance tests were executed end to end through the shipped CLI
-(`node dist/cli/index.js`) against real `codex` and `claude` runtimes, and all five passed.
-Everything below is what was executed. Where something was not demonstrated, it says so; nothing is
-recorded as a pass on the strength of a unit test.
+**Verdict: all seven deterministic tests PASS, AT12 included.** Every one was executed end to end
+through `node dist/cli/index.js`. Nothing below is recorded as a pass on the strength of a unit
+test; where a claim rests on a test harness rather than an installed runtime, it says so and says
+exactly what the harness is.
 
 | Test | Verdict | One line |
 | --- | --- | --- |
-| AT04 cross-runtime handoff | **PASS** | a real `authentication` failure on claude-code was handed to codex, which wrote back the class and runtime id it could only have learned from the handed-over findings (exit 0) |
-| AT05 peer clarification | **PASS** | 2 messages, both bodies readable, both delivered `submitted_to_active_turn`, the recipient wrote the peer's invented codename, combined candidate accepted (exit 0) |
-| AT06 bounded repair | **PASS** | 1 attempt + exactly 2 repairs, budget exhaustion reported with its limit and revision, manifest written, no crash (exit 4) |
-| AT07 cancel and resume | **PASS** | SIGINT at 1 of 8 files → exit 130, no surviving process group; resume finished the work and was accepted; a second resume is a no-op |
-| AT09 dependency release | **PASS** | the dependent's turn started at +16.7 s and finished at +31.0 s while the unrelated slow task ran until +176.8 s |
+| AT08 coordination forgery | **PASS** | 9 forged tool-call imitations produced 0 message rows and 0 coordination operations; two identical real submissions under one idempotency key produced 1 row and `duplicate: true`; a bogus token was refused |
+| AT10 crash reconciliation | **PASS** | SIGKILL after dispatch: a live worker made resume refuse (exit 3, "a competing writer must not be spawned"); a dead worker made resume replace gen 1 → gen 2 with the gen-1 branch preserved |
+| AT11 stale results | **PASS** | a callback from a finished attempt, with that attempt's own token, was refused `unauthenticated` by the live coordinator; a turn that exited 0 with the required check PASSING was still not accepted |
+| AT12 containment | **PASS** | a writing profile on a runtime with no boundary fails setup; an observed escape records `enforcedWriteBoundary: false` and refuses acceptance; the state-root guard stays active with `--workspace-root` outside the state root and caught a check that tampered with it |
+| AT13 combined candidate | **PASS** | both branches passed both checks alone; the combined revision failed `check-2` and the run was not accepted |
+| AT14 classification and fallback | **PASS** | recorded `authentication` and recorded `usage_limit` transcripts were classified; the configured fallback ran and carried the failed attempt's candidate revision, patch and findings; unavailable cost is `null`, never `0` |
+| AT15 ownership and replay | **PASS** | a second mutating coordinator was refused for both `run` and `resume` while read-only `status` worked; a record split across two stdout writes became exactly one event; two replays added no operation |
 
 ## Environment
 
 | Fact | Value |
 | --- | --- |
-| Runtimes | `codex-cli 0.147.0` at `/opt/homebrew/bin/codex` (model `gpt-5.6-sol`, effort `low`); `claude 2.1.260` at `~/.local/bin/claude` (model `sonnet`, effort `low`) |
+| Revision under test | `f901ca1d5f1c3a66efbdfd38e90e8420bc6af039` on `main`, working tree clean |
 | Node | v26.8.1 · darwin 25.6.0 arm64 |
 | `npm run build` | exit 0 |
 | `npm run typecheck` | exit 0 ([`logs/npm-typecheck.txt`](logs/npm-typecheck.txt)) |
-| `npm test` | 688 passed / 32 skipped / 0 failed, 54 files ([`logs/npm-test.txt`](logs/npm-test.txt)) |
-| Agent config | [`agents.json`](agents.json) — `maxActiveTurns` 2, `maxActiveWriters` 2, `maxRepairAttempts` 1 (2 for AT06 via [`agents-maxrepair2.json`](agents-maxrepair2.json)), `maxTransientRetries` 0 |
+| `npm test` | 725 passed / 32 skipped / 0 failed, 55 files ([`logs/npm-test.txt`](logs/npm-test.txt)) |
+| Runtimes used | none installed. `fixtures/fake-runtime/fake-runtime.mjs`; `fixtures/claude-code/fake-claude.mjs` replaying `session-auth-failure.real.json`; `fixtures/codex/fake-app-server.mjs` replaying `session-usage-limit.real.jsonl` |
 
-### The Claude Code credential on this machine is still expired
+### What the harness is, stated plainly
 
-`workforce doctor --connect` ([`logs/doctor-connect.json`](logs/doctor-connect.json)):
+Three of these tests need a worker that does something the shipped fake runtime cannot: reach the
+coordination socket, or fail the way a real provider fails. They use the **shipped** replay fixtures,
+wrapped by the small scripts in [`harness/`](harness/). Each wrapper does one thing and then
+`import`s the shipped fixture unchanged:
 
-```
-codex        0.147.0  installed  controllable  auth logged_in   readiness verified_ready
-claude-code  2.1.260  installed  controllable  auth logged_out  readiness controllable
-```
+- [`harness/fake-a.mjs`](harness/fake-a.mjs), [`fake-b.mjs`](harness/fake-b.mjs),
+  [`fake-slow.mjs`](harness/fake-slow.mjs), [`fake-fixer.mjs`](harness/fake-fixer.mjs) — pin one
+  scenario file onto `fake-runtime.mjs`, so different tasks in one planned run can behave
+  differently (`WORKFORCE_FAKE_SCENARIO` is a single process-wide variable and cannot).
+- [`harness/fake-split.mjs`](harness/fake-split.mjs) — writes **one** runtime record as **two**
+  `stdout.write` calls before handing over, which is the only way to give the adapter a genuinely
+  partial stream line.
+- [`harness/claude-at08.mjs`](harness/claude-at08.mjs) and
+  [`claude-at11.mjs`](harness/claude-at11.mjs) — read the `--mcp-config` the coordinator splices
+  into their argv and make **real** coordination calls with the product's own client
+  (`dist/coordination/bridge.js`, `callCoordinator`) against the run's live socket, then replay a
+  minimal Claude Code turn.
+- [`harness/claude-authfail.mjs`](harness/claude-authfail.mjs),
+  [`claude-partial-authfail.mjs`](harness/claude-partial-authfail.mjs),
+  [`codex-quota.mjs`](harness/codex-quota.mjs) — replay the two **recorded** provider failures.
 
-Reproduced outside the product, in the same sanitized environment the adapter builds:
+The coordinator, the adapters, the coordination server, the verifier and the acceptance decision are
+all the shipped code under test. Nothing in `src/` was modified for this gate; `git status` was clean
+at `f901ca1` before and after.
 
-```
-$ env -i PATH=… HOME=… claude --print --model sonnet "reply with the single word OK"
-Not logged in · Please run /login
-```
+### Fixture repositories
 
-This is an environment fact, not a defect in the product under test, and it is stated plainly
-rather than worked around. It is load-bearing once: it is the genuine, unprovoked provider failure
-AT04 is built on. Every test that needs a runtime to *produce* work uses codex.
-
-## Fixtures
-
-Throwaway Git repositories, one per run, built by [`fixtures/mkfixture.sh`](fixtures/mkfixture.sh)
-from one `docs/index.md` plus the check scripts. All checks are in [`fixtures/`](fixtures/) and all
-requests and plan files in [`requests/`](requests/).
-
-- [`fixtures/check.mjs`](fixtures/check.mjs) — `lint` (every `docs/*.md` starts with `# `; passes at
-  base) and `always-fail` (exits 1 unconditionally, the AT06 driver).
-- [`fixtures/agree.mjs`](fixtures/agree.mjs) — AT05. Passes when only one of `docs/glossary.md` and
-  `docs/usage.md` is present, and requires the two to name the same word when both are, so the check
-  bites on the **combined** candidate rather than on either task alone.
-- [`fixtures/notes.mjs`](fixtures/notes.mjs) — AT07. `docs/n01.md`..`docs/n08.md`, three lines each,
-  exact title and `Status: reviewed`. Satisfiable: finishing the deliverable makes it pass.
+One throwaway Git repository per run, built by [`harness/mkrepo.sh`](harness/mkrepo.sh): a
+`docs/index.md` plus `scripts/check.mjs` with three modes — `lint` (every `docs/*.md` starts with
+`# `), `always-fail`, and `agree` (passes when only one of `docs/a.md` / `docs/b.md` exists, and
+requires the two to name the same token when both do, so it bites on the **combined** candidate).
+Extra per-test check scripts are in [`fixtures/`](fixtures/).
 
 ---
 
-## AT05 — peer clarification · PASS
+## AT12 — containment · PASS
 
-> *A planned two-worker run where one worker genuinely needs a fact only the other can produce.*
+> *Unsupported sandbox requirements, writes outside granted paths and attempts to alter
+> coordinator/shared Git state are denied or fail setup honestly.*
 
-Plan ([`requests/at05a-plan.json`](requests/at05a-plan.json)): two tasks, **no dependency between
-them**, so they run at the same time. `t1` invents a codename freely and is told to answer the peer
-that asks for it; `t2` must write that exact codename and is told the only way to learn it is to ask
-`t1`. Both workers are given their own task id and their peer's, by the coordinator's own
-`--- coordination ---` prompt section, not by the plan. The codename is in no file and in neither
-worker's instructions. Acceptance adds `agree.mjs`, which forces the two deliverables to name the
-same word on the combined candidate.
+AT12 failed the two previous gates. It passes now. The three things that had to be true, each
+checked separately:
+
+### 1. The fake adapter no longer claims a containment it does not enforce
+
+The deterministic vehicle for containment used to stamp `verified` on `write_containment` for a
+runtime that enforces nothing — which made every AT12 result meaningless. It now reports the fact.
+A writing profile on it is refused at setup ([`logs/at12-1-refuse.txt`](logs/at12-1-refuse.txt)):
 
 ```
-$ node dist/cli/index.js run --repo <fixture> --agents agents.json \
-    --plan at05a-plan.json --task-file at05-request.txt \
-    --check "node scripts/check.mjs lint" --check "node scripts/agree.mjs" \
+$ WORKFORCE_FAKE_SCENARIO=<edit-ok.json> node dist/cli/index.js run \
+    --repo <fixture> --agents config/fake.json --agent engineer-fake --path direct \
+    --task-file <request> --check "node scripts/check.mjs lint" \
     --state-dir <state> --workspace-root <ws>
-EXIT=0
+EXIT=2
+
+error: agent "engineer-fake" runs the "local-development" profile, which lets the worker change
+files, but the fake adapter reports write_containment "unsupported" for fake-runtime/1 on darwin:
+… the fake runtime enforces no write boundary at all: it writes wherever its scenario says,
+including outside the granted paths, and this adapter only labels such a write
+withinAllowedPaths:false after the runtime reports it. Observing an escape is not preventing one,
+so no run on this runtime has a boundary behind its evidence
 ```
 
-Run `01a07fbb-31a2-714b-aaaa-efac80c23981`. [`logs/at05a-run.txt`](logs/at05a-run.txt).
+The status is a fact about the runtime that no run can raise: `#demonstrate` returns early for an
+`unsupported` capability (`src/adapters/fake/adapter.ts:291-293`), and `write_containment` is never
+handed to it in the first place.
 
-### 1. Coordination message rows: exactly **2**
+### 2. A run whose evidence shows a write outside the granted paths records that the boundary did NOT hold
 
-[`logs/at05a-messages.txt`](logs/at05a-messages.txt), the whole `messages` table:
-
-```json
-{"sender_task_id":"…-31a6-70ac-…","recipient_task_id":"…-31a6-70ab-…","type":"peer_message",
- "body_json":"{\"subject\":\"Codename request\",\"text\":\"Please reply with the codename you invented, verbatim.\"}",
- "delivery_state":"acknowledged","created_at":"2026-09-08T06:36:41.136Z","acknowledged_at":"2026-09-08T06:36:44.005Z"}
-{"sender_task_id":"…-31a6-70ab-…","recipient_task_id":"…-31a6-70ac-…","type":"peer_message",
- "correlation_id":"01a07fbb-ad30-72d9-8eb1-383124329992","body_json":"{\"text\":\"meadow\"}",
- "delivery_state":"acknowledged","created_at":"2026-09-08T06:36:52.623Z","acknowledged_at":"2026-09-08T06:37:08.780Z"}
-```
-
-One question from `t2` to `t1`, one answer back, correlated. Both reached `acknowledged`; in the
-second-gate record the single row was stuck at `submitted` for ever.
-
-### 2. Is the delivered text readable? **Yes.** This is what actually arrived
-
-Taken from the adapters' own raw capture of the JSON-RPC they sent, not from a log line the
-coordinator wrote about itself ([`logs/at05a-turn-steer.txt`](logs/at05a-turn-steer.txt)):
-
-```json
-{"jsonrpc":"2.0","id":4,"method":"turn/steer","params":{
-  "threadId":"01a07fbb-3344-7bd0-af04-9bd31fe23bb9",
-  "expectedTurnId":"01a07fbb-341a-7500-91ea-a81e9a17e1c3",
-  "input":[{"type":"text","text":"[coordinator message 01a07fbb-da0f-7233-92f5-f76b3f241386]\n[peer_message from 01a07fbb-31a6-70ab-9cfc-ea100d7eeab5] meadow"}]}}
-```
-
-and, in the other direction:
+Same fixture, a scenario whose second step really does write `../at12-escape.txt`, run with the
+missing boundary explicitly accepted ([`logs/at12-2-escape.txt`](logs/at12-2-escape.txt)):
 
 ```
-[coordinator message 01a07fbb-ad30-72d9-8eb1-383124329992]
-[peer_message from 01a07fbb-31a6-70ac-83de-341b86b505a8] Codename request: Please reply with the codename you invented, verbatim.
-```
+$ … --check "node scripts/check.mjs lint" --allow-unconfined-writes …
+EXIT=4
 
-The subject is rendered ahead of the text, as `renderMessageBody` intends. The string
-`[object Object]` — what every body was before `92c4516` — occurs **zero times** in either raw
-capture and zero times in the run log.
-
-### 3. Active-turn path or queued? **Active turn, both times**
-
-`coordination.delivered` events ([`logs/at05a-coordination-events.txt`](logs/at05a-coordination-events.txt)):
-
-```json
-{"type":"coordination.delivered","payload_json":"{\"messageId\":\"01a07fbb-ad30-…\",\"state\":\"submitted_to_active_turn\"}","timestamp":"2026-09-08T06:36:44.005Z"}
-{"type":"coordination.delivered","payload_json":"{\"messageId\":\"01a07fbb-da0f-…\",\"state\":\"submitted_to_active_turn\"}","timestamp":"2026-09-08T06:37:08.780Z"}
-```
-
-and on stdout:
-
-```
-  coordination: delivered a message to this worker (submitted_to_active_turn)
-  coordination: delivered a message to this worker (submitted_to_active_turn)
-```
-
-Not `queued`. The `turn/steer` calls above carry `expectedTurnId`, and the message reappears in the
-recipient's transcript 131 ms later as a `userMessage` inside the same turn — so the adapter's
-verified `active_turn_delivery` path was genuinely used while the turn it steers was running. There
-are no `coordination.delivery_failed` events.
-
-### 4. Did the recipient demonstrably use the fact? **Yes**
-
-`t2`'s transcript ([`logs/at05a-t2-timeline.txt`](logs/at05a-t2-timeline.txt)), immediately after the
-message arrived:
-
-```
-atMs=59223 userMessage: [coordinator message 01a07fbb-da0f-…] | [peer_message from …-70ab-…] meadow
-atMs=67751 agentMessage: The peer replied with `meadow`. I’m writing that exact value to the requested file now.
-atMs=69061 fileChange: docs/usage.md
-```
-
-The two deliverables ([`manifests/at05a-t1-candidate.patch`](manifests/at05a-t1-candidate.patch),
-[`manifests/at05a-t2-candidate.patch`](manifests/at05a-t2-candidate.patch)):
-
-```
-+# Glossary          +# Usage
-+Term: meadow        +Uses term: meadow
-```
-
-`meadow` is absent from the plan, from the request, from the fixture repository at its base revision
-`fccb3e7f8f5e` and from its worktree, and from the product's own `src/` and `tests/`. It was invented
-by `t1` at run time and could only have reached `t2` through the coordination channel.
-
-### 5. Did the combined candidate pass? **Yes**
-
-```
-integrating 2 approved artifact(s) and re-running the checks against the combined revision
-  combined check check-1: passed (exit 0)
-  combined check check-2: passed (exit 0)
-accepted: the combined candidate 77456239a978 passed every required criterion with verifier-executed evidence
-run 01a07fbb-31a2-714b-aaaa-efac80c23981: accepted (planned, 2 tasks)
-EXIT=0
-```
-
-`check-2` is `agree.mjs`, which compares the two files. It can only pass because they name the same
-invented word.
-
-### What this run does not prove, stated plainly
-
-At `atMs=59092` `t2`'s own `read_inbox` returned the same body, in the very tool call whose
-`tool_result` triggered the coordinator's push 1 ms later. So run A proves the active-turn push
-delivered readable text into a live turn and that the recipient acted on the codename; it does not
-prove the push was the *only* channel that could have carried it in this particular run.
-
-Three further runs were made to isolate the push, and all three were defeated by worker behaviour
-rather than by the product — they are kept below because a test that did not demonstrate what it set
-out to demonstrate is not quietly dropped.
-
-- **Run B** ([`logs/at05b-run.txt`](logs/at05b-run.txt)) — `t2` forbidden to call `read_inbox`.
-  `t2` never called `send_message` either, so it never asked; `t1` answered anyway at +278.4 s,
-  32 s *after* `t2`'s turn had ended. That reproduces the residual defect, below.
-- **Run C** ([`logs/at05c-run.txt`](logs/at05c-run.txt)) and **run D**
-  ([`logs/at05d-run.txt`](logs/at05d-run.txt)) — `t1` told to send the codename unasked. In both
-  runs `t1` made **zero** tool calls of any kind and reported, falsely, that it had tried. Zero
-  message rows, so there was nothing for the product to deliver.
-
-### A residual defect the fix did not reach: a message that arrives after the recipient's turn
-
-Run B, from its own event timeline ([`logs/at05b-timeline.txt`](logs/at05b-timeline.txt)) and message
-table ([`logs/at05b-messages.txt`](logs/at05b-messages.txt)):
-
-```
-+  246.3s  runtime.turn_completed   t2      <- the recipient's only attempt ends
-+  247.7s  run.accepted             t2
-   (+278.4s)                                <- t1 sends {"text":"quartz"} to t2
-```
-
-```json
-{"body_json":"{\"text\":\"quartz\"}","delivery_state":"submitted",
- "created_at":"2026-09-08T06:46:14.934Z","acknowledged_at":null}
-```
-
-The row stays `submitted` for ever, `acknowledged_at` stays null, the run's events contain **no**
-`coordination.delivered` and **no** `coordination.delivery_failed` for it, the sender's
-`send_message` returned success, and the run printed **no `unresolved` section at all**. `92c4516`
-fixed delivery *during* a live turn; a message whose recipient has already finished is still
-accepted, still reported as sent, and still silently dropped. This does not block R1 — AT05 passes —
-but it is a real defect.
-
-### The "peer task id is not registered" complaints are worker confabulation
-
-Three runs produced an agent message claiming the coordinator had refused a peer id — the same claim
-the second-gate record saw and doubted. The raw captures settle it
-([`logs/at05-confabulation.txt`](logs/at05-confabulation.txt)):
-
-```
-## run A, t2 — the claim precedes the first tool call of any kind, which then succeeded
-  atMs=16778 CLAIM: I sent the required request first, but the coordinator’s task ID is not currently
-                    registered in the peer-messaging service.
-  atMs=31450 TOOLCALL send_message status=completed
-
-## run C, t1 — "the required peer message was attempted immediately, but the coordinator reports
-##             that task ID is not registered"; mcpToolCall items in the whole session: 0
-```
-
-No `send_message` was ever refused, because none was ever issued. This is model behaviour on four
-samples, not a coordination-server defect.
-
----
-
-## AT04 — cross-runtime handoff · PASS
-
-> *A task that fails on one runtime with a classifiable provider failure is handed to the other via
-> the portable packet, and the second runtime's result demonstrably uses the handed-over findings.*
-
-**What was provoked: nothing.** The first runtime is Claude Code, whose OAuth session is genuinely
-expired (see Environment). The request ([`requests/at04-request.txt`](requests/at04-request.txt))
-asks the worker to write, on line 2 of `docs/handoff.md`, the failure class and runtime id of the
-previous attempt *exactly as its own briefing states them*, and `Continued after: none` if it was
-given no such section. Neither `authentication` nor `claude-local` appears in the request or in the
-fixture repository at its base revision `bbb0f3e2bb14`.
-
-```
-$ node dist/cli/index.js run --repo <fixture> --agents agents.json --agent engineer-claude \
-    --path direct --task-file at04-request.txt --check "node scripts/check.mjs lint" \
-    --allow-unconfined-writes --state-dir <state> --workspace-root <ws>
-
-agent engineer-claude via claude-local (claude-code)
-  runtime error: {"message":"Failed to authenticate: OAuth session expired and could not be refreshed",
-                  "errorClass":"authentication","runtimeError":"authentication_failed"}
-not accepted: the runtime's own terminal record says the turn failed … error class "authentication"
-agent engineer-codex via codex-local (codex)
+  changed <ws>/…/at12-escape.txt (OUTSIDE the granted paths; not part of the candidate)
   check check-1: passed (exit 0) in 31ms
-runtime fallback: claude-local (claude-code) -> codex-local (codex) after a authentication failure
-run 01a07fd0-2f1b-74c5-ab24-501ea9b53825: accepted
-EXIT=0
+not accepted: the worker wrote outside its granted paths (…/at12-escape.txt);
+              an observed escape is not an accepted run
 ```
 
-[`logs/at04-run.txt`](logs/at04-run.txt). The classification and selection events:
+The check **passed** and the run was still refused. The manifest
+([`receipts/at12-escape-result.json`](receipts/at12-escape-result.json)) records the run-level claim
+from what the run observed, not from the capability table:
 
 ```json
-{"type":"runtime.failure_classified","payload":{"failureClass":"authentication","retryable":false,
-  "signal":"runtime tag \"authentication_failed\"",
-  "userAction":"the runtime is signed out or its stored credential expired; re-authenticate that runtime yourself …"}}
-{"type":"runtime.fallback_selected","payload":{"fromRuntimeId":"claude-local","toRuntimeId":"codex-local",
-  "failureClass":"authentication","reason":"codex-local (codex) is configured, verified ready and permitted …"}}
+"writeObservation": {
+  "enforcedWriteBoundary": false,
+  "expectedWriteBoundary": false,
+  "boundaryFindings": [
+    "the runtime enforces no write boundary (write_containment \"unsupported\"), so there was never one to hold",
+    "the worker wrote outside the granted paths (…/at12-escape.txt)"
+  ]
+}
 ```
 
-The brief the second runtime received ([`logs/at04-handoff-brief.txt`](logs/at04-handoff-brief.txt))
-carries the packet's contents — original request verbatim, task contract version 1, where the work
-stands, executed checks, scope limits — and:
+A clean run on the same runtime is accepted (exit 0) and still records
+`enforcedWriteBoundary: false` with the one finding that applies
+([`logs/at12-4-clean.txt`](logs/at12-4-clean.txt)) — an unproven boundary is recorded as unproven
+rather than as a quiet pass.
+
+### 3. The coordinator state-root guard stays active when `--workspace-root` is outside the state root
+
+This is the configuration in which the guard used to switch itself off: the old predicate required a
+`workspaces/` directory inside the state root, which this configuration never creates. The state
+root really has none —
 
 ```
-## Findings from the previous attempt
-- [info] the previous attempt stopped with a authentication failure on runtime "claude-local"
-  (claude-code); it is being continued on "codex-local" (codex) (request:attempt:01a07fd0-2f1b-74c7-…)
+$ ls <state>/at12b
+coordinator.lock.sqlite   manifest.json   runs   state.sqlite
 ```
 
-and what it produced ([`manifests/at04-candidate.patch`](manifests/at04-candidate.patch)):
+— and the guard is on anyway
+([`receipts/at12-escape-check-receipt.json`](receipts/at12-escape-check-receipt.json)):
+
+```json
+"stateRootGuard": { "stateRoot": "<state>/at12b", "checked": true, "violations": [],
+                    "scope": "complete" }
+```
+
+It is not merely on, it bites. A third run gives the repository a second check
+([`fixtures/tamper.mjs`](fixtures/tamper.mjs)) that reaches the state root **by absolute path**,
+which no choice of working directory can prevent, and exits 0
+([`logs/at12-3-tamper.txt`](logs/at12-3-tamper.txt)):
 
 ```
-+# Handoff
-+Continued after: authentication failure on claude-local
-```
-
-That line can only have come from the handed-over findings. **AT04 passes.**
-
-**The packet is still not persisted.** `<runDir>/handoff/` does not exist after this run, so the
-`writeFileSync` in `src/recovery/continue.ts:96-105` still throws `ENOENT` into a silent `catch`.
-The packet is built, validated and transported in memory — which is why AT04 passes — but the
-artifact is not on disk. Unchanged from the second-gate record.
-
----
-
-## AT06 — bounded repair · PASS
-
-> *A deliberately unsatisfiable check drives repair, stops at maxRepairAttempts, reports the budget
-> exhausted, writes a manifest, no crash.*
-
-`maxRepairAttempts: 2` ([`agents-maxrepair2.json`](agents-maxrepair2.json)); the unsatisfiable check
-is `node scripts/check.mjs always-fail`, which exits 1 unconditionally and says so on stderr rather
-than looking fixable. Nothing was injected: the worker really does satisfy `check-1` each time and
-really cannot satisfy `check-2`.
-
-```
-  check check-1: passed (exit 0)   check check-2: failed (exit 1)
-not accepted: criterion "check-2" failed with exit 1
-task "t1" (repair 1): …            check check-2: failed (exit 1)
-task "t1" (repair 2): …            check check-2: failed (exit 1)
-task "t1": repair budget exhausted after 2 repair(s); the repair budget for task 01a07fbe-a27a-… is
-           exhausted after 2 repair attempt(s) (limit 2); 1 check(s) still fail against 2adc48a47e6b
-not accepted: task "t1" did not reach acceptance, so there was nothing to integrate
-run 01a07fbe-a277-70b7-a824-235140ee3a35: failed (planned, 1 tasks)
+  check check-1: passed (exit 0) in 38ms
+  check check-2: integrity_failed (exit 0) in 38ms
+not accepted: criterion "check-2" changed the coordinator's own state root while it ran
+              (evil.txt (created), manifest.json (modified)), so its result is not evidence
+              about the candidate
 EXIT=4
 ```
 
-Exactly one initial attempt and exactly two repairs; the budget is reported with its limit, its count
-and the revision the checks still fail against. Three attempt generations exist and the run reached
-`finish()` ([`logs/at06-attempts.txt`](logs/at06-attempts.txt)):
+A check that exits 0 and tampers is `integrity_failed`, not `passed`
+([`receipts/at12-tamper-check-receipt.json`](receipts/at12-tamper-check-receipt.json)). The default
+configuration, with the workspace root inside the state root, guards too
+([`receipts/at12-default-ws-check-receipt.json`](receipts/at12-default-ws-check-receipt.json),
+`checked: true`).
 
-```
-{"gen":1,"state":"superseded"}  {"gen":2,"state":"superseded"}  {"gen":3,"state":"completed"}
-```
-
-The manifest [`manifests/at06-planned-result.json`](manifests/at06-planned-result.json) was written at
-`<runDir>/planned-result.json`. No crash. [`logs/at06-run.txt`](logs/at06-run.txt).
-
-The planned path still prints `artifacts: <runDir>/artifacts` followed by
-`result.json · summary.md · candidate.patch · checks/ · logs/`, though on the planned path those
-three files live under `artifacts/tasks/<attemptId>/` and the run manifest is `planned-result.json`,
-which the line never names. Unchanged minor defect.
+**AT12 passes.**
 
 ---
 
-## AT07 — cancel and resume · PASS
+## AT08 — forged and duplicate coordination calls · PASS
 
-> *SIGINT mid-turn (exit 130, no surviving process group), then resume drives the run to a terminal
-> state with prior work preserved and no duplicate accepted writer.*
+> *Printed prose/arbitrary JSON pretending to call a coordination tool produces no operation.
+> Duplicate real submissions create one logical message.*
 
-Eight files, written one at a time; the driver
-([`fixtures/at07-interrupt-driver.sh`](fixtures/at07-interrupt-driver.sh)) polls the candidate
-worktree every 200 ms and sends `SIGINT` the moment between one and seven of the eight exist, so the
-interrupt lands with the deliverable genuinely half-written.
+### Forged calls produce nothing
 
-### Cancellation
-
-```
-candidate workspace observed at 2026-09-08T06:42:10.3Z
-observed 1 of 8 note file(s) in the candidate at 2026-09-08T06:42:33.3Z
-index.md n01.md
-coordinator child pids before SIGINT: 65449
-sending SIGINT to 65266 at 2026-09-08T06:42:33.3Z
-EXIT=130
-```
+The worker emits the nine lines of the shipped
+[`fixtures/bridge/at08-noise.txt`](fixtures/at08-noise.txt) as plain assistant messages — prose
+announcing a `send_message`, bare tool JSON, a JSON-RPC frame with the wrong version, an XML-flavoured
+imitation, a fenced fragment — and then claims it notified its peer
+([`logs/at08-run.txt`](logs/at08-run.txt), scenario
+[`scenarios/at08-noise.json`](scenarios/at08-noise.json)):
 
 ```
-interrupted: work preserved on the candidate branch, nothing accepted
-run 01a07fc0-b452-71a9-9e73-d9e83b060fc7: interrupted
-task 01a07fc0-b452-71aa-87ab-b61bb137d0f0: cancelled
-unresolved:
-  - the run was interrupted before acceptance; resume creates a new attempt generation for this task
-```
-
-No surviving process group ([`logs/at07-process-group.txt`](logs/at07-process-group.txt)): coordinator
-65266 gone, worker 65449 gone, `ps -eo pid,pgid | awk '$2==65449'` and `$2==65266` both empty, and no
-process still holds the candidate workspace.
-
-### Resume
-
-```
-$ node dist/cli/index.js resume 01a07fc0-b452-71a9-9e73-d9e83b060fc7 --agents agents.json --state-dir <state>
-  check check-1: passed (exit 0)
-accepted: 1/1 required criteria passed with verifier-executed evidence
-  replace 01a07fc0-b452-71ab-… (gen 1 -> 2 as 01a07fc2-7200-…) — the recorded worker process 65449
-    is gone; session 01a07fc0-b836-… cannot be rejoined, so a new generation may take over
-task 01a07fc0-b452-71aa-…: accepted (attempt 01a07fc2-7200-…, generation 2)
-run 01a07fc0-b452-71a9-…: ready_for_review
+  message: I will now call send_message with {"to":"peer-task","body":"hello"} to notify my peer.
+  message: {"jsonrpc":"1.0","id":91,"method":"tools/call","params":{"name":"send_message",…}}
+  message: <tool_call>send_message({"body":"xml-flavoured imitation"})</tool_call>
+  message: I already notified my peer through send_message (see above).
 EXIT=0
 ```
 
-`resume` continues the run rather than reporting a plan, and the run reaches the terminal state
-`ready_for_review`. [`logs/at07-resume-1.txt`](logs/at07-resume-1.txt).
-
-**Prior work preserved:** both candidate branches survive in the fixture repository
-([`logs/at07-branches.txt`](logs/at07-branches.txt)); the gen-1 branch still holds its checkpoint
-commit `dd8251d` for `docs/n01.md` alone, and the gen-2 branch holds all eight notes.
-
-**No duplicate accepted writer:** one accepted attempt (gen 2, `completed`); gen 1 is `superseded`
-([`logs/at07-attempts.txt`](logs/at07-attempts.txt)). A second `resume` on the terminal run creates no
-attempt at all ([`logs/at07-resume-2.txt`](logs/at07-resume-2.txt)):
+The state store afterwards ([`logs/at08-db.txt`](logs/at08-db.txt)):
 
 ```
-run …: ready_for_review (ownership epoch 1)
-reconciled 2 attempts, 0 open operations
-  preserve … (gen 1) — run already ready_for_review; recorded work is preserved
-  preserve … (gen 2) — run already ready_for_review; recorded work is preserved
+messages rows: 0
+operations rows: [{"kind":"dispatch_worker","n":1}]
+coordination events: [{"type":"coordination.attached","n":1}]
+```
+
+Zero messages, and the only operation is the run's own dispatch.
+
+### Two real submissions under one key are one message
+
+The fake runtime speaks no MCP, so the second half needs a worker that can actually reach the
+socket. [`harness/claude-at08.mjs`](harness/claude-at08.mjs) reads the `--mcp-config` the
+coordinator spliced into its argv and calls the coordinator through the product's own client, twice
+with identical parameters including `idempotencyKey: "at08-duplicate-key"`, then once more with a
+token it made up ([`logs/at08-bridge-calls.jsonl`](logs/at08-bridge-calls.jsonl)):
+
+```json
+"first":  {"ok": true,  "result": {"messageId": "01a081b9-00fb-7361-a3f9-884ae99a826b", "duplicate": false}}
+"second": {"ok": true,  "result": {"messageId": "01a081b9-00fb-7361-a3f9-884ae99a826b", "duplicate": true}}
+"forged": {"ok": false, "error": {"code": "unauthenticated",
+                                  "message": "this connection is not a registered worker session"}}
+```
+
+Same id, `duplicate: true`, and exactly one row in the store
+([`logs/at08b-messages.txt`](logs/at08b-messages.txt)):
+
+```
+message rows: 1
+{"id":"01a081b9-00fb-7361-…","idempotency_key":"01a081b9-006e-70ec-… at08-duplicate-key",
+ "body_json":"{\"subject\":\"status\",\"text\":\"the one logical message\"}"}
+```
+
+The key is namespaced by sender, so one worker cannot collide with another's key. The run itself was
+accepted, exit 0 ([`logs/at08b-run.txt`](logs/at08b-run.txt)).
+
+---
+
+## AT10 — crash after dispatch, before receipt · PASS
+
+> *Crash after dispatch intent and before receipt reconciles actual processes/session state; it does
+> not blindly launch a competing writer.*
+
+[`harness/at10-driver.sh`](harness/at10-driver.sh) starts a run whose worker writes one file and then
+hangs, waits for the hang to be observed on stdout, and sends **SIGKILL** to the coordinator — no
+signal handler, no cleanup, no receipt. Both branches of the reconciliation rule were exercised.
+
+### The worker is still alive → refuse, and say what to do
+
+[`logs/at10-alive-driver.txt`](logs/at10-alive-driver.txt):
+
+```
+coordinator children before SIGKILL: 64097
+log tail before SIGKILL:   tool write_file -> ok / exec hang
+SIGKILLed coordinator 63922 at 2026-09-08T15:53:52Z
+surviving worker pids:
+64097  1  node …/fake-runtime.mjs --scenario …/hang.json
+```
+
+`resume` on that run ([`logs/at10-alive-resume.txt`](logs/at10-alive-resume.txt)):
+
+```
+$ node dist/cli/index.js resume 01a081b9-bcb0-… --agents config/fake.json \
+    --allow-unconfined-writes --state-dir <state>
+EXIT=3
+
+  isolate 01a081b9-bcb0-7687-… (task …, gen 1) — the recorded worker process 64097 is still alive;
+    a competing writer must not be spawned into <ws>/…
+blocked: 1 interrupted attempt cannot be classified safely; the old work is isolated rather than replaced
+action required: … Inspect <ws>/… and process 64097, then either stop that worker and resume
+                 again, or start a new run.
+```
+
+Exit 3 is "user action required". No second attempt was created.
+
+### The worker is provably gone → replace, preserving the first generation's work
+
+Same crash with the worker's process group killed too
+([`logs/at10-gone-driver.txt`](logs/at10-gone-driver.txt)), then resume
+([`logs/at10-gone-resume.txt`](logs/at10-gone-resume.txt)):
+
+```
+  replace 01a081ba-61a9-73c5-… (task …, gen 1 -> 2 as 01a081ba-9865-…) — the recorded worker
+    process 66338 is gone; session fake-76920dc5-… cannot be rejoined, so a new generation may take over
+task …: accepted (attempt 01a081ba-9865-…, generation 2)
+run …: ready_for_review
+EXIT=0
+```
+
+The gen-1 branch still holds its checkpoint commit for the half-written file, beside the gen-2
+branch that finished the work:
+
+```
+$ git -C <fixture> branch -a
++ workforce/…/01a081ba-61a9-73c5-…    <- generation 1, preserved
++ workforce/…/01a081ba-9865-740c-…    <- generation 2, accepted
+```
+
+The decision comes from process identity (pid **and** start time **and** spawn token), not from a
+pid alone: the same run, once its worker was stopped, reconciled from `isolate` to `replace`
+([`logs/at10-alive-resume2.txt`](logs/at10-alive-resume2.txt)) and the gen-1 attempt was marked
+`superseded` ([`logs/at10-alive-attempts.txt`](logs/at10-alive-attempts.txt)).
+
+---
+
+## AT11 — stale results and exit-as-acceptance · PASS
+
+> *Stale attempt callbacks cannot replace current results; a runtime process exit alone cannot mark
+> acceptance.*
+
+### A process exit cannot mark acceptance, even with the checks passing
+
+The sharpest form: the worker writes the deliverable, claims done, and exits **0** mid-turn. The
+required check then **passes** ([`logs/at11b-run.txt`](logs/at11b-run.txt), scenario
+[`scenarios/write-then-exit0.json`](scenarios/write-then-exit0.json)):
+
+```
+  runtime error: {"fatal":true,"reason":"process_exited","exitCode":0,"signal":null,"expected":false}
+  check check-1: passed (exit 0) in 35ms
+not accepted: the runtime process ended before the turn completed (reason process_exited, exit 0);
+              a candidate produced by a crashed turn is not accepted
+EXIT=4
+```
+
+The weaker form, a claim of completion with nothing written
+([`logs/at11a-run.txt`](logs/at11a-run.txt)), is refused on three independent grounds at once: the
+check failed, the turn crashed, and "passing checks on an unchanged base are not evidence that the
+task was done".
+
+### A callback from a finished attempt is refused by the live coordinator
+
+A planned run with two tasks: the fast one is
+[`harness/claude-at11.mjs`](harness/claude-at11.mjs), which leaves behind a **detached** child
+([`harness/stale-caller.mjs`](harness/stale-caller.mjs)) holding that attempt's own socket path and
+token; the slow one sleeps 30 s so the run's bridge is still open when the child fires 12 s later.
+[`logs/at11-stale-calls.jsonl`](logs/at11-stale-calls.jsonl):
+
+```json
+{"at":"2026-09-08T15:56:39.742Z",
+ "calls":{"send_message":  {"ok":false,"error":{"code":"unauthenticated","message":"this connection is not a registered worker session"}},
+          "report_result": {"ok":false,"error":{"code":"unauthenticated","message":"this connection is not a registered worker session"}}}}
+```
+
+The timing is from the run's own records ([`logs/at11c-db.txt`](logs/at11c-db.txt)): that attempt
+ended at `15:56:27.898Z`, the callback arrived at `15:56:39.742Z`, and the run did not finish until
+`15:56:58.153Z` — so the coordinator was alive and listening and still refused it. `messages` holds
+**0** rows. The run's result came from the executed checks and the re-checked combination, and was
+accepted, exit 0 ([`logs/at11c-run.txt`](logs/at11c-run.txt)).
+
+---
+
+## AT13 — the combined candidate must itself be checked · PASS
+
+> *Successful checks on individual branches cannot mark the combined candidate accepted without
+> checking that combined candidate.*
+
+Two independent tasks on two runtimes ([`config/two-fakes.json`](config/two-fakes.json), plan
+[`config/at13.json`](config/at13.json)): one writes `docs/a.md` with `Token: alpha`, the other
+`docs/b.md` with `Token: beta`. Both required checks pass on each branch **alone** — `agree` returns
+0 when only one of the two files is present — and the combination is where they contradict each
+other ([`logs/at13-run.txt`](logs/at13-run.txt)):
+
+```
+  check check-1: passed (exit 0) in 34ms      <- branch tb
+  check check-2: passed (exit 0) in 34ms
+  check check-1: passed (exit 0) in 31ms      <- branch ta
+  check check-2: passed (exit 0) in 33ms
+accepted: 2/2 required criteria passed with verifier-executed evidence   (x2, per branch)
+
+integrating 2 approved artifact(s) and re-running the checks against the combined revision
+  combined check check-1: passed (exit 0)
+  combined check check-2: failed (exit 1)
+not accepted: the combined candidate is not established: "check-2" reported "failed" against the
+              combined revision a8c01bfb6e03f4d1ea3653132efbd7cde3ca07b8
+run …: failed (planned, 2 tasks)
+  PASS ta: …
+  PASS tb: …
+EXIT=4
+```
+
+Two accepted tasks, and the run still fails, because acceptance of the delivered thing is decided
+against the delivered thing. [`receipts/at13-planned-result.json`](receipts/at13-planned-result.json).
+
+---
+
+## AT14 — classification, fallback, and honest cost · PASS
+
+> *Provider/login/quota/tool errors are classified; configured fallback preserves work; unavailable
+> cost is not reported as zero.*
+
+### Classified, from recorded provider failures
+
+`authentication`, replaying `fixtures/claude-code/session-auth-failure.real.json` (recorded verbatim
+from claude 2.1.260) — [`logs/at14-events.txt`](logs/at14-events.txt):
+
+```json
+{"failureClass":"authentication","retryable":false,"signal":"runtime tag \"authentication_failed\"",
+ "userAction":"the runtime is signed out or its stored credential expired; re-authenticate that
+ runtime yourself (for example \"codex login\" or \"claude /login\") and run again — no retry can fix it"}
+```
+
+`quota`, replaying `fixtures/codex/session-usage-limit.real.jsonl` (recorded from codex-cli 0.147.0
+on an account genuinely over its limit) — [`logs/at14d-run.txt`](logs/at14d-run.txt):
+
+```json
+{"failureClass":"quota","retryable":false,"signal":"runtime tag \"usage_limit\"",
+ "userAction":"the account hit a usage or budget limit; wait for the window to reset or raise the
+ limit on the account, then run again — retrying now only spends more of the same budget"}
+```
+
+In both runs the check on the unchanged base **passed** and the attempt was still refused: *"a
+candidate produced by a failed turn is not accepted, whatever the checks report"*.
+
+### The fallback is configured, and it preserves the work
+
+[`logs/at14b-run.txt`](logs/at14b-run.txt) uses a scenario derived from the recorded auth failure
+with one genuine partial write spliced in before the recorded terminal error
+([`scenarios/claude-partial-authfail.json`](scenarios/claude-partial-authfail.json)), so there is
+work to preserve. The failed attempt's candidate `18eb20e680cf` survives on its own branch
+(`docs/partial.md`), and the brief the second runtime received names it:
+
+```
+## Where the work stands
+Base revision: 0b14b3fe852f…
+Candidate revision: 18eb20e680cf…
+Patch: git-diff at <runDir>/artifacts/candidate.patch (content hash 6c524db6…). It is already
+applied in your workspace.
+
+## Findings from the previous attempt
+- [info] the previous attempt stopped with a authentication failure on runtime "claude-authfail"
+  (claude-code); it is being continued on "fake-fallback" (fake)
+
+Declaring the work done does not accept it: only the executed checks above decide.
+```
+
+The selection itself is recorded with its refusals:
+`{"fromRuntimeId":"claude-authfail","toRuntimeId":"fake-fallback","failureClass":"authentication",
+"reason":"fake-fallback (fake) is configured, verified ready and permitted by the
+\"local-development\" profile","refused":["claude-authfail: this is the runtime whose attempt failed"]}`.
+
+### Unavailable cost is `null`, never `0`
+
+[`receipts/at14-first-attempt-result.json`](receipts/at14-first-attempt-result.json) and
+[`at14-fallback-attempt-result.json`](receipts/at14-fallback-attempt-result.json):
+
+```json
+"usage": {"status":"measured","inputTokens":0,"outputTokens":0,"costUsd":null,
+          "source":"claude-code: the turn made no provider call (duration_api_ms is 0 and no tokens
+                    were counted), so the reported total_cost_usd is not a measurement
+                    (cost unavailable, reported as null rather than zero)"}
+"usage": {"status":"unavailable","inputTokens":null,"outputTokens":null,"costUsd":null,
+          "source":"fake: fake runtime has no model usage"}
+```
+
+and for the codex attempt, `{"status":"unavailable", …, "source":"codex: no usage was reported for
+this turn"}`. No zero anywhere it would be a lie.
+
+---
+
+## AT15 — one mutating owner, read-only status, no duplication on replay · PASS
+
+> *A second mutating coordinator cannot take ownership; read-only status works; partial stream lines
+> and event replay do not duplicate operations.*
+
+### One mutating owner
+
+While a run held the state root, a second `run` and a second `resume` were issued against the same
+`--state-dir` ([`logs/at15-second-run.txt`](logs/at15-second-run.txt),
+[`logs/at15-second-resume.txt`](logs/at15-second-resume.txt)):
+
+```
+error: coordinator lock <state>/coordinator.lock is held by pid 82576 on Shebins-MacBook-Pro.local
+since 2026-09-08T16:00:10.327Z (holder process is alive); use "workforce status" for read-only inspection
+  only one mutating coordinator may own a state root; …                     EXIT=4   (run)
+  another coordinator owns this state root; stop it (or wait for it) …      EXIT=3   (resume)
+```
+
+### Read-only status works during the run
+
+[`logs/at15-status-live.txt`](logs/at15-status-live.txt), issued while that same run held the lock:
+
+```
+$ node dist/cli/index.js status 01a081bf-90ae-… --state-dir <state>
+run 01a081bf-90ae-…: running
+tasks:  01a081bf-90ae-70fa-… [running] gen 1 — Add docs/note.md with a heading.
+events: 18 recorded; last 10: … runtime.tool_call / runtime.file_change / runtime.command_exec
+EXIT=0
+```
+
+### A partial stream line is one event, not two
+
+[`harness/fake-split.mjs`](harness/fake-split.mjs) writes one record as two `stdout.write` calls
+150 ms apart, then hands over to the shipped fake runtime
+([`logs/at15b-split.txt`](logs/at15b-split.txt)):
+
+```
+assistant_message events: 2
+  text: ONE record split across TWO stdout writes      <- the two halves, joined
+  text: wrote docs/note.md                             <- the scenario's own message
+operations: [{"kind":"dispatch_worker","state":"completed"}]
+attempts: 1
+```
+
+The noisy run in [`logs/at15-run.txt`](logs/at15-run.txt) additionally fed the adapter a non-JSON
+line and a JSON line with no event name, twice each, plus an event kind it does not know; all five
+were kept verbatim as `runtime.raw` (`{"reason":"missing event name", …}`), the stream survived, and
+the run was accepted with one operation and one attempt.
+
+### Replay adds nothing
+
+Two `resume` calls on the terminal run ([`logs/at15-replay-1.txt`](logs/at15-replay-1.txt),
+[`logs/at15-replay-2.txt`](logs/at15-replay-2.txt)):
+
+```
+reconciled 1 attempt, 0 open operations
+  preserve 01a081bf-90ae-70fb-… (gen 1) — run already ready_for_review; recorded work is preserved
 run … already reached ready_for_review; nothing to resume and recorded work is preserved
-EXIT=0
+  operations: 1 attempts: 1 messages: 0        (unchanged after each replay)
 ```
 
 ---
 
-## AT09 — dependency release · PASS
+## Two further probes of this round's theme
 
-> *A plan with fast, dependent(fast) and an unrelated slow task; did the dependent start WHILE the
-> slow task was still running?*
+Not acceptance tests of their own, but the other half of what this round changed, so they were run
+through the same CLI.
 
-Plan ([`requests/at09-plan.json`](requests/at09-plan.json)): `fast` (no dependencies), `dependent`
-(`["fast"]`), `slow` (no dependencies; it must run `sleep 150` before writing anything).
-`maxActiveTurns` and `maxActiveWriters` are both 2, so at most two tasks can be in a turn at once.
-
-Measured from the run's own event timestamps, `t0` = first `task.created`
-([`logs/at09-timeline.txt`](logs/at09-timeline.txt)):
+**A gutted acceptance fixture refuses.** A worker replaces `scripts/check.mjs` with `process.exit(0)`
+on a repository whose base genuinely fails the check
+([`logs/surface-gut.txt`](logs/surface-gut.txt)):
 
 ```
-+   0.0s  task.created           fast
-+   0.0s  task.created           slow
-+   1.8s  turn.started           slow
-+   2.0s  turn.started           fast
-+  14.8s  runtime.turn_completed fast
-+  15.8s  runtime.stopped        fast
-+  16.2s  task.created           dependent
-+  16.7s  turn.started           dependent      <-- released here
-+  31.0s  runtime.turn_completed dependent
-+  32.0s  runtime.stopped        dependent
-+ 176.8s  runtime.turn_completed slow           <-- slow was still running the whole time
-+ 177.8s  runtime.stopped        slow
+  check check-1: passed (exit 0) in 31ms
+not accepted: criterion "check-1" passed (exit 0, 31ms), but the candidate changed the files this
+              criterion executes (M scripts/check.mjs), so the result does not establish the
+              criterion the base revision defined                                          EXIT=4
 ```
 
-**Yes. The dependent started while the unrelated slow task was still running** — its turn began at
-+16.7 s and `slow` did not finish until +176.8 s, so the dependent both started and finished
-(+31.0 s) inside the slow task's turn, with 145.8 s to spare. The slot it used was the one `fast`
-released 0.9 s earlier; the cap of two active turns was respected throughout. The combined candidate
-`a95cf81fb23d` passed the re-run check and the run was accepted, `EXIT=0`.
-[`logs/at09-run.txt`](logs/at09-run.txt),
-[`manifests/at09-planned-result.json`](manifests/at09-planned-result.json).
+**An acceptance surface that cannot be resolved refuses.** A check that imports a module named by
+`process.env` ([`fixtures/computed-check.mjs`](fixtures/computed-check.mjs)) exits 0 and is still
+refused ([`logs/surface-computed.txt`](logs/surface-computed.txt)):
 
-**A claim this fixture cannot support.** `dependent` wrote `Token: harbour`, matching what `fast`
-wrote — but the plan text itself dictates `Token: harbour` to `fast`, and that text is quoted back to
-`dependent` twice in its own prompt (in the coordination peer list and in the dependency section).
-So this run demonstrates the scheduler, which is what AT09 asks; it does **not** demonstrate that the
-dependent consumed its prerequisite's artifact. The dependency briefing
-([`logs/at09-dependent-briefing.txt`](logs/at09-dependent-briefing.txt)) names the prerequisite's
-branch, revision `c204437b4a60` and changed files, and then says:
-
-> *"Those changes are NOT in your workspace: your candidate starts from the same base as theirs, and
-> the coordinator combines them afterwards."*
-
-It does not quote their content. The second-gate record's secondary claim that the dependent
-"consumed its prerequisite's artifact" was not established by that fixture either, for the same
-reason, and is withdrawn here.
+```
+acceptance surface: scripts/computed-check.mjs loads a computed specifier (import(target));
+                    what it executes was not resolved
+  check check-1: passed (exit 0) in 30ms
+not accepted: the acceptance surface for criterion "check-1" could not be fully resolved, so
+  "check-1" is not established by its check … A check that exits 0 over files this run never
+  resolved is not evidence that the criterion the base revision defined still holds. To resolve it:
+  make the specifier literal…                                                              EXIT=4
+```
 
 ---
 
@@ -479,16 +569,27 @@ reason, and is withdrawn here.
 
 | # | Severity | Defect |
 | --- | --- | --- |
-| 1 | major | A peer message whose recipient has already finished its attempt is accepted, reported as sent, and never delivered: `delivery_state` stays `submitted` for ever, no `coordination.delivered`/`coordination.delivery_failed` event is written, the sender is told nothing, and the run prints no `unresolved` entry for it. Reproduced in AT05 run B (message sent 32 s after the recipient's turn ended). `92c4516` fixed the live-turn half; this half is untouched. |
-| 2 | major | The portable handoff packet is still never written: `<runDir>/handoff/` is never created, so `writeFileSync` throws `ENOENT` into a silent `catch` (`src/recovery/continue.ts:96-105`) and `packetPath` becomes `null` with nothing said. Confirmed absent after the AT04 run. |
-| 3 | minor | A dependent task's briefing names its prerequisite's branch, revision and changed files but does not carry their content, and states the changes are not in the workspace. A dependent that needs what its prerequisite wrote must go and find it in Git itself; nothing in the briefing says it may. |
-| 4 | minor | The planned path prints `artifacts: <runDir>/artifacts` with `result.json · summary.md · candidate.patch`, none of which are in that directory on the planned path; the run manifest `planned-result.json` is not named. Unchanged from the second-gate record. |
-| 5 | minor | `read_inbox` returns the note *"Acknowledge what you have handled and continue working; do not poll this tool in a loop."* while the coordination prompt tells the worker to *"call send_message … then read_inbox for the answer"*. The two instructions pull against each other on exactly the pattern peer clarification depends on. |
+| 1 | major | The fallback selector still reasons from an asserted table instead of the adapter's own report. `candidatesFrom` (`src/recovery/continue.ts:175`) hard-codes `writeContainment: 'verified'` for every `codex` and `fake` runtime, which contradicts what the fake adapter reports (`unsupported`). Reproduced end to end: a codex primary failing with the recorded `usage_limit`, a fake fallback, and **no** `--allow-unconfined-writes` — the selector passed the containment gate and chose the fake runtime, and the continued run then hit the real gate at setup, so the whole run exited **2** ("invalid input/config") and the classified quota failure disappeared from the outcome ([`logs/at14c-run.txt`](logs/at14c-run.txt)). It refuses rather than wrongly accepting, so it does not block R1; it is the last place the boundary is claimed rather than observed. |
+| 2 | major | After a fallback, the run's headline manifest describes the **abandoned** attempt. `<runDir>/artifacts/result.json` for the accepted AT14 run carries `"accepted": false` and the failed runtime, while the accepted attempt's manifest sits unnamed at `artifacts/tasks/<attemptId>/result.json`; the CLI prints `artifacts: <runDir>/artifacts` with `result.json · summary.md · candidate.patch` after **both** attempts ([`logs/at14-run.txt`](logs/at14-run.txt), [`receipts/at14-first-attempt-result.json`](receipts/at14-first-attempt-result.json) vs [`at14-fallback-attempt-result.json`](receipts/at14-fallback-attempt-result.json)). A consumer reading the documented path after an accepted run reads "not accepted". The error is in the safe direction and the CLI's own verdict is right. |
+| 3 | major | The portable handoff packet is still never written. `<runDir>/handoff/` did not exist after either fallback run, so the `writeFileSync` in `src/recovery/continue.ts:98-105` throws `ENOENT` into a silent `catch` and `packetPath` becomes `null` with nothing said. The packet is built, validated and carried in memory — which is why the brief in AT14 is complete — but the artifact is not on disk. Unchanged from the two previous gates. |
+| 4 | minor | `recordFallback` is called without `candidateRevision` (`src/recovery/continue.ts:108-116`), so `runtime.fallback_selected` records `"handoffCandidateRevision": null` even when the failed attempt left a candidate — AT14b's `18eb20e680cf` is named in the brief the worker received but is null in the run's own event. The one renderer that would say *"Its work is preserved at candidate revision …; build on it rather than starting over."* (`renderHandoffPrompt`, `src/recovery/fallback.ts:195`) is called by nothing in `src/`; only `tests/recovery/fallback.test.ts` reaches it. The durable evidence understates what happened. |
+| 5 | minor | A Claude Code turn that made no provider call is recorded as `"usage": {"status": "measured", …}` while its own `source` says the cost *"is not a measurement"* ([`receipts/at14-first-attempt-result.json`](receipts/at14-first-attempt-result.json)). The cost itself is `null`, which is what AT14 requires, but the status word contradicts the sentence beside it. |
 
-## Observed, not a product defect
+The four defects the third-gate record listed against the real-runtime tests are not re-tested here;
+defect 3 above is its defect 2, confirmed again on the deterministic path.
 
-On four samples, the codex worker produced an agent message asserting that the coordinator had
-refused a peer task id when its session had issued no coordination tool call at all — twice with
-**zero** `mcpToolCall` items in the entire run. Runs C and D failed for this reason, not because of
-anything the coordinator did. Recorded so the claim is not mistaken for coordination-server
-behaviour next time: [`logs/at05-confabulation.txt`](logs/at05-confabulation.txt).
+## What this record does not establish
+
+- **Nothing here exercises an installed runtime.** AT12's containment result is a statement about
+  the coordinator's handling of a runtime that enforces nothing, which is what AT12 asks; it is not
+  a statement that Codex's kernel sandbox works. That was measured separately and is what
+  `write_containment: verified` means for `codex`.
+- **The "evidence refutes an expected boundary" direction is only reasoned about, not observed.** On
+  every runtime available deterministically the table already expects no boundary
+  (`expectedWriteBoundary: false`), so the escape run shows `expected false, held false`. A run
+  showing `expected true, held false` needs a runtime whose sandbox is expected to hold and then
+  does not, which no deterministic vehicle in this repository can produce.
+- **AT08's duplicate-submission half and AT11's stale-callback half run through a test harness**, not
+  an installed runtime: the shipped fake runtime speaks no MCP and is never given the socket. The
+  coordination server, its identity model and its idempotency are the shipped code, and the calls
+  are made with the shipped client — but the caller is `harness/claude-at08.mjs`, not `claude`.

@@ -1,0 +1,5 @@
+assistant_message events: 2
+  text: ONE record split across TWO stdout writes
+  text: wrote docs/note.md
+operations: [{"id":"01a081c0-a50b-77d2-9962-7ef5169e17a5","kind":"dispatch_worker","state":"completed"}]
+attempts: 1

@@ -1,0 +1,2 @@
+message rows: 1
+{"id":"01a081b9-00fb-7361-a3f9-884ae99a826b","sender_task_id":"01a081b9-006e-70ec-b3d5-71e5639a1ff3","recipient_task_id":null,"type":"peer_message","idempotency_key":"01a081b9-006e-70ec-b3d5-71e5639a1ff3\u0000at08-duplicate-key","body_json":"{\"subject\":\"status\",\"text\":\"the one logical message\"}","delivery_state":"submitted"}

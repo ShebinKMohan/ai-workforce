@@ -1,0 +1,5 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"edit_file","path":"docs/note.md","content":"# Note\n\nWritten inside the candidate.\n"},
+ {"action":"write_outside","name":"at12-escape.txt"},
+ {"action":"claim_done","message":"wrote docs/note.md and a file outside the workspace"}
+]}

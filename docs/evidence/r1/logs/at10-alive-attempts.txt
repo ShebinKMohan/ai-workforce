@@ -1,0 +1,26 @@
+attempt columns: id, task_id, run_id, generation, agent_snapshot_hash, runtime_id, runtime_version, process_id, process_started_at_ms, process_spawn_token, session_id, turn_id, workspace_path, state, outcome_json, interrupted, uncertain_outcome, superseded_by, started_at, ended_at, created_at, updated_at
+{"id":"01a081b9-bcb0-7687-a2db-e9d08c6f9f7e","generation":1,"state":"superseded"}
+{"id":"01a081ba-1d9a-7015-89a5-ce810813d373","generation":2,"state":"completed"}
+operations:
+[eval]:7
+console.log("operations:"); for (const r of db.prepare("SELECT id, kind, state, outcome FROM operations").all()) console.log(JSON.stringify(r));
+                                               ^
+
+Error: no such column: outcome
+    at [eval]:7:48
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:485:12
+    at [eval]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:483:60)
+    at evalFunction (node:internal/process/execution:317:30)
+    at evalTypeScript (node:internal/process/execution:329:3)
+    at node:internal/main/eval_string:71:3 {
+  code: 'ERR_SQLITE_ERROR',
+  errcode: 1,
+  errstr: 'SQL logic error'
+}
+
+Node.js v26.8.1
+operations columns: id, run_id, task_id, attempt_id, kind, generation, intent_json, state, receipt_json, uncertain_outcome, created_at, dispatched_at, completed_at
+{"id":"01a081b9-bcd5-7097-8a80-3f840bf12f3b","run_id":"01a081b9-bcb0-7685-88cf-52e3fa19e685","task_id":"01a081b9-bcb0-7686-a1db-2d9c610c0b06","attempt_id":"01a081b9-bcb0-7687-a2db-e9d08c6f9f7e","kind":"dispatch_worker","generation":1,"intent_json":"{\"agentId\":\"engineer-fake\",\"snapshotHash\":\"d6dd02e47d53f071ea06eedb56fb9dfd6f9b056b89b9d1bb4e607b7be7b35896\",\"adapter\":\"fake\",\"runtimeId\"
+{"id":"01a081ba-1e06-744e-8a24-c19b160dd15a","run_id":"01a081b9-bcb0-7685-88cf-52e3fa19e685","task_id":"01a081b9-bcb0-7686-a1db-2d9c610c0b06","attempt_id":"01a081ba-1d9a-7015-89a5-ce810813d373","kind":"dispatch_worker","generation":2,"intent_json":"{\"agentId\":\"engineer-fake\",\"snapshotHash\":\"d6dd02e47d53f071ea06eedb56fb9dfd6f9b056b89b9d1bb4e607b7be7b35896\",\"adapter\":\"fake\",\"runtimeId\"

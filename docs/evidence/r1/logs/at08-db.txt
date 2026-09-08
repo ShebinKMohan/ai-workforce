@@ -1,0 +1,4 @@
+messages rows: [{"n":0}]
+operations rows: [{"kind":"dispatch_worker","n":1}]
+coordination events: [{"type":"coordination.attached","n":1}]
+tasks: [{"n":1}]

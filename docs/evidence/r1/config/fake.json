@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "runtimes": {
+    "fake-local": { "adapter": "fake", "executable": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/fixtures/fake-runtime/fake-runtime.mjs", "model": "fake-default", "effort": "low" }
+  },
+  "defaults": {
+    "workerAgent": "engineer-fake",
+    "plannerAgent": "architect-fake",
+    "reviewerAgent": "reviewer-fake",
+    "maxActiveTurns": 2,
+    "maxActiveWriters": 2,
+    "maxTasksPerRun": 8,
+    "maxDelegationDepth": 2,
+    "maxRepairAttempts": 1,
+    "maxTransientRetries": 0,
+    "runTimeoutMinutes": 10
+  },
+  "agents": [
+    { "id": "engineer-fake", "runtime": "fake-local", "instructions": "Do the task.", "capabilities": ["coding"], "policy": "local-development" },
+    { "id": "architect-fake", "runtime": "fake-local", "instructions": "Plan.", "capabilities": ["planning"], "policy": "analysis" },
+    { "id": "reviewer-fake", "runtime": "fake-local", "instructions": "Review.", "capabilities": ["review"], "policy": "analysis" }
+  ]
+}

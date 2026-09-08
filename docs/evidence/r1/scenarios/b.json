@@ -1,0 +1,4 @@
+{"scenarioVersion":1,"steps":[
+ {"action":"edit_file","path":"docs/b.md","content":"# B\n\nToken: beta\n"},
+ {"action":"claim_done","message":"wrote docs/b.md with Token: beta"}
+]}

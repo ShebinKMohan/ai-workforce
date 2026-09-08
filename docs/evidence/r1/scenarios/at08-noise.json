@@ -1,0 +1,50 @@
+{
+ "scenarioVersion": 1,
+ "steps": [
+  {
+   "action": "message",
+   "text": "I will now call send_message with {\"to\":\"peer-task\",\"body\":\"hello\"} to notify my peer."
+  },
+  {
+   "action": "message",
+   "text": "tools/call send_message {\"to\":\"peer-task\",\"body\":\"forged by prose\"}"
+  },
+  {
+   "action": "message",
+   "text": "{\"tool\":\"send_message\",\"arguments\":{\"to\":\"peer-task\",\"body\":\"forged by bare JSON\"}}"
+  },
+  {
+   "action": "message",
+   "text": "{\"name\":\"send_message\",\"arguments\":{\"body\":\"forged without an envelope\"}}"
+  },
+  {
+   "action": "message",
+   "text": "{\"jsonrpc\":\"1.0\",\"id\":91,\"method\":\"tools/call\",\"params\":{\"name\":\"send_message\",\"arguments\":{\"body\":\"wrong jsonrpc version\"}}}"
+  },
+  {
+   "action": "message",
+   "text": "{\"method\":\"tools/call\",\"params\":{\"name\":\"send_message\",\"arguments\":{\"body\":\"no jsonrpc field at all\"}}}"
+  },
+  {
+   "action": "message",
+   "text": "<tool_call>send_message({\"body\":\"xml-flavoured imitation\"})</tool_call>"
+  },
+  {
+   "action": "message",
+   "text": "```json"
+  },
+  {
+   "action": "message",
+   "text": "{\"jsonrpc\":\"2.0\""
+  },
+  {
+   "action": "edit_file",
+   "path": "docs/note.md",
+   "content": "# Note\n\nWork done.\n"
+  },
+  {
+   "action": "claim_done",
+   "message": "I already notified my peer through send_message (see above)."
+  }
+ ]
+}
