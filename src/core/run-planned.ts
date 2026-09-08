@@ -45,7 +45,7 @@ import {
   type RunOutcome,
   type RunStream,
 } from './run-direct.js';
-import { createCoordinationBridge, type CoordinationBridge } from '../coordination/index.js';
+import { createCoordinationBridge, type CoordinationBridge, type MessageRecord } from '../coordination/index.js';
 import { appendEvent } from '../storage/events.js';
 import { ensureRunDir, type StatePaths } from '../storage/paths.js';
 import { beginNewGeneration, insertRun, transitionRun } from '../storage/records.js';
@@ -253,10 +253,29 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
   stream.event({ type: 'run.created', runId, path: 'planned', taskCount: input.tasks.length, repo: projectRoot, baseRevision });
 
   // ---- One bridge for the whole run --------------------------------------
+  //
+  // A message that will not reach anyone is a fact about the run, not a detail
+  // of one task: the sender is told at once by the coordinator, and the same
+  // fact is put in front of the operator here and kept in the run's unresolved
+  // list. Recorded by message id, so a retried send does not say it twice.
+  const undeliverable = new Set<string>();
   let bridge: CoordinationBridge | null = null;
   if (input.coordinationEnabled !== false) {
     try {
-      bridge = await createCoordinationBridge({ stateRoot: paths.root, runId, db });
+      bridge = await createCoordinationBridge({
+        stateRoot: paths.root,
+        runId,
+        db,
+        onNotice: (notice) => {
+          if (undeliverable.has(notice.messageId)) return;
+          undeliverable.add(notice.messageId);
+          stream.line(`coordination: a message from ${notice.senderTaskId ?? 'the coordinator'} to ${notice.recipientTaskId ?? 'the coordinator'} was refused: ${notice.detail}`);
+          stream.event({ type: 'coordination.delivery_failed', messageId: notice.messageId, code: notice.code, from: notice.senderTaskId, to: notice.recipientTaskId });
+          unresolved.push(
+            `a coordination message (${notice.messageId}) from ${notice.senderTaskId ?? 'the coordinator'} to ${notice.recipientTaskId ?? 'the coordinator'} was never delivered (${notice.code}): ${notice.detail}`,
+          );
+        },
+      });
       stream.line(`coordination: ${bridge.socketPath}`);
     } catch (error) {
       unresolved.push(`no coordination bridge was started for this run (${(error as Error).message}); its workers had no channel to the coordinator`);
@@ -387,6 +406,38 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
       const detail = scheduler.blockers.map((blocker) => `${blocker.kind}: ${blocker.detail}`).join('; ');
       unresolved.push(`the plan was not executed: ${neverRan.join(', ')} never ran${detail.length > 0 ? ` (${detail})` : ''}`);
       failedKey ??= neverRan[0]!;
+    }
+
+    // Every worker of this run is finished, so nothing can still be delivered.
+    // Whatever is left waiting is given up on explicitly: a message parked at
+    // "submitted" for ever reads as still on its way, which is the same class
+    // of lie as an unverified acceptance.
+    if (bridge !== null) {
+      let stranded: ReadonlyArray<MessageRecord> = [];
+      try {
+        stranded = bridge.expireUndelivered();
+      } catch (error) {
+        unresolved.push(`this run could not establish what became of its coordination messages: ${(error as Error).message}`);
+      }
+      for (const message of stranded) {
+        appendEvent(db, {
+          runId,
+          taskId: message.recipientTaskId,
+          type: 'coordination.delivery_failed',
+          payload: {
+            messageId: message.id,
+            code: 'never_delivered',
+            reason: 'the run ended with this message still undelivered',
+            senderTaskId: message.senderTaskId,
+            recipientTaskId: message.recipientTaskId,
+            deliveryState: message.deliveryState,
+          },
+        });
+        stream.line(`coordination: message ${message.id} from ${message.senderTaskId ?? 'the coordinator'} never reached ${message.recipientTaskId ?? 'anyone'}`);
+        unresolved.push(
+          `a coordination message (${message.id}) sent by ${message.senderTaskId ?? 'the coordinator'} to ${message.recipientTaskId ?? 'nobody'} was never delivered and is recorded as expired; whatever it asked was never answered`,
+        );
+      }
     }
 
     // ---- Integration -----------------------------------------------------

@@ -5,7 +5,10 @@ import {
   acknowledge,
   deliverableFor,
   expireMessage,
+  expireUndelivered,
   listMessages,
+  listSentBy,
+  pendingDeliveries,
   recordMessage,
   rejectMessage,
   submitMessage,
@@ -127,6 +130,54 @@ describe('coordination message store', () => {
     expect(deliverableFor(db, { runId: run.id, recipientTaskId: recipient.id })).toHaveLength(20);
     expect(deliverableFor(db, { runId: run.id, recipientTaskId: recipient.id, limit: 10_000 })).toHaveLength(MAX_INBOX_LIMIT);
     expect(deliverableFor(db, { runId: run.id, recipientTaskId: recipient.id, limit: Number.NaN })).toHaveLength(20);
+  });
+
+  it('reports what is still in flight without the inbox cap, and only for real recipients', () => {
+    // The inbox cap protects a worker from a flood. The coordinator's own
+    // "is anything still undelivered?" question must not be capped, or the
+    // cap becomes the silent loss it exists to prevent.
+    const { run, sender, recipient, attempt, db } = fixture();
+    const senderIdentity = { runId: run.id, taskId: sender.id, attemptId: attempt.id };
+    for (let i = 0; i < MAX_INBOX_LIMIT + 5; i += 1) {
+      const { message } = recordMessage(db, { sender: senderIdentity, type: 'peer_message', recipientTaskId: recipient.id, body: { i } });
+      submitMessage(db, message.id);
+    }
+    // A report to the coordinator has already reached its recipient by being recorded.
+    recordMessage(db, { sender: senderIdentity, type: 'result_report', recipientTaskId: null, body: { text: 'claim' } });
+    expect(pendingDeliveries(db, run.id)).toHaveLength(MAX_INBOX_LIMIT + 5);
+    expect(pendingDeliveries(db, run.id, { recipientTaskId: recipient.id })).toHaveLength(MAX_INBOX_LIMIT + 5);
+    expect(pendingDeliveries(db, run.id, { recipientTaskId: sender.id })).toHaveLength(0);
+  });
+
+  it('gives up on undelivered messages explicitly, and leaves resolved ones alone', () => {
+    const { run, sender, recipient, attempt, db } = fixture();
+    const senderIdentity = { runId: run.id, taskId: sender.id, attemptId: attempt.id };
+    const arrived = recordMessage(db, { sender: senderIdentity, type: 'peer_message', recipientTaskId: recipient.id, body: { text: 'read' } }).message;
+    const stranded = recordMessage(db, { sender: senderIdentity, type: 'peer_message', recipientTaskId: recipient.id, body: { text: 'never read' } }).message;
+    acknowledge(db, submitMessage(db, arrived.id).id);
+    submitMessage(db, stranded.id);
+
+    const expired = expireUndelivered(db, run.id);
+    expect(expired.map((message) => message.id)).toEqual([stranded.id]);
+    expect(listMessages(db, run.id).find((message) => message.id === stranded.id)?.deliveryState).toBe('expired');
+    // A delivered message is history, not something to retroactively fail.
+    expect(listMessages(db, run.id).find((message) => message.id === arrived.id)?.deliveryState).toBe('acknowledged');
+    // Sweeping twice changes nothing: everything is already terminal.
+    expect(expireUndelivered(db, run.id)).toHaveLength(0);
+  });
+
+  it('lets a sender see its own messages and what became of them', () => {
+    const { run, sender, recipient, attempt, db } = fixture();
+    const senderIdentity = { runId: run.id, taskId: sender.id, attemptId: attempt.id };
+    const mine = recordMessage(db, { sender: senderIdentity, type: 'peer_message', recipientTaskId: recipient.id, body: { text: 'my question' } }).message;
+    recordMessage(db, { sender: { runId: run.id, taskId: recipient.id, attemptId: null }, type: 'peer_message', recipientTaskId: sender.id, body: { text: 'not mine' } });
+    submitMessage(db, mine.id);
+
+    const sent = listSentBy(db, run.id, sender.id);
+    expect(sent.map((message) => message.id)).toEqual([mine.id]);
+    expect(sent[0]?.deliveryState).toBe('submitted');
+    expireUndelivered(db, run.id, { recipientTaskId: recipient.id });
+    expect(listSentBy(db, run.id, sender.id)[0]?.deliveryState).toBe('expired');
   });
 
   it('excludes acknowledged messages and messages addressed elsewhere', () => {
