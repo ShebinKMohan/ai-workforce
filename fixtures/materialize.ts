@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gitOrThrow, gitText, ensureNoHooksDir } from '../src/workspaces/git.js';
 
-export const FIXTURE_NAMES = ['ts-bug', 'py-bug'] as const;
+export const FIXTURE_NAMES = ['ts-bug', 'py-bug', 'helper-bug'] as const;
 export type FixtureName = (typeof FIXTURE_NAMES)[number];
 
 export const FIXTURE_IDENTITY = { name: 'fixture author', email: 'fixture@workforce.invalid' } as const;

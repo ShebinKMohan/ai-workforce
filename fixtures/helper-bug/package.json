@@ -1,0 +1,10 @@
+{
+  "name": "helper-bug-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fixture repository whose acceptance suite lives outside every conventional test path and asserts through a helper module.",
+  "scripts": {
+    "test": "node verify/run.js"
+  }
+}

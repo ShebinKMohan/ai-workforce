@@ -1,0 +1,12 @@
+{
+  "checksVersion": 1,
+  "checks": [
+    {
+      "criterionId": "acceptance-suite-passes",
+      "description": "verify/run.js reproduces the under-billing bug and must pass on the candidate",
+      "command": "node",
+      "args": ["verify/run.js"],
+      "timeoutMs": 120000
+    }
+  ]
+}

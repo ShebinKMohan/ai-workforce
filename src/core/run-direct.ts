@@ -45,7 +45,13 @@ import {
   type TurnHandle,
 } from '../adapters/index.js';
 import { writeArtifact, type ArtifactRecord } from '../storage/artifacts.js';
-import { acceptanceSurface as computeAcceptanceSurface, findSurfaceChanges as computeSurfaceChanges, surfacePaths as listSurfacePaths, type SurfaceContext } from '../verification/surface.js';
+import {
+  findSurfaceChanges as computeSurfaceChanges,
+  resolveAcceptanceSurface as computeAcceptanceSurface,
+  surfaceDependencyPaths as listSurfaceDependencyPaths,
+  surfacePaths as listSurfacePaths,
+  type SurfaceSources,
+} from '../verification/surface.js';
 import { ensureRunDir, isWithin, type StatePaths } from '../storage/paths.js';
 import { markDispatched, recordIntent, recordReceipt } from '../storage/operations.js';
 import {
@@ -554,12 +560,28 @@ async function detectChecks(repoRoot: string, baseRevision: string): Promise<Res
 // The surface itself lives in `verification/surface.ts` so that the combined
 // acceptance decision in `integration/combine.ts` applies exactly the same
 // rule. Re-exported here because callers and tests know it by this path.
-export { acceptanceSurface, findSurfaceChanges, surfacePaths, type AcceptanceSurface, type SurfaceFindings } from '../verification/surface.js';
+export {
+  acceptanceSurface,
+  findSurfaceChanges,
+  resolveAcceptanceSurface,
+  surfaceDependencyPaths,
+  surfacePaths,
+  type AcceptanceSurface,
+  type SurfaceFindings,
+  type SurfaceResolution,
+} from '../verification/surface.js';
 
-/** `package.json` at the base revision, for surface resolution. Null when there is none. */
-export async function baseSurfaceContext(repoRoot: string, baseRevision: string, baseFiles: ReadonlyArray<string>): Promise<SurfaceContext> {
-  if (!baseFiles.includes('package.json')) return {};
-  return { packageManifest: await showAtRevision(repoRoot, baseRevision, 'package.json') };
+/**
+ * What the surface needs from the base revision: `package.json` for the script
+ * chain, and a reader so the module graph can be followed.
+ *
+ * The reader goes through `git show` rather than the working tree, so a dirty
+ * checkout cannot change which files a criterion is judged to execute.
+ */
+export async function baseSurfaceContext(repoRoot: string, baseRevision: string, baseFiles: ReadonlyArray<string>): Promise<SurfaceSources> {
+  const readBaseFile = (relativePath: string): Promise<string | null> => showAtRevision(repoRoot, baseRevision, relativePath);
+  if (!baseFiles.includes('package.json')) return { readBaseFile };
+  return { packageManifest: await showAtRevision(repoRoot, baseRevision, 'package.json'), readBaseFile };
 }
 
 // ---------------------------------------------------------------------------
@@ -930,10 +952,35 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // base, but their fixtures live in the repository, so the run has to know
   // which files a candidate must not rewrite.
   const baseFiles = await listFilesAtRevision(projectRoot, baseRevision);
-  const surface = computeAcceptanceSurface(resolvedChecks.checks, baseFiles, await baseSurfaceContext(projectRoot, baseRevision, baseFiles));
+  const surface = await computeAcceptanceSurface(resolvedChecks.checks, baseFiles, await baseSurfaceContext(projectRoot, baseRevision, baseFiles));
   const fixturePaths = listSurfacePaths(surface);
   if (fixturePaths.length > 0) {
     stream.line(`acceptance fixtures (the worker must not rewrite these; new test files are fine): ${fixturePaths.join(', ')}`);
+  }
+  // What the criteria execute beyond the files above: the code under test and
+  // anything else the import graph reached without positive evidence that it
+  // judges the candidate. Saying it out loud is the point — an unlisted file
+  // must not read as an unexamined one.
+  const executedDependencies = listSurfaceDependencyPaths(surface);
+  if (executedDependencies.length > 0) {
+    // Counted rather than listed: this set is the code under test and can be
+    // the whole repository. The manifest carries every path under
+    // `acceptanceExecutedDependencies`.
+    stream.line(
+      `acceptance also executes ${executedDependencies.length} file(s) the worker is free to change (the code under test); each change to one is recorded in the run manifest`,
+    );
+  }
+  // A surface that could not be fully resolved is reported as such. The
+  // difference between "this file is protected" and "we did not look" is
+  // exactly what a false-completion hole lives in.
+  for (const gap of surface.resolution.unresolved) {
+    stream.line(`acceptance surface: ${gap}`);
+    unresolved.push(`the acceptance surface could not be fully resolved from the base revision: ${gap}`);
+  }
+  if (surface.resolution.truncated) {
+    unresolved.push(
+      `the acceptance surface is PARTIAL: the walk from ${surface.resolution.entryPoints.length} entry point(s) read ${surface.resolution.filesVisited} file(s) and stopped at a cap, so files a criterion executes may be missing from the list above`,
+    );
   }
 
   // ---- 4. Durable records ------------------------------------------------
@@ -1464,7 +1511,8 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // definitions are pinned to the base revision, but their fixtures are in the
   // repository, so this is the difference between "the tests pass" and "the
   // worker replaced the tests".
-  const surfaceFindings = candidateSnapshot === null ? { mutations: [], additions: [], definitionChanges: [] } : computeSurfaceChanges(surface, candidateSnapshot.changes);
+  const surfaceFindings =
+    candidateSnapshot === null ? { mutations: [], dependencyChanges: [], additions: [], definitionChanges: [] } : computeSurfaceChanges(surface, candidateSnapshot.changes);
   for (const mutation of surfaceFindings.mutations) {
     unresolved.push(
       `the candidate changed files that criterion "${mutation.criterionId}" executes (${mutation.changedPaths.join(', ')}); the check result cannot establish the criterion the base revision defined`,
@@ -1475,6 +1523,16 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   }
   for (const change of surfaceFindings.definitionChanges) {
     unresolved.push(`the candidate changed an acceptance definition (${change}); this run read the definition from the base revision, so the change did not affect it, but a later run would use the new one`);
+  }
+  // Changes to code a criterion executes without the surface protecting it —
+  // normally the fix itself. Recorded, never held against the candidate: a
+  // criterion whose suite imports the module under test would otherwise make
+  // fixing that module impossible. Named in the terminal and the manifest so a
+  // reader can see which executed files moved under the passing check.
+  for (const change of surfaceFindings.dependencyChanges) {
+    const named = change.changedPaths.slice(0, 10).join(', ');
+    const rest = change.changedPaths.length > 10 ? ` and ${change.changedPaths.length - 10} more` : '';
+    stream.line(`note: the candidate changed code that criterion "${change.criterionId}" also executes (${named}${rest}) — expected for a fix, and recorded as evidence`);
   }
   // `.gitattributes` is not repository source: it changes how the candidate is
   // *materialized*. `export-ignore` in one removes files from a `git archive`
@@ -1723,6 +1781,19 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       acceptanceFixtureMutations: surfaceFindings.mutations,
       acceptanceFixtureAdditions: surfaceFindings.additions,
       acceptanceDefinitionChanges: surfaceFindings.definitionChanges,
+      // The rest of what the criteria execute, and how completely the run
+      // worked it out. An empty `acceptanceSurfaceUnresolved` with
+      // `moduleGraphResolved: true` is the only combination that means "the
+      // whole executed surface was followed".
+      acceptanceExecutedDependencies: executedDependencies,
+      acceptanceDependencyChanges: surfaceFindings.dependencyChanges,
+      acceptanceSurfaceResolution: {
+        moduleGraphResolved: surface.resolution.moduleGraphResolved,
+        entryPoints: surface.resolution.entryPoints,
+        filesVisited: surface.resolution.filesVisited,
+        partial: surface.resolution.truncated,
+      },
+      acceptanceSurfaceUnresolved: surface.resolution.unresolved,
       // Well-formed runtime output the adapter did not normalize — not
       // malformed lines, and not an error count.
       unnormalizedRuntimeEvents: evidence?.rawEvents ?? 0,
