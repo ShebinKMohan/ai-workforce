@@ -1,0 +1,12 @@
++    0.0s  2026-09-08T06:58:16.911Z  task.created                 fc1d9977eb48
++    0.0s  2026-09-08T06:58:16.915Z  task.created                 7cb80236cbd8
++    0.1s  2026-09-08T06:58:16.965Z  coordination.attached        fc1d9977eb48
++    0.1s  2026-09-08T06:58:17.013Z  coordination.attached        7cb80236cbd8
++    0.4s  2026-09-08T06:58:17.353Z  turn.started                 fc1d9977eb48
++    0.5s  2026-09-08T06:58:17.361Z  turn.started                 7cb80236cbd8
++   28.6s  2026-09-08T06:58:45.497Z  runtime.turn_completed       fc1d9977eb48
++   29.6s  2026-09-08T06:58:46.536Z  runtime.stopped              fc1d9977eb48
++   29.9s  2026-09-08T06:58:46.822Z  run.accepted                 fc1d9977eb48
++  356.0s  2026-09-08T07:04:12.915Z  runtime.turn_completed       7cb80236cbd8
++  357.0s  2026-09-08T07:04:13.956Z  runtime.stopped              7cb80236cbd8
++  357.4s  2026-09-08T07:04:14.312Z  run.accepted                 7cb80236cbd8

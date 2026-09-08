@@ -1,0 +1,5 @@
+{
+  "tasks": [
+    { "key": "t1", "objective": "Create the file docs/alpha.md and no other file. Line 1 must be exactly \"# Alpha\". Line 2 must be exactly \"Status: reviewed\".", "dependencies": [] }
+  ]
+}

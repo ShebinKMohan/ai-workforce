@@ -1,0 +1,9 @@
+coordinator pid: 65266   worker pid(s): 65449 
+--- ps for coordinator 65266 ---
+  PID  PGID STAT COMMAND
+--- ps for worker 65449  ---
+  PID  PGID STAT COMMAND
+--- any process in group 65449  ---
+--- any process in group 65266 ---
+--- any codex process still holding the at07 workspace ---
+(none)

@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "key": "t1",
+      "objective": "Pick a codename: one lowercase English word of at least five letters, invented by you now, and not any of workforce, gate, term, glossary, usage, codename, lantern, harbour, token, meadow, quartz, cinder. Then do exactly two things, in this order. (1) Invoke the send_message tool. Set `to` to the task id of peer task t2, which your coordination section lists. Set `body` to the codename and nothing else. You must really invoke the tool: it returns a messageId, and you may only say you sent it if you saw that messageId. If the call returns an error, invoke it again with the same arguments. (2) Create docs/glossary.md and no other file: line 1 exactly \"# Glossary\", line 2 exactly \"Term: <CODENAME>\". Then stop.",
+      "dependencies": []
+    },
+    {
+      "key": "t2",
+      "objective": "Wait for a codename, then write it down. Do not call send_message, do not call read_inbox, and do not call any other coordination tool: they are forbidden here and you do not need them. Peer task t1 will hand you the codename unasked, part-way through your turn, as a message that appears in your conversation beginning \"[coordinator message\". Until it appears, your only action is to run the shell command `sleep 8`; run it again and again, up to twenty times, looking after each one to see whether the message has arrived. The moment it arrives, stop waiting and create docs/usage.md and no other file: line 1 exactly \"# Usage\", line 2 exactly \"Uses term: <CODENAME>\", copying the codename verbatim out of that message. Never guess a codename. If twenty sleeps pass and no such message ever arrived, write \"Uses term: unanswered\" and say so.",
+      "dependencies": []
+    }
+  ]
+}

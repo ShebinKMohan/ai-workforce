@@ -1,0 +1,19 @@
+{
+  "tasks": [
+    {
+      "key": "fast",
+      "objective": "Create the file docs/fast.md and no other file, immediately and without delay. Line 1 must be exactly \"# Fast\". Line 2 must be exactly \"Token: harbour\". Do not run any other command first; this task is meant to finish quickly.",
+      "dependencies": []
+    },
+    {
+      "key": "dependent",
+      "objective": "Create the file docs/dependent.md and no other file. Line 1 must be exactly \"# Dependent\". Line 2 must repeat, verbatim, the \"Token: ...\" line that the task you depend on wrote into docs/fast.md; its produced artifact is quoted in your briefing. Do not invent the token.",
+      "dependencies": ["fast"]
+    },
+    {
+      "key": "slow",
+      "objective": "This task is deliberately slow and is unrelated to every other task. FIRST run exactly this command in your shell and let it finish: sleep 150 . The delay is a required part of the task: do not skip it, do not shorten it, and do not run it in the background. Only after that command has returned, create the file docs/slow.md and no other file, with line 1 exactly \"# Slow\" and line 2 exactly \"Status: reviewed\".",
+      "dependencies": []
+    }
+  ]
+}

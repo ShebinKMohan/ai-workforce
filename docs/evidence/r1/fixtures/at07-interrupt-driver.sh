@@ -1,15 +1,17 @@
 #!/bin/zsh
+# AT07 driver: start a real run, watch the candidate worktree, and SIGINT the
+# coordinator the moment the deliverable is genuinely half-written.
 set -u
-SP="$1"
+R1="$1"
 REPO="/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee"
-LOG="$SP/logs/at07b-run.txt"
-TL="$SP/logs/at07b-interrupt-timeline.txt"
-: > "$TL"
+LOG="$R1/logs/at07-run.txt"
+TL="$R1/logs/at07-interrupt-timeline.txt"
+: > "$TL"; : > "$LOG"
 cd "$REPO"
-node dist/cli/index.js run --repo "$SP/gate/fx-at07b" --agents "$SP/gate/agents.json" \
-  --path direct --task-file "$SP/gate/at07-request.txt" \
+node dist/cli/index.js run --repo "$R1/fx-at07" --agents "$R1/agents-r1gate.json" \
+  --path direct --task-file "$R1/requests/at07-request.txt" \
   --check "node scripts/notes.mjs" \
-  --state-dir "$SP/gate/state-at07b" --workspace-root "$SP/gate/ws-at07b" > "$LOG" 2>&1 &
+  --state-dir "$R1/state-at07" --workspace-root "$R1/ws-at07" > "$LOG" 2>&1 &
 PID=$!
 echo "coordinator pid $PID started $(date -u +%FT%T.%3NZ)" >> "$TL"
 WS=""
@@ -25,6 +27,8 @@ for i in $(seq 1 3000); do
       ls -1 "$WS/docs" | tr '\n' ' ' >> "$TL"; echo >> "$TL"
       WORKERS=$(pgrep -P $PID 2>/dev/null | tr '\n' ' ')
       echo "coordinator child pids before SIGINT: $WORKERS" >> "$TL"
+      echo "$WORKERS" > "$R1/logs/at07-worker-pids.txt"
+      echo "$PID" > "$R1/logs/at07-coordinator-pid.txt"
       echo "sending SIGINT to $PID at $(date -u +%FT%T.%3NZ)" >> "$TL"
       kill -INT $PID
       break

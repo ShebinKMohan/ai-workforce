@@ -1,0 +1,8 @@
+# AT05 run A — the exact turn/steer requests the coordinator sent, from the adapters' raw capture
+
+## codex-01a07fbb-3344-7bd0-af04-9bd31fe23bb9-061a3dc1432d6ad6.jsonl
+{"dir":"out","atMs":59092,"line":"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"turn/steer\",\"params\":{\"threadId\":\"01a07fbb-3344-7bd0-af04-9bd31fe23bb9\",\"expectedTurnId\":\"01a07fbb-341a-7500-91ea-a81e9a17e1c3\",\"input\":[{\"type\":\"text\",\"text\":\"[coordinator message 01a07fbb-da0f-7233-92f5-f76b3f241386]\\n[peer_message from 01a07fbb-31a6-70ab-9cfc-ea100d7eeab5] meadow\"}]}}","sessionId":"01a07fbb-3344-7bd0-af04-9bd31fe23bb9","spawnToken":"061a3dc1432d6ad6"}
+
+## codex-01a07fbb-3345-7cf0-a00f-87b5d2230c4f-8193a031ae2de631.jsonl
+{"dir":"out","atMs":34267,"line":"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"turn/steer\",\"params\":{\"threadId\":\"01a07fbb-3345-7cf0-a00f-87b5d2230c4f\",\"expectedTurnId\":\"01a07fbb-3411-7e41-9c9c-cafef8987ee8\",\"input\":[{\"type\":\"text\",\"text\":\"[coordinator message 01a07fbb-ad30-72d9-8eb1-383124329992]\\n[peer_message from 01a07fbb-31a6-70ac-83de-341b86b505a8] Codename request: Please reply with the codename you invented, verbatim.\"}]}}","sessionId":"01a07fbb-3345-7cf0-a00f-87b5d2230c4f","spawnToken":"8193a031ae2de631"}
+

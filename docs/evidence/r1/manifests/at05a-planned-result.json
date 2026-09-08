@@ -1,0 +1,108 @@
+{
+  "manifestVersion": 1,
+  "runId": "01a07fbb-31a2-714b-aaaa-efac80c23981",
+  "path": "planned",
+  "createdAt": "2026-09-08T06:36:09.506Z",
+  "request": {
+    "text": "Two deliverables that must agree on one invented codename:\n1. docs/glossary.md, which names the codename.\n2. docs/usage.md, which must reuse the exact codename from docs/glossary.md.\nOnly the worker that invents the codename knows it; the other must ask for it.\n",
+    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/gate/requests/at05-request.txt",
+    "contextRefs": []
+  },
+  "base": {
+    "revision": "fccb3e7f8f5ebec82664cba95a24cf24192c5af2",
+    "repoPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/gate/fx-at05"
+  },
+  "accepted": true,
+  "reason": "no review was performed; acceptance rests entirely on the executed checks",
+  "tasks": [
+    {
+      "key": "t1",
+      "taskId": "01a07fbb-31a6-70ab-9cfc-ea100d7eeab5",
+      "objective": "You are the only source of one fact in this run. FIRST, invent a codename: a single lowercase English word of your own choosing, at least five letters, that is NOT any of workforce, gate, term, glossary, usage, codename, lantern, harbour, token. Nothing in this repository records it and no other worker can discover it by reading files, so keep it entirely to yourself except as described next. SECOND, immediately call read_inbox. A peer task is asking you for that codename right now. When its question is in your inbox, answer it at once with send_message addressed to that peer's task id, with the codename as the message text. If the inbox is empty, wait a few seconds using your shell and call read_inbox again; keep doing that until you have answered the peer, for up to two minutes. THIRD, create the file docs/glossary.md and no other file: line 1 exactly \"# Glossary\", line 2 exactly \"Term: <CODENAME>\". Then stop.",
+      "accepted": true,
+      "repairsUsed": 0,
+      "attempts": [
+        {
+          "attemptId": "01a07fbb-31a6-70ad-9019-696cefb2d69a",
+          "outcome": "accepted",
+          "candidateRevision": "fef48441ed6d5dc3b851f75b0fcafaa1f644108e"
+        }
+      ]
+    },
+    {
+      "key": "t2",
+      "taskId": "01a07fbb-31a6-70ac-83de-341b86b505a8",
+      "objective": "You must write a codename that only peer task t1 knows. It appears nowhere in this repository, nowhere in this request and nowhere in your own instructions; t1 invents it at run time, so guessing or inventing one is a failure, not an answer. FIRST, before doing anything else, call send_message with `to` set to t1's task id, asking it to reply with the codename it invented. SECOND, wait for the answer: call read_inbox, and if it has not arrived, wait about ten seconds using your shell and call read_inbox again. The answer may also be handed to you directly in the middle of your turn as a coordinator message — if that happens, use it. Keep alternating waiting and read_inbox for up to three minutes. THIRD, once you have the codename, create the file docs/usage.md and no other file: line 1 exactly \"# Usage\", line 2 exactly \"Uses term: <CODENAME>\", using the codename verbatim as t1 sent it. Only if three minutes pass with no answer at all, write \"Uses term: unanswered\" and say plainly that you never received one. Then stop.",
+      "accepted": true,
+      "repairsUsed": 0,
+      "attempts": [
+        {
+          "attemptId": "01a07fbb-31a8-7049-86c7-a5cf06716c48",
+          "outcome": "accepted",
+          "candidateRevision": "40a876d01310e8dfbbebfa0ec2efd41009d34c31"
+        }
+      ]
+    }
+  ],
+  "combination": {
+    "status": "combined",
+    "combinedRevision": "77456239a978fdb62c99c980361d3e990f1328a5",
+    "order": [
+      "01a07fbb-31a6-70ad-9019-696cefb2d69a",
+      "01a07fbb-31a8-7049-86c7-a5cf06716c48"
+    ],
+    "acceptance": {
+      "accepted": true,
+      "combinedRevision": "77456239a978fdb62c99c980361d3e990f1328a5",
+      "verdicts": [
+        {
+          "criterionId": "check-1",
+          "required": true,
+          "satisfied": true,
+          "receiptId": "01a07fbc-6bd7-7516-8bbb-35deb5aac823",
+          "outcome": "passed",
+          "reason": "\"check-1\" passed against the combined revision 77456239a978fdb62c99c980361d3e990f1328a5"
+        },
+        {
+          "criterionId": "check-2",
+          "required": true,
+          "satisfied": true,
+          "receiptId": "01a07fbc-6c13-7442-a856-5eb6057010f0",
+          "outcome": "passed",
+          "reason": "\"check-2\" passed against the combined revision 77456239a978fdb62c99c980361d3e990f1328a5"
+        }
+      ],
+      "unverifiedCriteria": [],
+      "ignoredReceiptIds": [
+        "01a07fbc-2d4a-7735-bf34-1333c1fce298",
+        "01a07fbc-2d8b-74a2-8c2b-43874913071b",
+        "01a07fbc-6a9e-7768-baab-d9ad011947f3",
+        "01a07fbc-6adc-749e-8b29-2f505690f662"
+      ],
+      "reason": "every required criterion was executed against the combined revision 77456239a978fdb62c99c980361d3e990f1328a5 and passed"
+    },
+    "checks": [
+      {
+        "criterionId": "check-1",
+        "outcome": "passed",
+        "exitCode": 0
+      },
+      {
+        "criterionId": "check-2",
+        "outcome": "passed",
+        "exitCode": 0
+      }
+    ]
+  },
+  "review": null,
+  "reviewDecision": {
+    "warranted": false,
+    "triggers": [],
+    "thresholds": {
+      "largeChangeLines": 400,
+      "manyFilesCount": 10
+    },
+    "reason": "the change is small, narrow and fully covered by executable checks"
+  },
+  "unresolved": []
+}

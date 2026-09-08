@@ -2,3 +2,4 @@
 > workforce@0.1.0 typecheck
 > tsc -p tsconfig.check.json
 
+TYPECHECK_EXIT=0

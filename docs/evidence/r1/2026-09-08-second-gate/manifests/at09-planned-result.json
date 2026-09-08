@@ -1,0 +1,109 @@
+{
+  "manifestVersion": 1,
+  "runId": "01a07ebc-7f93-706b-a5e6-5a852a38d642",
+  "path": "planned",
+  "createdAt": "2026-09-08T01:57:57.779Z",
+  "request": {
+    "text": "Three deliverables: a fast note, a note that depends on the fast one, and an unrelated slow note.\n",
+    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/at09-request.txt",
+    "contextRefs": []
+  },
+  "base": {
+    "revision": "5c51905f57ed9fbaa0aa76cf1dbda6621f922e25",
+    "repoPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/fx-at09"
+  },
+  "accepted": true,
+  "reason": "no review was performed; acceptance rests entirely on the executed checks",
+  "tasks": [
+    {
+      "key": "fast",
+      "taskId": "01a07ebc-7f9c-7324-abf7-04ee7736d3e8",
+      "objective": "Create the file docs/fast.md and no other file, immediately and without delay. Line 1 must be exactly \"# Fast\". Line 2 must be exactly \"Token: harbour\". Do not run any other command first; this task is meant to finish quickly.",
+      "accepted": true,
+      "repairsUsed": 0,
+      "attempts": [
+        {
+          "attemptId": "01a07ebc-7f9e-77ae-bc7d-aed06d5f15dc",
+          "outcome": "accepted",
+          "candidateRevision": "8d0b50a966c4e29be8104b95e0ddc7800f10ed01"
+        }
+      ]
+    },
+    {
+      "key": "dependent",
+      "taskId": "01a07ebc-7f9c-7325-9ebe-ce73b50b1e52",
+      "objective": "Create the file docs/dependent.md and no other file. Line 1 must be exactly \"# Dependent\". Line 2 must repeat, verbatim, the \"Token: ...\" line that the task you depend on wrote into docs/fast.md; its produced artifact is quoted in your briefing. Do not invent the token.",
+      "accepted": true,
+      "repairsUsed": 0,
+      "attempts": [
+        {
+          "attemptId": "01a07ebc-e4f4-74bc-864d-3fa16c1e0efa",
+          "outcome": "accepted",
+          "candidateRevision": "efedd1201e7d6127e52e54f9983fe5911cf9fd34"
+        }
+      ]
+    },
+    {
+      "key": "slow",
+      "taskId": "01a07ebc-7f9c-7326-978a-fe80faadbb57",
+      "objective": "This task is deliberately slow and is unrelated to every other task. FIRST run exactly this command in your shell and let it finish: sleep 150 . The delay is a required part of the task: do not skip it, do not shorten it, and do not run it in the background. Only after that command has returned, create the file docs/slow.md and no other file, with line 1 exactly \"# Slow\" and line 2 exactly \"Status: reviewed\".",
+      "accepted": true,
+      "repairsUsed": 0,
+      "attempts": [
+        {
+          "attemptId": "01a07ebc-7fa1-7222-a1a5-54e9d8461004",
+          "outcome": "accepted",
+          "candidateRevision": "47162317242559790aced1668782355c80226813"
+        }
+      ]
+    }
+  ],
+  "combination": {
+    "status": "combined",
+    "combinedRevision": "36bcb05565feeab4db6d5efdc07232edaaeea10f",
+    "order": [
+      "01a07ebc-7f9e-77ae-bc7d-aed06d5f15dc",
+      "01a07ebc-e4f4-74bc-864d-3fa16c1e0efa",
+      "01a07ebc-7fa1-7222-a1a5-54e9d8461004"
+    ],
+    "acceptance": {
+      "accepted": true,
+      "combinedRevision": "36bcb05565feeab4db6d5efdc07232edaaeea10f",
+      "verdicts": [
+        {
+          "criterionId": "check-1",
+          "required": true,
+          "satisfied": true,
+          "receiptId": "01a07ebf-4f20-7645-a020-0108c4b03c5c",
+          "outcome": "passed",
+          "reason": "\"check-1\" passed against the combined revision 36bcb05565feeab4db6d5efdc07232edaaeea10f"
+        }
+      ],
+      "unverifiedCriteria": [],
+      "ignoredReceiptIds": [
+        "01a07ebc-e468-7401-9c52-72297d371372",
+        "01a07ebd-3676-7475-92c5-dd925d4d8c5e",
+        "01a07ebf-4c41-7047-bd72-62483f815be0"
+      ],
+      "reason": "every required criterion was executed against the combined revision 36bcb05565feeab4db6d5efdc07232edaaeea10f and passed"
+    },
+    "checks": [
+      {
+        "criterionId": "check-1",
+        "outcome": "passed",
+        "exitCode": 0
+      }
+    ]
+  },
+  "review": null,
+  "reviewDecision": {
+    "warranted": false,
+    "triggers": [],
+    "thresholds": {
+      "largeChangeLines": 400,
+      "manyFilesCount": 10
+    },
+    "reason": "the change is small, narrow and fully covered by executable checks"
+  },
+  "unresolved": []
+}

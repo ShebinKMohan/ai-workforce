@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "key": "t1",
+      "objective": "You are the only source of one fact in this run. FIRST, invent a codename: a single lowercase English word of your own choosing, at least five letters, that is NOT any of workforce, gate, term, glossary, usage, codename, lantern, harbour, token, meadow, quartz. Nothing in this repository records it and no worker can discover it by reading files. SECOND, immediately call send_message with `to` set to peer task t2's task id and the codename as the body, and nothing else in the body. t2 is waiting for it and cannot ask you for it, so send it without being asked and send it now, before you do anything else. THIRD, create the file docs/glossary.md and no other file: line 1 exactly \"# Glossary\", line 2 exactly \"Term: <CODENAME>\". Then stop.",
+      "dependencies": []
+    },
+    {
+      "key": "t2",
+      "objective": "You must write down a codename that only peer task t1 knows. It appears nowhere in this repository, nowhere in this request and nowhere in your own instructions, and you have no way to fetch it: you are forbidden to call send_message or read_inbox or any other coordination tool in this task, and you must not guess or invent a codename. t1 will hand it to you unasked, part-way through your turn, as a message that appears in your conversation beginning \"[coordinator message\". Your whole job is to stay busy until that message appears and then act on it. To stay busy, run the shell command `sleep 8` and repeat it, checking after each one whether the message has appeared; do this up to twenty times. As soon as the message appears, stop waiting and create the file docs/usage.md and no other file: line 1 exactly \"# Usage\", line 2 exactly \"Uses term: <CODENAME>\", where <CODENAME> is copied verbatim from that message. If all twenty waits pass and no such message ever appeared, write \"Uses term: unanswered\" instead and say so plainly.",
+      "dependencies": []
+    }
+  ]
+}

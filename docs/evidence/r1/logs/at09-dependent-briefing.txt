@@ -1,0 +1,29 @@
+PROMPT LENGTH 4014
+--- sections mentioning dependency ---
+dependent.md and no other file. Line 1 must be exactly "# Dependent". Line 2 must repeat, verbatim, the "Token: ..." line that the task you depend on wrote into docs/fast.md; its produced artifact is quoted in your briefing. Do not invent the token.
+
+--- repository context (added by the workforce coordinator; the request above is the user's own wording) ---
+Working directory: /private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1gate-wp10/ws-at09/01a07fcc-4a29-762b-ba21-278ebd2c489f/01a07fcc-4a2d-77e1-b796-6599ef7b115a/01a07fcc-89a2-77ae-b624-1e2672b52971
+This is a candidate workspace: a linked Git worktree of /private/t 
+===
+dependent"). The coordinator stamps this identity itself; you cannot send as anyone else.
+Other tasks in this run, and the ids you must use to address them:
+- 01a07fcc-4a2d-77e0-8e48-18a4c23ede64 — "fast": Create the file docs/fast.md and no other file, immediately and without delay. Line 1 must be exactly "# Fast". Line 2 must be exactly "Token: harbour". Do not run any other command first; this task is meant to finish quickly.
+- 01a07fcc-4a2d-77e2-8492-aee106f0164a — "slow": This task is deliberately slow and is unrelated to every other task. FIRST run exactly this command in your shell and let it finish: sleep 150 . The delay is a required part of the task: do not skip it, do not shorten  
+===
+depend on produced ---
+Task "fast" (Create the file docs/fast.md and no other file, immediately and without delay. Line 1 must be exactly "# Fast". Line 2 must be exactly "Token: harbour". Do not run any other command first; this task is meant to finish quickly.) is accepted.
+  It changed 1 file(s) on branch workforce/01a07fcc-4a29-762b-ba21-278ebd2c489f/01a07fcc-4a2d-77e0-8e48-18a4c23ede64/01a07fcc-4a2d-77e3-bfa7-ad93e53af845 at c204437b4a60: docs/fast.md
+  Those changes are NOT in your workspace: your candidate starts from the same base as theirs, and the coordinator combines them afterwards. Do not re-implement their work, and do not edit the files they changed.
+
+Changed-file rules:
+- Edi 
+===
+--- does the prompt contain the token? --- true
+b0f3e2bb14274c1dbbfa46d9c362ad3d09aeca (committed HEAD of main).
+
+--- coordination ---
+Your task id is 01a07fcc-4a2d-77e1-b796-6599ef7b115a (plan key "dependent"). The coordinator stamps this identity itself; you cannot send as anyone else.
+Other tasks in this run, and the ids you must use to address them:
+- 01a07fcc-4a2d-77e0-8e48-18a4c23ede64 — "fast": Create the file docs/fast.md and no other file, immediately and without delay. Line 1 must be exactly "# Fast". Line 2 must be exactly "Token: harbour". Do not run any other command first; this task is meant to finish quickly.
+- 01a07fcc-4a2d-77e2-8492-aee106f0164a — "slow": This task is deliberately slow and is unrelated to every other task

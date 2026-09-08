@@ -1,0 +1,4 @@
+Two deliverables that must agree on one invented word:
+1. docs/glossary.md, which names the word.
+2. docs/usage.md, which must reuse the exact word from docs/glossary.md.
+Only the worker that invents the word knows it; the other must ask for it.

@@ -1,41 +1,41 @@
 {
   "manifestVersion": 1,
-  "runId": "01a07eb4-2c42-7230-98c0-435bde2dc368",
+  "runId": "01a07fbe-a277-70b7-a824-235140ee3a35",
   "path": "planned",
-  "createdAt": "2026-09-08T01:48:52.162Z",
+  "createdAt": "2026-09-08T06:39:54.999Z",
   "request": {
     "text": "Create docs/alpha.md whose first line is \"# Alpha\" and whose second line is \"Status: reviewed\".\n",
-    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/at06-request.txt",
+    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/gate/requests/at06-request.txt",
     "contextRefs": []
   },
   "base": {
-    "revision": "5c51905f57ed9fbaa0aa76cf1dbda6621f922e25",
-    "repoPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/fx-at06"
+    "revision": "1d70f55562c90b1296888f18f1f031e0e424703a",
+    "repoPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/gate/fx-at06"
   },
   "accepted": false,
   "reason": "task \"t1\" did not reach acceptance, so there was nothing to integrate",
   "tasks": [
     {
       "key": "t1",
-      "taskId": "01a07eb4-2c46-76fe-ad60-9d457127f0c4",
+      "taskId": "01a07fbe-a27a-767e-b812-f5a5b4b23d08",
       "objective": "Create the file docs/alpha.md and no other file. Line 1 must be exactly \"# Alpha\". Line 2 must be exactly \"Status: reviewed\".",
       "accepted": false,
       "repairsUsed": 2,
       "attempts": [
         {
-          "attemptId": "01a07eb4-2c46-76ff-b4d5-318c70cbc07f",
+          "attemptId": "01a07fbe-a27b-7021-ade7-2eae2e62ef65",
           "outcome": "failed",
-          "candidateRevision": "012b3e4bd510e2c429cd67b2ceb18c7d84be1be3"
+          "candidateRevision": "182d9f67418ff7437ef57de4aea5c798b91b1bfd"
         },
         {
-          "attemptId": "01a07eb4-c91d-763e-857e-f96b94507a7b",
+          "attemptId": "01a07fbf-2dca-704b-bf92-6d34898696e0",
           "outcome": "failed",
-          "candidateRevision": "8678556cbaf70ffe7170f86617b5b9b649abcc1c"
+          "candidateRevision": "c561fa57f7050e35558104b4298c376e0980c4cc"
         },
         {
-          "attemptId": "01a07eb5-6c8b-74b8-8db4-857925e8a25b",
+          "attemptId": "01a07fbf-b891-703b-a744-712f85ba4d1b",
           "outcome": "failed",
-          "candidateRevision": "b15e8f5f9164bef85a971a49d7094145b57b499a"
+          "candidateRevision": "2adc48a47e6b42efe23af9f14fd68b12f9c85b38"
         }
       ]
     }

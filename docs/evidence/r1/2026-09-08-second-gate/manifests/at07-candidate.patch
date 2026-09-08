@@ -1,0 +1,9 @@
+diff --git a/docs/n01.md b/docs/n01.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..5194ee384943c85a55c1624bba3a194494316a8a
+--- /dev/null
++++ b/docs/n01.md
+@@ -0,0 +1,3 @@
++# Note 01
++Status: reviewed
++Note 01 records the first reviewed item.

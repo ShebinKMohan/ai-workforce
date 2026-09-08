@@ -1,0 +1,8 @@
+diff --git a/docs/usage.md b/docs/usage.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..f13784d26ff71ebc619fb3d9373c73e37bdf61f7
+--- /dev/null
++++ b/docs/usage.md
+@@ -0,0 +1,2 @@
++# Usage
++Uses term: meadow

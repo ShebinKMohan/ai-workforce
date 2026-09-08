@@ -1,91 +1,91 @@
 {
   "manifestVersion": 1,
-  "runId": "01a07ebc-7f93-706b-a5e6-5a852a38d642",
+  "runId": "01a07fcc-4a29-762b-ba21-278ebd2c489f",
   "path": "planned",
-  "createdAt": "2026-09-08T01:57:57.779Z",
+  "createdAt": "2026-09-08T06:54:49.897Z",
   "request": {
     "text": "Three deliverables: a fast note, a note that depends on the fast one, and an unrelated slow note.\n",
-    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/at09-request.txt",
+    "source": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1gate-wp10/requests/at09-request.txt",
     "contextRefs": []
   },
   "base": {
-    "revision": "5c51905f57ed9fbaa0aa76cf1dbda6621f922e25",
-    "repoPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1/gate/fx-at09"
+    "revision": "bbb0f3e2bb14274c1dbbfa46d9c362ad3d09aeca",
+    "repoPath": "/private/tmp/claude-501/-Users-shebin-mohan-k-CODES-CursorFiles-AI-Employee/2186b88b-b4df-464b-865d-4e63b351fd39/scratchpad/r1gate-wp10/fx-at09"
   },
   "accepted": true,
   "reason": "no review was performed; acceptance rests entirely on the executed checks",
   "tasks": [
     {
       "key": "fast",
-      "taskId": "01a07ebc-7f9c-7324-abf7-04ee7736d3e8",
+      "taskId": "01a07fcc-4a2d-77e0-8e48-18a4c23ede64",
       "objective": "Create the file docs/fast.md and no other file, immediately and without delay. Line 1 must be exactly \"# Fast\". Line 2 must be exactly \"Token: harbour\". Do not run any other command first; this task is meant to finish quickly.",
       "accepted": true,
       "repairsUsed": 0,
       "attempts": [
         {
-          "attemptId": "01a07ebc-7f9e-77ae-bc7d-aed06d5f15dc",
+          "attemptId": "01a07fcc-4a2d-77e3-bfa7-ad93e53af845",
           "outcome": "accepted",
-          "candidateRevision": "8d0b50a966c4e29be8104b95e0ddc7800f10ed01"
+          "candidateRevision": "c204437b4a60e04f9bdea7180ffac96b33455d19"
         }
       ]
     },
     {
       "key": "dependent",
-      "taskId": "01a07ebc-7f9c-7325-9ebe-ce73b50b1e52",
+      "taskId": "01a07fcc-4a2d-77e1-b796-6599ef7b115a",
       "objective": "Create the file docs/dependent.md and no other file. Line 1 must be exactly \"# Dependent\". Line 2 must repeat, verbatim, the \"Token: ...\" line that the task you depend on wrote into docs/fast.md; its produced artifact is quoted in your briefing. Do not invent the token.",
       "accepted": true,
       "repairsUsed": 0,
       "attempts": [
         {
-          "attemptId": "01a07ebc-e4f4-74bc-864d-3fa16c1e0efa",
+          "attemptId": "01a07fcc-89a2-77ae-b624-1e2672b52971",
           "outcome": "accepted",
-          "candidateRevision": "efedd1201e7d6127e52e54f9983fe5911cf9fd34"
+          "candidateRevision": "ebf3f7c475c835db7f3636644599c0ad8c89e888"
         }
       ]
     },
     {
       "key": "slow",
-      "taskId": "01a07ebc-7f9c-7326-978a-fe80faadbb57",
+      "taskId": "01a07fcc-4a2d-77e2-8492-aee106f0164a",
       "objective": "This task is deliberately slow and is unrelated to every other task. FIRST run exactly this command in your shell and let it finish: sleep 150 . The delay is a required part of the task: do not skip it, do not shorten it, and do not run it in the background. Only after that command has returned, create the file docs/slow.md and no other file, with line 1 exactly \"# Slow\" and line 2 exactly \"Status: reviewed\".",
       "accepted": true,
       "repairsUsed": 0,
       "attempts": [
         {
-          "attemptId": "01a07ebc-7fa1-7222-a1a5-54e9d8461004",
+          "attemptId": "01a07fcc-4a2f-70cd-adfd-f4a13a9b10ad",
           "outcome": "accepted",
-          "candidateRevision": "47162317242559790aced1668782355c80226813"
+          "candidateRevision": "53b93dfc674160b80a4ada7b9db325fe9ff76282"
         }
       ]
     }
   ],
   "combination": {
     "status": "combined",
-    "combinedRevision": "36bcb05565feeab4db6d5efdc07232edaaeea10f",
+    "combinedRevision": "a95cf81fb23d9cf7afe730a8746f5ca5c45b4c12",
     "order": [
-      "01a07ebc-7f9e-77ae-bc7d-aed06d5f15dc",
-      "01a07ebc-e4f4-74bc-864d-3fa16c1e0efa",
-      "01a07ebc-7fa1-7222-a1a5-54e9d8461004"
+      "01a07fcc-4a2d-77e3-bfa7-ad93e53af845",
+      "01a07fcc-89a2-77ae-b624-1e2672b52971",
+      "01a07fcc-4a2f-70cd-adfd-f4a13a9b10ad"
     ],
     "acceptance": {
       "accepted": true,
-      "combinedRevision": "36bcb05565feeab4db6d5efdc07232edaaeea10f",
+      "combinedRevision": "a95cf81fb23d9cf7afe730a8746f5ca5c45b4c12",
       "verdicts": [
         {
           "criterionId": "check-1",
           "required": true,
           "satisfied": true,
-          "receiptId": "01a07ebf-4f20-7645-a020-0108c4b03c5c",
+          "receiptId": "01a07fcf-0298-7766-a8c3-82d54d74d759",
           "outcome": "passed",
-          "reason": "\"check-1\" passed against the combined revision 36bcb05565feeab4db6d5efdc07232edaaeea10f"
+          "reason": "\"check-1\" passed against the combined revision a95cf81fb23d9cf7afe730a8746f5ca5c45b4c12"
         }
       ],
       "unverifiedCriteria": [],
       "ignoredReceiptIds": [
-        "01a07ebc-e468-7401-9c52-72297d371372",
-        "01a07ebd-3676-7475-92c5-dd925d4d8c5e",
-        "01a07ebf-4c41-7047-bd72-62483f815be0"
+        "01a07fcc-88fc-70b2-906a-3bc9911f7a61",
+        "01a07fcc-c842-74e6-8301-d327b83bb843",
+        "01a07fcf-01a0-7415-8f29-d4d996715a9b"
       ],
-      "reason": "every required criterion was executed against the combined revision 36bcb05565feeab4db6d5efdc07232edaaeea10f and passed"
+      "reason": "every required criterion was executed against the combined revision a95cf81fb23d9cf7afe730a8746f5ca5c45b4c12 and passed"
     },
     "checks": [
       {
