@@ -54,6 +54,8 @@ describe('the planned path', () => {
     let sessions = 0;
 
     const result = await runPlanned({
+      // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+      allowUnconfinedWrites: true,
       repoPath: fixture.path,
       config: loaded.config,
       configRaw: loaded.raw,
@@ -148,6 +150,8 @@ describe('the planned path', () => {
     });
 
     const result = await runPlanned({
+      // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+      allowUnconfinedWrites: true,
       repoPath: fixture.path,
       config: loaded.config,
       configRaw: loaded.raw,
@@ -242,6 +246,8 @@ describe('the planned repair loop', () => {
     const scenario = writeScenario(addFileScenario('docs/repair.md', '# Repair\n'));
 
     const result = await runPlanned({
+      // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+      allowUnconfinedWrites: true,
       repoPath: fixture.path,
       config: loaded.config,
       configRaw: loaded.raw,
@@ -294,6 +300,8 @@ describe('the planned repair loop', () => {
     let made = 0;
 
     const result = await runPlanned({
+      // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+      allowUnconfinedWrites: true,
       repoPath: fixture.path,
       config: loaded.config,
       configRaw: loaded.raw,
@@ -405,6 +413,8 @@ describe('AT09: dependency release is per task, not per batch', () => {
     const dispatches: Array<{ tasks: ReadonlyArray<string>; activeTurns: number; activeWriters: number }> = [];
 
     const result = await runPlanned({
+      // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+      allowUnconfinedWrites: true,
       repoPath: fixture.path,
       config: loaded.config,
       configRaw: loaded.raw,

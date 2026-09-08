@@ -100,6 +100,8 @@ async function interruptedRun(): Promise<Interrupted> {
   try {
     const loaded = loadAgentConfigFile(configPath);
     const result = await runDirect({
+      // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+      allowUnconfinedWrites: true,
       repoPath: fixture.path,
       config: loaded.config,
       configRaw: loaded.raw,
@@ -147,7 +149,12 @@ describe('AT07: an interrupted run is continued by resume', () => {
   });
 
   it('continues the run to a terminal state with exactly one accepted writer', async () => {
-    const resumed = await commandResume({ positionals: [run.result.runId], stateDir: run.stateRoot, json: false }, { continuation: fixesTheBug() });
+    const resumed = await commandResume(
+      // The fake runtime enforces no write boundary, so continuing a writing
+      // profile on it needs the same explicit acknowledgement the run did.
+      { positionals: [run.result.runId], stateDir: run.stateRoot, json: false, allowUnconfinedWrites: true },
+      { continuation: fixesTheBug() },
+    );
 
     expect(resumed.exitCode).toBe(EXIT_CODES.verifiedCandidate);
     expect(resumed.data['continued']).toBe(true);
@@ -225,7 +232,12 @@ describe('AT07: an interrupted run is continued by resume', () => {
     store.db.prepare("UPDATE runs SET state = 'interrupted' WHERE id = ?").run(run.result.runId);
     store.close();
 
-    const resumed = await commandResume({ positionals: [run.result.runId], stateDir: run.stateRoot, json: false }, { continuation: fixesTheBug() });
+    const resumed = await commandResume(
+      // The fake runtime enforces no write boundary, so continuing a writing
+      // profile on it needs the same explicit acknowledgement the run did.
+      { positionals: [run.result.runId], stateDir: run.stateRoot, json: false, allowUnconfinedWrites: true },
+      { continuation: fixesTheBug() },
+    );
     expect(resumed.exitCode).toBe(EXIT_CODES.verifiedCandidate);
     expect(resumed.data['preservedTaskIds']).toEqual([run.result.taskId]);
     expect(resumed.data['tasks']).toEqual([]);

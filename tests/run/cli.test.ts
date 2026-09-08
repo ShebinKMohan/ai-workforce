@@ -64,7 +64,7 @@ describe('workforce run end to end', () => {
     useScenario(fixTheBugScenario());
     const before = await fingerprintCheckout(fixture.path);
 
-    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir]);
+    const result = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir]);
 
     expect(result.code).toBe(EXIT_CODES.verifiedCandidate);
     expect(result.stdout).toContain('accepted');
@@ -99,6 +99,7 @@ describe('workforce run end to end', () => {
 
     const result = await invoke([
       'run',
+      '--allow-unconfined-writes',
       '--repo',
       fixture.path,
       '--agents',
@@ -141,7 +142,7 @@ describe('workforce run end to end', () => {
       }),
     );
 
-    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Do both.', '--plan', planPath, '--state-dir', stateDir]);
+    const result = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Do both.', '--plan', planPath, '--state-dir', stateDir]);
     expect(result.code).toBe(EXIT_CODES.invalidInput);
     expect(result.stderr).toContain('dependency cycle');
   });
@@ -152,7 +153,7 @@ describe('workforce run end to end', () => {
     const configPath = writeFakeAgentsConfig(tempDir('workforce-cli-config-'));
     useScenario(claimDoneWithoutEditingScenario());
 
-    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir]);
+    const result = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir]);
 
     expect(result.code).toBe(EXIT_CODES.executionFailure);
     expect(result.stdout).toContain('FAIL node-tests-pass');
@@ -165,7 +166,7 @@ describe('workforce run end to end', () => {
     const configPath = writeFakeAgentsConfig(tempDir('workforce-cli-config-'));
     useScenario(fixTheBugScenario());
 
-    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--json']);
+    const result = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--json']);
 
     expect(result.code).toBe(EXIT_CODES.verifiedCandidate);
     const documents = result.stdout.trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>);
@@ -185,6 +186,7 @@ describe('workforce run end to end', () => {
 
     const result = await invoke([
       'run',
+      '--allow-unconfined-writes',
       '--repo',
       fixture.path,
       '--agents',
@@ -212,7 +214,7 @@ describe('workforce run end to end', () => {
     const configPath = writeFakeAgentsConfig(tempDir('workforce-cli-config-'));
     useScenario(fixTheBugScenario());
 
-    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--check', 'npm test | tee out.log']);
+    const result = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--check', 'npm test | tee out.log']);
 
     expect(result.code).toBe(EXIT_CODES.invalidInput);
     expect(result.stderr).toContain('never through a shell');
@@ -223,7 +225,7 @@ describe('workforce run end to end', () => {
     const stateDir = path.join(tempDir('workforce-cli-'), 'state');
     const configPath = writeFakeAgentsConfig(tempDir('workforce-cli-config-'));
 
-    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--agent', 'nobody']);
+    const result = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--agent', 'nobody']);
 
     expect(result.code).toBe(EXIT_CODES.invalidInput);
     expect(result.stderr).toContain('is not defined in');
@@ -238,7 +240,7 @@ describe('workforce status is read-only and works from another process (FR061)',
     const configPath = writeFakeAgentsConfig(tempDir('workforce-cli-config-'));
     useScenario(fixTheBugScenario());
 
-    const run = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--json']);
+    const run = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--json']);
     expect(run.code).toBe(EXIT_CODES.verifiedCandidate);
     const final = JSON.parse(run.stdout.trim().split('\n').pop()!) as { runId: string };
 

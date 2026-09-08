@@ -29,7 +29,7 @@ Usage:
   workforce doctor [--connect] [--codex-path <file>] [--claude-path <file>] [--agents <file>] [--state-dir <dir>] [--json]
   workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--path direct|planned] [--plan <file>] [--check "<cmd> [args]"]... [--allow-unconfined-writes] [--state-dir <dir>] [--workspace-root <dir>] [--json]
   workforce status <run-id> [--state-dir <dir>] [--json]
-  workforce resume <run-id> [--agents <file>] [--state-dir <dir>] [--json]
+  workforce resume <run-id> [--agents <file>] [--allow-unconfined-writes] [--state-dir <dir>] [--json]
 
 Options:
   --repo <path>        Git repository to work on (its checkout is never modified)
@@ -200,6 +200,7 @@ function commandResume(args: ParsedArgs, deps: { reporter: Reporter; streams: St
       json: args.json,
       ...(args.stateDir !== undefined ? { stateDir: args.stateDir } : {}),
       ...(args.agents !== undefined ? { agents: args.agents } : {}),
+      ...(args.allowUnconfinedWrites ? { allowUnconfinedWrites: true } : {}),
     },
     {
       // A continued attempt is a run in progress; it reports itself the same

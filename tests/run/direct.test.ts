@@ -5,16 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadAgentConfigFile } from '../../src/core/config.js';
-import { ClaudeCodeAdapter, FakeAdapter, FAKE_SCENARIO_ENV, type RuntimeAdapter } from '../../src/adapters/index.js';
+import { ClaudeCodeAdapter, FakeAdapter, FAKE_RUNTIME_VERSION, FAKE_SCENARIO_ENV, type RuntimeAdapter, type RuntimeCapabilities, type RuntimeEvent } from '../../src/adapters/index.js';
 import {
   checksFromFlags,
+  observeWriteBoundary,
+  readUnplaceableChanges,
   resolveAcceptanceChecks,
   RunSetupError,
   runDirect,
   tokenizeCheckCommand,
+  type ContainmentAssessment,
   type RunDirectResult,
   type RunStream,
 } from '../../src/core/run-direct.js';
+import { summarizeTurnEvidence, type TurnEvidence } from '../../src/telemetry/events.js';
 import { openStateStore } from '../../src/storage/db.js';
 import { LockLostError } from '../../src/storage/lock.js';
 import { createStatePaths } from '../../src/storage/paths.js';
@@ -90,6 +94,8 @@ async function harness(fixtureName: 'ts-bug' | 'py-bug' = 'ts-bug'): Promise<Har
       try {
         const loaded = loadAgentConfigFile(configPath);
         return await runDirect({
+          // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+          allowUnconfinedWrites: true,
           repoPath: fixture.path,
           config: loaded.config,
           configRaw: loaded.raw,
@@ -834,6 +840,8 @@ describe('the manifest records what the runtime said ran, not only what was aske
     try {
       const loaded = loadAgentConfigFile(configPath);
       return await runDirect({
+        // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+        allowUnconfinedWrites: true,
         repoPath: fixture.path,
         config: loaded.config,
         configRaw: loaded.raw,
@@ -882,6 +890,8 @@ describe('the manifest records what the runtime said ran, not only what was aske
     try {
       const loaded = loadAgentConfigFile(configPath);
       const result = await runDirect({
+        // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+        allowUnconfinedWrites: true,
         repoPath: fixture.path,
         config: loaded.config,
         configRaw: loaded.raw,
@@ -1012,5 +1022,169 @@ describe('tasks are listed under their run', () => {
       expect(tasks[0]!.objective).toBe(REQUEST_TEXT);
       expect(tasks[0]!.owner_agent_id).toBe('engineer');
     });
+  });
+});
+
+/**
+ * The defect this exercises: the run-level boundary claim used to be read off
+ * the adapter's static capability table, so a run whose OWN EVIDENCE listed a
+ * successful write outside the granted paths still recorded that a boundary
+ * had held. A table states what is expected of a runtime; only evidence can
+ * state what happened in one run (plan section 8; AT12).
+ */
+describe('the run records the write boundary it observed, not the one its adapter claims (AT12)', () => {
+  /** An adapter that asserts a boundary the fake runtime does not have. */
+  class ClaimsAWriteBoundary extends FakeAdapter {
+    override capabilities(): RuntimeCapabilities {
+      const base = super.capabilities();
+      return {
+        ...base,
+        capabilities: {
+          ...base.capabilities,
+          write_containment: {
+            status: 'verified',
+            testedVersion: FAKE_RUNTIME_VERSION,
+            os: process.platform,
+            note: 'asserted by this table and enforced by nothing, which is exactly what a run must not take on trust',
+          },
+        },
+      };
+    }
+  }
+
+  async function runClaiming(scenario: FakeScenario): Promise<{ result: RunDirectResult; lines: string[] }> {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-claimed-boundary-state-');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-claimed-boundary-config-'));
+    const scenarioPath = writeScenario(scenario);
+    const lines: string[] = [];
+    const paths = createStatePaths(stateRoot);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    try {
+      const loaded = loadAgentConfigFile(configPath);
+      // No --allow-unconfined-writes: the claimed boundary is what gets this
+      // run past the setup gate, which is the whole point.
+      const result = await runDirect({
+        repoPath: fixture.path,
+        config: loaded.config,
+        configRaw: loaded.raw,
+        configPath: loaded.path,
+        requestText: REQUEST_TEXT,
+        requestSource: 'argument',
+        paths,
+        db: store.db,
+        stream: { line: (text) => lines.push(text), event: () => {} },
+        adapterFactory: () => new ClaimsAWriteBoundary({ scenarioPath }),
+      });
+      return { result, lines };
+    } finally {
+      store.close();
+    }
+  }
+
+  it('records that the boundary did NOT hold when the run\'s own evidence lists an escape', async () => {
+    const { result, lines } = await runClaiming(fixAndEscapeScenario());
+
+    const containment = result.manifest.evidence['containment'] as Record<string, unknown>;
+    // The table said one thing; the run saw another, and the run records what it saw.
+    expect(containment['writeContainment']).toBe('verified');
+    expect(containment['expectedWriteBoundary']).toBe(true);
+    expect(containment['enforcedWriteBoundary']).toBe(false);
+    expect((containment['boundaryFindings'] as string[]).join(' ')).toContain('wrote outside the granted paths');
+    expect(String(result.manifest.evidence['containmentNote'])).toContain('THE WRITE BOUNDARY DID NOT HOLD IN THIS RUN');
+    expect(result.manifest.evidence['writeObservation']).toMatchObject({ enforcedWriteBoundary: false, expectedWriteBoundary: true, complete: false });
+
+    // And a person watching the run is told, rather than having to read a manifest.
+    expect(lines.join('\n')).toContain('WARNING: THE WRITE BOUNDARY DID NOT HOLD IN THIS RUN');
+    expect(result.manifest.unresolved.join(' ')).toContain('does not record that its write boundary held');
+    expect(readFileSync(result.summaryPath, 'utf8')).toContain('the boundary did NOT hold');
+    // The escape still blocks acceptance, as it always did.
+    expect(result.acceptance.accepted).toBe(false);
+  });
+
+  it('still records that the boundary held when nothing the run observed contradicts it', async () => {
+    const { result, lines } = await runClaiming(fixTheBugScenario());
+
+    const containment = result.manifest.evidence['containment'] as Record<string, unknown>;
+    expect(containment['enforcedWriteBoundary']).toBe(true);
+    expect(containment['boundaryFindings']).toEqual([]);
+    expect(result.manifest.evidence['writeObservation']).toMatchObject({ enforcedWriteBoundary: true, complete: true });
+    expect(lines.join('\n')).toContain('write boundary: held in this run');
+    expect(result.outcome).toBe('accepted');
+  });
+
+  it('records an escape on a runtime that never claimed a boundary as one too (AT12)', async () => {
+    const h = await harness();
+
+    const result = await h.run(fixAndEscapeScenario());
+
+    const containment = result.manifest.evidence['containment'] as Record<string, unknown>;
+    expect(containment['writeContainment']).toBe('unsupported');
+    expect(containment['expectedWriteBoundary']).toBe(false);
+    expect(containment['enforcedWriteBoundary']).toBe(false);
+    expect((containment['boundaryFindings'] as string[]).join(' ')).toContain('wrote outside the granted paths');
+    expect(result.acceptance.accepted).toBe(false);
+  });
+});
+
+describe('observeWriteBoundary reads the run, not the table', () => {
+  const enforcing: ContainmentAssessment = {
+    policy: 'local-development',
+    writes: true,
+    status: 'verified',
+    note: 'a runtime with a real sandbox',
+    testedVersion: '1.0.0',
+    os: 'darwin',
+    unconfinedWrites: false,
+    acknowledged: false,
+  };
+
+  function change(payload: Record<string, unknown>): RuntimeEvent {
+    return { kind: 'file_change', adapter: 'codex', sessionId: 's', turnId: 't', spawnToken: 'k', sequence: 1, timestamp: new Date().toISOString(), payload, rawRef: 'raw:1' };
+  }
+
+  /** A real evidence summary — an empty turn — so the shape is never hand-rolled. */
+  function evidenceWith(overrides: Partial<TurnEvidence> = {}): TurnEvidence {
+    return { ...summarizeTurnEvidence([]), ...overrides };
+  }
+
+  it('holds when a boundary is expected and the run saw nothing against it', () => {
+    const observed = observeWriteBoundary({ containment: enforcing, evidence: evidenceWith(), events: [] });
+    expect(observed).toMatchObject({ expected: true, held: true, findings: [] });
+  });
+
+  it('does not hold when a change cannot be placed inside the granted paths', () => {
+    // The Codex adapter reports exactly this for a fileChange item that names
+    // no path: a change happened, and nothing says where.
+    const events = [change({ itemId: 'item-1', withinAllowedPaths: null, phase: 'completed' })];
+    const observed = observeWriteBoundary({ containment: enforcing, evidence: evidenceWith(), events });
+
+    expect(observed.held).toBe(false);
+    expect(observed.unplaceable).toHaveLength(1);
+    expect(observed.findings.join(' ')).toContain('cannot be placed inside the granted paths');
+  });
+
+  it('ignores a change the runtime refused: nothing was written, so there is nothing to place', () => {
+    const events = [change({ itemId: 'item-1', withinAllowedPaths: null, denied: true, phase: 'completed' })];
+    expect(observeWriteBoundary({ containment: enforcing, evidence: evidenceWith(), events }).held).toBe(true);
+  });
+
+  it('counts the two halves of one reported change once', () => {
+    const events = [
+      change({ itemId: 'item-1', withinAllowedPaths: null, phase: 'started' }),
+      change({ itemId: 'item-1', withinAllowedPaths: null, phase: 'completed' }),
+    ];
+    expect(readUnplaceableChanges(events)).toHaveLength(1);
+  });
+
+  it('establishes nothing when there is no turn evidence at all', () => {
+    const observed = observeWriteBoundary({ containment: enforcing, evidence: null, events: [] });
+    expect(observed.held).toBeNull();
+    expect(observed.findings.join(' ')).toContain('no turn evidence was collected');
+  });
+
+  it('says nothing about a profile that grants no writes', () => {
+    const readOnly: ContainmentAssessment = { ...enforcing, policy: 'analysis', writes: false };
+    expect(observeWriteBoundary({ containment: readOnly, evidence: evidenceWith(), events: [] })).toMatchObject({ expected: null, held: null });
   });
 });

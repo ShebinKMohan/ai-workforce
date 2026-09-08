@@ -56,6 +56,8 @@ async function harnessFor(fixture: MaterializedFixture, requestText: string): Pr
       try {
         const loaded = loadAgentConfigFile(configPath);
         return await runDirect({
+          // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+          allowUnconfinedWrites: true,
           repoPath: fixture.path,
           config: loaded.config,
           configRaw: loaded.raw,

@@ -211,6 +211,7 @@ describe('state and workspace roots reach the coordinator', () => {
 
     const result = await invoke([
       'run',
+      '--allow-unconfined-writes',
       '--repo',
       fixture.path,
       '--agents',
@@ -232,6 +233,21 @@ describe('state and workspace roots reach the coordinator', () => {
     expect(readdirSync(workspaceRoot).length).toBeGreaterThan(0);
     const manifest = JSON.parse(readFileSync(path.join(stateDir, 'manifest.json'), 'utf8')) as { workspaceRoot: string };
     expect(manifest.workspaceRoot).toBe(workspaceRoot);
+
+    // And the state-root guard is ACTIVE in exactly this configuration. With
+    // the workspaces elsewhere, `<state-dir>/workspaces` does not exist, which
+    // is what the guard used to require before it would recognize a state root
+    // — so every check ran with the guard silently off (FR049, FR050).
+    const runId = readdirSync(path.join(stateDir, 'runs'))[0]!;
+    const checksDir = path.join(stateDir, 'runs', runId, 'artifacts', 'checks');
+    const guards = readdirSync(checksDir).map(
+      (slug) => (JSON.parse(readFileSync(path.join(checksDir, slug, 'receipt.json'), 'utf8')) as { stateRootGuard: { checked: boolean; stateRoot: string | null } }).stateRootGuard,
+    );
+    expect(guards.length).toBeGreaterThan(0);
+    for (const guard of guards) {
+      expect(guard.checked).toBe(true);
+      expect(guard.stateRoot).toBe(stateDir);
+    }
   });
 
   it('refuses a --workspace-root that disagrees with the one the state root already records', async () => {
@@ -246,7 +262,7 @@ describe('state and workspace roots reach the coordinator', () => {
       `${JSON.stringify({ manifestVersion: 1, stateRoot: stateDir, workspaceRoot: firstRoot, databasePath: path.join(stateDir, 'state.sqlite'), createdAt: new Date().toISOString() }, null, 2)}\n`,
     );
 
-    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--workspace-root', secondRoot]);
+    const result = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix it.', '--state-dir', stateDir, '--workspace-root', secondRoot]);
 
     expect(result.code).toBe(EXIT_CODES.invalidInput);
     expect(result.stderr).toContain('already records workspace root');
@@ -261,7 +277,7 @@ describe('the CLI routes between the direct and planned paths', () => {
     const configPath = writeFakeAgentsConfig(tempDir('workforce-route-direct-config-'));
     useScenario();
 
-    const run = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
+    const run = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
     expect(run.code).toBe(EXIT_CODES.verifiedCandidate);
     const document = JSON.parse(run.stdout.trimEnd().split('\n').at(-1) as string) as {
       runId: string;
@@ -287,6 +303,7 @@ describe('the CLI routes between the direct and planned paths', () => {
 
     const run = await invoke([
       'run',
+      '--allow-unconfined-writes',
       '--repo',
       fixture.path,
       '--agents',
@@ -333,7 +350,7 @@ describe('the CLI dispatches every implemented command', () => {
     expect(doctorDocument.stateRoot).toBe(path.resolve(stateDir));
     expect(doctorDocument.runtimes.map((runtime) => runtime.adapter).sort()).toEqual(['claude-code', 'codex']);
 
-    const run = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
+    const run = await invoke(['run', '--allow-unconfined-writes', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
     expect(run.code).toBe(EXIT_CODES.verifiedCandidate);
     const runDocument = JSON.parse(run.stdout.trimEnd().split('\n').at(-1) as string) as { runId: string };
 
@@ -398,6 +415,8 @@ describe('usage reporting is measured or unavailable, never zero (FR060)', () =>
     try {
       const loaded = loadAgentConfigFile(configPath);
       const result = await runDirect({
+        // The fake runtime enforces no write boundary, so a writing profile on it is an explicitly accepted unconfined run.
+        allowUnconfinedWrites: true,
         repoPath: fixture.path,
         config: loaded.config,
         configRaw: loaded.raw,

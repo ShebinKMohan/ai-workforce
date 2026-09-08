@@ -707,5 +707,59 @@ describe('a check never runs inside the coordinator state root (plan section 9)'
     expect(receipt.containment!.outsideStateRoot).toBe(true);
     expect(receipt.stateRootGuard!.checked).toBe(false);
     expect(receipt.stateRootGuard!.note).toContain('nothing was compared');
+    // ...and why nothing was compared, so an absent guard cannot read as a clean one.
+    expect(receipt.stateRootGuard!.note).toContain('no state root was declared');
+    expect(receipt.diagnostics.join(' ')).toContain('state-root guard:');
+  });
+
+  it('runs no check at all when a named state root cannot be established', async () => {
+    // The guard's whole value is that it is on. A coordinator that names a
+    // state root which is not there leaves nothing to fingerprint and nothing
+    // to keep the check out of, so the check does not run rather than running
+    // with the guard silently off.
+    const candidate = await frozenCandidate({ fix: true });
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], timeoutMs: 60_000 }],
+      outputRoot: candidate.outputRoot,
+      stateRoot: path.join(candidate.outputRoot, 'no-such-state-root'),
+    });
+    const receipt = receipts[0]!;
+    expect(receipt.outcome).toBe('error');
+    expect(receipt.diagnostics.join(' ')).toContain('no such directory exists');
+    expect(decideAcceptance([{ id: 'node-tests' }], receipts).accepted).toBe(false);
+  });
+
+  it('guards a state root whose workspaces live outside it (--workspace-root)', async () => {
+    // The configuration that used to switch the guard off silently: with
+    // `--workspace-root` outside the state root there is no `workspaces/`
+    // directory under it, and the guard used to require one before it would
+    // recognize a state root at all.
+    const candidate = await candidateInsideStateRoot({ fix: true });
+    rmSync(path.join(candidate.state.root, 'workspaces'), { recursive: true, force: true });
+
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], timeoutMs: 60_000 }],
+      outputRoot: candidate.outputRoot,
+      verificationRoot: candidate.verificationRoot,
+    });
+    const receipt = receipts[0]!;
+    expect(receipt.outcome).toBe('passed');
+    // Found without a caller naming it, and active.
+    expect(receipt.stateRootGuard!.checked).toBe(true);
+    expect(receipt.stateRootGuard!.stateRoot).toBe(candidate.state.root);
+    expect(receipt.containment!.outsideStateRoot).toBe(true);
+
+    // And named by the coordinator, which is how the run path does it.
+    const declared = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], timeoutMs: 60_000 }],
+      outputRoot: path.join(candidate.outputRoot, 'declared'),
+      stateRoot: candidate.state.root,
+      verificationRoot: candidate.verificationRoot,
+    });
+    expect(declared[0]!.stateRootGuard!.checked).toBe(true);
+    expect(declared[0]!.stateRootGuard!.stateRoot).toBe(candidate.state.root);
   });
 });
