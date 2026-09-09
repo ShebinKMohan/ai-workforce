@@ -615,6 +615,53 @@ uses it for the model-turn gate. The gate skips on `none` only. `unknown` runs
 the checks and lets a failure be reported as a failure, because "the runtime
 would not say" is not evidence that a check would fail.
 
+### How `claude auth status` exits, and the second reading error
+
+Executed on 2026-09-09 against `~/.local/bin/claude`, `2.1.260 (Claude Code)`,
+signed out:
+
+| Channel | Observed |
+| --- | --- |
+| exit code | **1** |
+| stdout | `{"loggedIn": false, "authMethod": "none", "apiProvider": "firstParty", …}` |
+| stderr | empty |
+
+Signed in, the same command exits 0 with `loggedIn: true`. So on this build the
+exit code tracks *the answer*, not whether the command worked — a signed-out
+runtime reports itself completely and correctly, and exits non-zero anyway.
+
+The probe used to test the exit code first and return `auth: unknown` with
+*"`claude auth status` exited 1; login state is not established"*, throwing away
+the JSON sitting on stdout. `workforce doctor` therefore reported
+`readiness: auth_unknown`, `auth: unknown` for a runtime whose own status
+command had said plainly that nobody was signed in, and the actionable
+diagnostic (*"Claude Code is not logged in; run `claude auth login`"*) was never
+emitted. Same defect family as the `tokenSource` reading above: a fact the
+runtime supplied was discarded by the code meant to read it.
+
+`parseClaudeAuthStatus` / `parseCodexLoginStatus`
+(`src/discovery/probe.ts`) now separate *the command could not run* — not
+started, or killed on the probe deadline — from *the command answered and then
+exited non-zero*. The split is asymmetric on purpose:
+
+| Reading | Requires |
+| --- | --- |
+| `logged_out` | the command produced a signed-out answer, **any exit code** |
+| `logged_in` | a recognised signed-in answer **and** exit 0 |
+| `unknown` | everything else — spawn failure, timeout, empty or unrecognised output, or a non-zero exit that stated nothing about being signed out |
+
+Over-reporting `logged_out` costs a user one needless `login`. Over-reporting
+`logged_in` is a false readiness claim, so nothing a failed command printed may
+be read as a login. `loggedIn: true` on a clean exit still yields `logged_in`
+*with its caveat* and still cannot reach `verified_ready` without `--connect`;
+that conservatism is unchanged.
+
+Codex is not known to behave this way — `docs/runtime-codex.md` records only the
+signed-in line, and its signed-out exit code is unverified — so its parser was
+given the same signed-out-any-exit rule rather than a codex-specific exit
+promise, and `codex login status` was not re-run to find out (it must not be
+made to start a turn).
+
 ### What this leaves in place
 
 1. **`claude auth status` reporting `loggedIn: true` is still not evidence of a

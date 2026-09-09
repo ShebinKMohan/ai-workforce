@@ -8,6 +8,7 @@ import {
   buildCheckEnv,
   decideAcceptance,
   listChecks,
+  listFrozenTree,
   persistCheckReceipts,
   runChecks,
   scanTrackedFiles,
@@ -164,6 +165,68 @@ describe('runChecks executes checks itself against a frozen candidate (FR049)', 
     expect(receipt.copyStrategy).toBe('git_archive_repaired');
     expect(receipt.diagnostics.join(' ')).toContain('export-ignore');
     expect(receipt.diagnostics.join(' ')).toContain('test/pagination.test.js');
+  });
+
+  it('refuses to run when the frozen tree listing is incomplete, instead of checking the copy against nothing', async () => {
+    // The same export-ignore attack, but the tree listing the defence depends
+    // on does not come back whole. A truncated listing used to be discarded
+    // entirely, `completeCopy` short-circuited on the empty map, no path was
+    // ever compared, and the check ran against a tree with no test suite and
+    // reported `passed` with verifier_executed provenance.
+    const candidate = await frozenCandidate({
+      fix: false,
+      extraFiles: {
+        '.gitattributes': 'test/pagination.test.js export-ignore\n',
+        'test/zz-smoke.test.js': "import test from 'node:test';\ntest('smoke', () => {});\n",
+      },
+    });
+
+    const receipts = await runChecks({
+      candidate: candidate.ref,
+      checks: [{ criterionId: 'node-tests', command: 'node', args: ['--test', 'test/'], timeoutMs: 60_000 }],
+      outputRoot: candidate.outputRoot,
+      // Enough for a few records and not the whole tree: the listing stops
+      // part-way, exactly as a failed or aborted walk does.
+      treeListingMaxBytes: 200,
+    });
+
+    const receipt = receipts[0]!;
+    expect(receipt.outcome).toBe('error');
+    expect(receipt.exitCode).toBeNull();
+    expect(receipt.diagnostics.join(' ')).toContain('refusing to run this check');
+    expect(receipt.diagnostics.join(' ')).toContain('export-ignore');
+    // The suite the candidate hid is never reported as having passed.
+    expect(receipt.outcome).not.toBe('passed');
+
+    const decision = decideAcceptance([{ id: 'node-tests', description: 'the suite must pass' }], receipts);
+    expect(decision.accepted).toBe(false);
+  });
+
+  it('keeps the records a partial tree listing did produce, and still calls the listing incomplete', async () => {
+    const candidate = await frozenCandidate({ fix: true });
+
+    const whole = await listFrozenTree(candidate.ref);
+    expect(whole.complete).toBe(true);
+    expect(whole.incompleteReason).toBeNull();
+    expect(whole.entries.size).toBeGreaterThan(3);
+
+    // A walk that stops part-way has still written whole NUL-terminated
+    // records; throwing them away is what turned "checked against a bounded
+    // list" into "checked against nothing".
+    const partial = await listFrozenTree(candidate.ref, undefined, 200);
+    expect(partial.complete).toBe(false);
+    expect(partial.entries.size).toBeGreaterThan(0);
+    expect(partial.entries.size).toBeLessThan(whole.entries.size);
+    expect(partial.incompleteReason).toContain('capture limit');
+    // Every salvaged path is a real one, not a fragment of the record that was
+    // cut in half.
+    for (const relative of partial.entries.keys()) expect(whole.entries.has(relative)).toBe(true);
+
+    // A listing that could not be produced at all says so too.
+    const missing = await listFrozenTree({ ...candidate.ref, revision: '0000000000000000000000000000000000000000' });
+    expect(missing.complete).toBe(false);
+    expect(missing.entries.size).toBe(0);
+    expect(missing.incompleteReason).toContain('did not finish');
   });
 
   it('treats a check that mutates tracked source as an integrity failure even when it exits zero', async () => {

@@ -140,6 +140,90 @@ describe('login visibility uses the documented commands only', () => {
     expect((await probeRuntime('codex', garbage, { timeoutMs: 5_000 })).auth).toBe('unknown');
   });
 
+  it('reads the answer a login command gives while exiting non-zero, instead of discarding it', async () => {
+    const root = scratch();
+    // Exactly what claude 2.1.260 does when signed out: exit 1, a complete
+    // JSON answer on stdout, nothing on stderr.
+    const signedOut = writeExecutable(path.join(root, 'signed-out'), 'claude', fakeClaude({ auth: 'json-out', authExit: 1 }));
+
+    const probe = await probeRuntime('claude-code', signedOut, { timeoutMs: 5_000 });
+
+    expect(probe.auth).toBe('logged_out');
+    expect(probe.authDetail).toContain('loggedIn=false');
+    // The whole point of reading it: the user is told what to do about it.
+    expect(probe.diagnostics.join(' ')).toContain('claude auth login');
+    expect(probe.diagnostics.join(' ')).not.toContain('login state is not established');
+    expect(probe.diagnostics.join(' ')).not.toContain('authentication status is unknown');
+  });
+
+  it('reads a signed-out statement whatever the exit code, and a claimed login only from a clean exit', () => {
+    for (const exitCode of [0, 1, 7]) {
+      expect(parseAuthStatus('claude-code', probeResult({ exitCode, stdout: '{"loggedIn": false, "authMethod": "none"}' })).auth).toBe('logged_out');
+      expect(parseAuthStatus('codex', probeResult({ exitCode, stdout: 'Not logged in' })).auth).toBe('logged_out');
+    }
+
+    // The dangerous direction. A command that failed may never be read as a
+    // login, however cheerful its output: reporting logged_in for a runtime
+    // that cannot spend a credential is the false readiness claim this
+    // coordinator exists to prevent.
+    for (const failing of [
+      probeResult({ exitCode: 1, stdout: '{"loggedIn": true, "authMethod": "claude.ai"}' }),
+      probeResult({ exitCode: null, signal: 'SIGKILL', stdout: '{"loggedIn": true}' }),
+      probeResult({ exitCode: 1, spawnError: 'spawn ENOENT', stdout: '{"loggedIn": true}' }),
+      probeResult({ exitCode: null, timedOut: true, stdout: '{"loggedIn": true}' }),
+    ]) {
+      expect(parseAuthStatus('claude-code', failing).auth).toBe('unknown');
+    }
+    expect(parseAuthStatus('codex', probeResult({ exitCode: 1, stdout: 'Logged in using ChatGPT' })).auth).toBe('unknown');
+  });
+
+  it('does not read a crash whose wording happens to say "not logged in" as a signed-out answer', async () => {
+    const root = scratch();
+    // Two identical failures of the same command, differing only in wording.
+    // A substring match is the whole of the free-text reading, so if the exit
+    // code is not consulted the pair gets opposite verdicts — one confident
+    // "not logged in", one honest "unknown" — from the same kind of crash.
+    const proxy = writeExecutable(path.join(root, 'proxy'), 'claude', fakeClaude({ auth: 'crash-out', authExit: 70 }));
+    const eacces = writeExecutable(path.join(root, 'eacces'), 'claude', fakeClaude({ auth: 'crash-eacces', authExit: 70 }));
+
+    const proxyProbe = await probeRuntime('claude-code', proxy, { timeoutMs: 5_000 });
+    const eaccesProbe = await probeRuntime('claude-code', eacces, { timeoutMs: 5_000 });
+
+    expect(proxyProbe.auth).toBe('unknown');
+    expect(proxyProbe.auth).toBe(eaccesProbe.auth);
+    // ... and the crash is reported rather than replaced by login advice.
+    expect(proxyProbe.diagnostics.join(' ')).toContain('authentication status is unknown');
+    expect(proxyProbe.diagnostics.join(' ')).not.toContain('is not logged in; run');
+
+    // Same for codex, whose free text is its only signed-out reading: a panic
+    // on stderr naming a credentials directory is a failure, not an answer.
+    const panicking = writeExecutable(path.join(root, 'codex'), 'codex', fakeCodex({ login: 'panic-out', loginExit: 101 }));
+    const codexProbe = await probeRuntime('codex', panicking, { timeoutMs: 5_000 });
+    expect(codexProbe.auth).toBe('unknown');
+    expect(codexProbe.diagnostics.join(' ')).toContain('authentication status is unknown');
+    expect(codexProbe.diagnostics.join(' ')).not.toContain('is not logged in; run');
+
+    // The signed-out answer a working runtime actually gives still lands, on
+    // stdout, whatever the exit code — that is what this gate must not break.
+    const signedOut = writeExecutable(path.join(root, 'out'), 'codex', fakeCodex({ login: 'out', loginExit: 1 }));
+    expect((await probeRuntime('codex', signedOut, { timeoutMs: 5_000 })).auth).toBe('logged_out');
+  });
+
+  it('keeps a probe that genuinely failed to answer at unknown', async () => {
+    const root = scratch();
+    const silent = writeExecutable(path.join(root, 'silent'), 'claude', fakeClaude({ auth: 'garbage', authExit: 1 }));
+
+    const probe = await probeRuntime('claude-code', silent, { timeoutMs: 5_000 });
+    expect(probe.auth).toBe('unknown');
+    expect(probe.authDetail).toContain('exited 1');
+
+    // Empty output, a signal death and a spawn failure are failures too, not answers.
+    expect(parseAuthStatus('claude-code', probeResult({ exitCode: 1, stdout: '', stderr: '' })).auth).toBe('unknown');
+    expect(parseAuthStatus('claude-code', probeResult({ exitCode: 1, stdout: '{"loggedIn": "maybe"}' })).auth).toBe('unknown');
+    expect(parseAuthStatus('claude-code', probeResult({ exitCode: null, signal: 'SIGSEGV', stdout: 'noise' })).auth).toBe('unknown');
+    expect(parseAuthStatus('claude-code', probeResult({ exitCode: null, spawnError: 'spawn EACCES' })).detail).toContain('could not be started');
+  });
+
   it('never carries the account details the login command prints into the report', async () => {
     const root = scratch();
     const claude = writeExecutable(root, 'claude', fakeClaude({ auth: 'json-in', email: 'private.person@example.com' }));

@@ -2,7 +2,7 @@
  * Version and login-status probes (FR002).
  *
  * Both probes use only the documented flags in `runtimes.ts`. Neither passes a
- * prompt, so neither can start a paid model turn. A timeout or a non-zero exit
+ * prompt, so neither can start a paid model turn. A probe that could not run
  * maps authentication to `unknown` — never to a ready state.
  *
  * Login output is never stored verbatim: `claude auth status` prints the
@@ -92,39 +92,164 @@ export interface AuthObservation {
 const LOGGED_OUT_PATTERN = /\bnot\s+logged\s+in\b|\blogged\s+out\b|\bnot\s+signed\s+in\b|\bno\s+credentials\b/i;
 const LOGGED_IN_PATTERN = /\blogged\s+in\b|\bsigned\s+in\b/i;
 
-/** Shared pre-checks: a probe that failed can never establish a login. */
-function failedProbeObservation(result: ProbeResult, command: string): AuthObservation | null {
+/**
+ * Everything the login-status readings below need, and nothing about how the
+ * command was run.
+ *
+ * There is exactly one place in this repository that decides what a login
+ * status command's output means. The Claude Code adapter runs the same
+ * documented command through `execFile` rather than through the discovery
+ * spawner, and it used to carry a second, looser copy of this logic — one that
+ * ignored the exit code entirely and answered `logged_in` for `{"loggedIn":
+ * true}` printed by a command that then exited 1 or died on a signal. That
+ * copy is the answer `doctor --connect` records, so the looser reading won.
+ * Narrowing the input to this shape is what lets both callers share the one
+ * set of rules; see `parseAuthCommandOutcome`.
+ */
+export interface AuthCommandOutcome {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number | null;
+  readonly timedOut: boolean;
+  /** Set when the process could not be started at all (ENOENT, EACCES, ...). */
+  readonly spawnError: string | null;
+  readonly timeoutMs: number;
+}
+
+export function authOutcomeOfProbe(result: ProbeResult): AuthCommandOutcome {
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    timedOut: result.timedOut,
+    spawnError: result.spawnError,
+    timeoutMs: result.command.timeoutMs,
+  };
+}
+
+/**
+ * A login-status command fails in two ways that must not be confused:
+ *
+ *  - it never ran — the executable could not be started, or it was killed on
+ *    the probe deadline. Nothing was answered, so nothing is established.
+ *  - it ran, printed its own answer, and *then* exited non-zero.
+ *
+ * `claude auth status` on 2.1.260 does the second thing when signed out: it
+ * exits 1, prints a complete `{"loggedIn": false, "authMethod": "none", …}` on
+ * stdout and prints nothing on stderr. Discarding that output on the exit code
+ * alone turned a cleanly reported signed-out state into `auth_unknown` and
+ * swallowed the one diagnostic that tells a user what to do about it.
+ *
+ * The asymmetry below is deliberate and load-bearing. A runtime's own answer
+ * may make this report say **logged_out** whatever the exit code, but only a
+ * command that exited 0 may contribute to saying **logged_in**. Over-reporting
+ * logged_out costs a user one needless `login`; over-reporting logged_in is a
+ * false readiness claim, which is the failure this coordinator exists to
+ * prevent (plan section 6 rule 4).
+ */
+function unusableProbeObservation(result: AuthCommandOutcome, command: string): AuthObservation | null {
   if (result.spawnError !== null) return { auth: 'unknown', detail: `\`${command}\` could not be started (${result.spawnError})` };
-  if (result.timedOut) return { auth: 'unknown', detail: `\`${command}\` did not answer within ${result.command.timeoutMs} ms and its process group was terminated` };
-  if (result.exitCode !== 0) return { auth: 'unknown', detail: `\`${command}\` exited ${result.exitCode ?? 'on a signal'}; login state is not established` };
+  if (result.timedOut) return { auth: 'unknown', detail: `\`${command}\` did not answer within ${result.timeoutMs} ms and its process group was terminated` };
   return null;
 }
 
+function exitPhrase(result: AuthCommandOutcome): string {
+  return result.exitCode === null ? 'exited on a signal' : `exited ${result.exitCode}`;
+}
+
+/**
+ * The gate that stands between a failed command and a claimed login. Reached
+ * only after every signed-out reading has been tried, so a non-zero exit can
+ * still be reported as "not logged in" — it just can never be reported as
+ * "logged in", nor as anything else a caller might mistake for readiness.
+ */
+function unestablishedByExit(result: AuthCommandOutcome, command: string): AuthObservation | null {
+  if (result.exitCode === 0) return null;
+  return { auth: 'unknown', detail: `\`${command}\` ${exitPhrase(result)} without reporting a signed-out state; login state is not established` };
+}
+
+function loggedOutDetail(command: string, reading: string, result: AuthCommandOutcome): string {
+  return result.exitCode === 0
+    ? `\`${command}\` ${reading}`
+    : `\`${command}\` ${exitPhrase(result)} and ${reading}; the command answered, so its own answer is read rather than discarded on the exit code`;
+}
+
+/**
+ * The channel a signed-out reading may be taken from.
+ *
+ * `LOGGED_OUT_PATTERN` is a loose substring match, and on a non-zero exit the
+ * text it is matched against is as likely to be a crash as an answer: a proxy
+ * refusing the request ("you are not logged in to corp-proxy"), a keychain
+ * error ("no credentials store available"), a panic naming a credentials
+ * directory. Those all go to stderr, which is where failures go; a status
+ * command states its answer on stdout. So after a failure only stdout counts
+ * as the command's own answer, and a crash that merely happens to contain the
+ * words falls through to `unestablishedByExit` and is reported as unknown.
+ *
+ * On a clean exit both channels are read, unchanged: a command that exited 0
+ * was answering, wherever it chose to print.
+ */
+function statedAnswerText(result: AuthCommandOutcome): string {
+  return result.exitCode === 0 ? `${result.stdout}\n${result.stderr}` : result.stdout;
+}
+
 /** `codex login status` prints "Logged in using ChatGPT" or a not-logged-in line. */
-export function parseCodexLoginStatus(result: ProbeResult): AuthObservation {
-  const failed = failedProbeObservation(result, 'codex login status');
-  if (failed !== null) return failed;
+export function parseCodexLoginStatus(result: AuthCommandOutcome): AuthObservation {
+  const unusable = unusableProbeObservation(result, 'codex login status');
+  if (unusable !== null) return unusable;
   const text = `${result.stdout}\n${result.stderr}`;
-  if (LOGGED_OUT_PATTERN.test(text)) return { auth: 'logged_out', detail: '`codex login status` reports no active login' };
+  // codex prints free text and docs/runtime-codex.md records only the
+  // signed-in line, so its signed-out exit code is not a verified fact here.
+  // A stated absence of a login is therefore believed whatever the exit code —
+  // the direction that cannot manufacture readiness — while a stated login
+  // still needs a clean exit. Free text is all codex gives, so this is its only
+  // signed-out reading; `statedAnswerText` is what keeps a crash on stderr from
+  // being mistaken for one.
+  if (LOGGED_OUT_PATTERN.test(statedAnswerText(result))) return { auth: 'logged_out', detail: loggedOutDetail('codex login status', 'reports no active login', result) };
+  const failed = unestablishedByExit(result, 'codex login status');
+  if (failed !== null) return failed;
   if (LOGGED_IN_PATTERN.test(text)) return { auth: 'logged_in', detail: '`codex login status` reports an active login' };
   return { auth: 'unknown', detail: '`codex login status` succeeded but its output was not recognised' };
 }
 
 /** `claude auth status` prints JSON with `loggedIn` by default and text with `--text`. */
-export function parseClaudeAuthStatus(result: ProbeResult): AuthObservation {
-  const failed = failedProbeObservation(result, 'claude auth status');
-  if (failed !== null) return failed;
+export function parseClaudeAuthStatus(result: AuthCommandOutcome): AuthObservation {
+  const unusable = unusableProbeObservation(result, 'claude auth status');
+  if (unusable !== null) return unusable;
   const text = `${result.stdout}\n${result.stderr}`;
   const json = extractJsonObject(result.stdout);
+
+  // Read the signed-out answer first, and read it whatever the exit code:
+  // exit 1 with `{"loggedIn": false}` on stdout is how 2.1.260 reports a
+  // signed-out runtime, and it is an answer, not a failure.
+  //
+  // Only the *structured* answer earns that. `loggedIn: false` is a top-level
+  // boolean field in a machine-readable document: nothing but a deliberate
+  // statement produces it. The free-text reading below has no such
+  // discriminator — it is a substring match — so it stays behind the exit gate,
+  // where a crash that happens to say "not logged in" cannot be promoted into
+  // an authoritative signed-out verdict. On this build that costs nothing:
+  // 2.1.260 prints JSON on stdout in both states, so a text-only signed-out
+  // reply already implies the command is not the one we think it is.
+  if (json !== null && json['loggedIn'] === false) {
+    return { auth: 'logged_out', detail: loggedOutDetail('claude auth status', 'reported loggedIn=false', result) };
+  }
+
+  const failed = unestablishedByExit(result, 'claude auth status');
+  if (failed !== null) return failed;
+
+  if (json === null && LOGGED_OUT_PATTERN.test(text)) {
+    return { auth: 'logged_out', detail: loggedOutDetail('claude auth status', 'reports no active login', result) };
+  }
+
   if (json !== null) {
-    const loggedIn = json['loggedIn'];
     // A stored profile is not the same thing as what the runtime can spend,
     // and the two have disagreed in BOTH directions on 2.1.260: once with
     // `auth status` reporting loggedIn=true while the runtime reported
     // account.tokenSource "none" and every turn failed authentication, and
     // once with `auth status` reporting loggedIn=false while turns worked.
     // Only the live handshake settles it (docs/runtime-claude-code.md §9).
-    if (loggedIn === true) {
+    if (json['loggedIn'] === true) {
       return {
         auth: 'logged_in',
         detail: '`claude auth status` reported loggedIn=true, which describes a stored profile rather than what the runtime can spend',
@@ -132,10 +257,8 @@ export function parseClaudeAuthStatus(result: ProbeResult): AuthObservation {
           '`claude auth status` reporting loggedIn=true describes a stored profile, not what the runtime can spend; the two have disagreed in both directions on this build. Run `workforce doctor --connect` to ask the runtime itself, which is the only check that can reach verified_ready',
       };
     }
-    if (loggedIn === false) return { auth: 'logged_out', detail: '`claude auth status` reported loggedIn=false' };
     return { auth: 'unknown', detail: '`claude auth status` returned JSON without a boolean loggedIn field' };
   }
-  if (LOGGED_OUT_PATTERN.test(text)) return { auth: 'logged_out', detail: '`claude auth status` reports no active login' };
   if (LOGGED_IN_PATTERN.test(text)) return { auth: 'logged_in', detail: '`claude auth status` reports an active login' };
   return { auth: 'unknown', detail: '`claude auth status` succeeded but its output was neither JSON nor a recognised status line' };
 }
@@ -152,8 +275,13 @@ function extractJsonObject(text: string): Record<string, unknown> | null {
   }
 }
 
+/** The single place a login-status command's output is turned into a verdict. */
+export function parseAuthCommandOutcome(adapter: DiscoverableAdapter, outcome: AuthCommandOutcome): AuthObservation {
+  return adapter === 'codex' ? parseCodexLoginStatus(outcome) : parseClaudeAuthStatus(outcome);
+}
+
 export function parseAuthStatus(adapter: DiscoverableAdapter, result: ProbeResult): AuthObservation {
-  return adapter === 'codex' ? parseCodexLoginStatus(result) : parseClaudeAuthStatus(result);
+  return parseAuthCommandOutcome(adapter, authOutcomeOfProbe(result));
 }
 
 // ---------------------------------------------------------------------------

@@ -64,8 +64,11 @@ import {
   TurnSteerResultSchema,
   classifyCodexError,
   isDeltaMethod,
+  compareReportedContainment,
   sandboxModeForPolicy,
   sandboxPolicyForTurn,
+  unconfirmedContainment,
+  type ProfileMismatch,
   type ThreadItem,
 } from './protocol.js';
 import { provisionedBridgeFromArgs } from './coordination-bridge.js';
@@ -144,6 +147,10 @@ interface CodexSession {
   readonly turnStartIndex: Map<string, number>;
   readonly queued: DeliveryInput[];
   readonly reported: CodexEffectiveSettings;
+  /** Aspects of the requested profile the server reports it applied differently. */
+  readonly profileMismatch: ReadonlyArray<ProfileMismatch>;
+  /** Parts of the boundary no server statement confirms. */
+  readonly unenforceable: ReadonlyArray<{ readonly aspect: string; readonly reason: string }>;
   readonly diagnostics: string[];
   tokenUsage: unknown;
   readonly requestedModel: string | null;
@@ -547,6 +554,13 @@ export class CodexAdapter implements RuntimeAdapter {
     if (reported.model !== null && offeredModels.length > 0 && !offeredModels.includes(reported.model)) {
       diagnostics.push(`the server started this thread with model "${reported.model}", which model/list does not offer; turns are likely to be rejected by the provider`);
     }
+    // The containment the server says it applied, compared with the one that
+    // was asked for. thread/start's echo is the only machine-readable
+    // statement the server makes about it, and it used to be stored as
+    // `unknown` and dropped.
+    const profileMismatch = compareReportedContainment(input.policy, reported.sandbox, reported.approvalPolicy);
+    for (const mismatch of profileMismatch) diagnostics.push(`${mismatch.aspect}: ${mismatch.detail}`);
+    const unenforceable = unconfirmedContainment(input.policy, reported.sandbox);
 
     const { fd, streamPath } = this.#openRawLog(sessionId, identity.spawnToken);
     const handle: SessionHandle = {
@@ -571,6 +585,8 @@ export class CodexAdapter implements RuntimeAdapter {
       turnStartIndex: new Map(),
       queued: [],
       reported,
+      profileMismatch,
+      unenforceable,
       diagnostics,
       tokenUsage: null,
       requestedModel: input.model ?? null,
@@ -724,7 +740,22 @@ export class CodexAdapter implements RuntimeAdapter {
     switch (method) {
       case SERVER_NOTIFICATION.threadStarted: {
         const parsed = ThreadStartedNotificationSchema.safeParse(params);
-        this.#push(session, 'session_started', null, parsed.success ? { threadId: parsed.data.thread.id, cwd: parsed.data.thread.cwd ?? null, cliVersion: parsed.data.thread.cliVersion ?? null } : { method, params }, rawRef);
+        this.#push(
+          session,
+          'session_started',
+          null,
+          {
+            ...(parsed.success ? { threadId: parsed.data.thread.id, cwd: parsed.data.thread.cwd ?? null, cliVersion: parsed.data.thread.cliVersion ?? null } : { method, params }),
+            // What the server said it applied, on the event the run reads.
+            // An accessor nothing outside this directory calls is not a report.
+            policy: session.policy,
+            reportedSandbox: session.reported.sandbox ?? null,
+            reportedApprovalPolicy: session.reported.approvalPolicy ?? null,
+            profileMismatch: session.profileMismatch,
+            unenforceable: session.unenforceable,
+          },
+          rawRef,
+        );
         return;
       }
       case SERVER_NOTIFICATION.turnStarted: {

@@ -229,7 +229,13 @@ describe('workforce doctor reports what it found', () => {
 
     const result = await invoke(['doctor', '--codex-path', codex, '--claude-path', claude, '--state-dir', path.join(scratch(), 'state')]);
 
+    // Doctor stays informational. This machine has codex signed in, so it can
+    // run work right now; exiting 3 here would tell a wrapper the user must act
+    // before anything runs, which is false. The signed-out runtime is still
+    // named, in the prose and in `actionRequired`, and exit 3 is raised by
+    // `run` when the missing login actually blocks the work.
     expect(result.code).toBe(EXIT_CODES.verifiedCandidate);
+    expect(result.stdout).toContain('action required: Claude Code is installed and signed out — run `claude auth login`');
     expect(result.stdout).toContain('no model turn is started');
     expect(result.stdout).toMatch(/RUNTIME\s+VERSION\s+READINESS\s+AUTH\s+EXECUTABLE/);
     expect(result.stdout).toMatch(/codex\s+0\.147\.0\s+controllable\s+logged_in/);

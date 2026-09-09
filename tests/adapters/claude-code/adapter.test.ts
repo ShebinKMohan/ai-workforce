@@ -7,12 +7,13 @@
  * fixtures/claude-code/fake-claude.mjs), so there is no deferred release for
  * two client frames to race past — the defect WP03's replay fixture shipped.
  */
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AdapterError, type RuntimeEvent, type SessionHandle, type SessionInput } from '../../../src/adapters/types.js';
-import { CLAUDE_CODE_CAPABILITIES } from '../../../src/adapters/claude-code/adapter.js';
+import { ClaudeCodeAdapter as ClaudeCodeAdapterClass, CLAUDE_CODE_CAPABILITIES } from '../../../src/adapters/claude-code/adapter.js';
+import { TESTED_CLAUDE_VERSION } from '../../../src/adapters/claude-code/protocol.js';
 import { summarizeTurnEvidence } from '../../../src/telemetry/events.js';
 import type { ClaudeCodeAdapter } from '../../../src/adapters/claude-code/adapter.js';
 import { allOfKind, argAfter, collect, firstOfKind, kinds, readArgvLog, replayAdapter, scenarioEnv, scenarioPath, tempWorkspace, variadicAfter } from './helpers.js';
@@ -78,6 +79,42 @@ describe('session identity (FR004, plan section 6)', () => {
     expect(events.every((e) => e.sessionId === handle.sessionId)).toBe(true);
     const started = firstOfKind(events, 'session_started');
     expect(started?.payload['reportedSessionId']).toBe(handle.sessionId);
+  });
+
+  it('reports the tool surface the runtime says it granted when it is wider than the profile asked for', async () => {
+    // Claude Code has no OS sandbox, so the granted tool surface IS the write
+    // boundary. The runtime states it in every `init` record; the adapter used
+    // to copy that record into `effective` — overwriting the field the
+    // initialize-time check had looked at — and compare nothing.
+    //
+    // This scenario's init grants Read, Glob, Grep, Edit and Write. Under the
+    // read-only `analysis` profile, Edit and Write are two tools the profile
+    // never asked for.
+    const { adapter, handle } = await session('session-hello.synthetic.json', { policy: 'analysis' });
+    const events = await collect(adapter, await adapter.startTurn(handle, { prompt: 'have a look' }));
+
+    const started = firstOfKind(events, 'session_started')!;
+    const mismatches = started.payload['profileMismatch'] as Array<{ aspect: string; requested: string; reported: string; detail: string }>;
+    expect(mismatches.map((entry) => entry.aspect).sort()).toEqual(['permissionMode', 'tools']);
+    const tools = mismatches.find((entry) => entry.aspect === 'tools')!;
+    expect(tools).toMatchObject({ requested: 'Glob, Grep, Read' });
+    expect(tools.detail).toContain('Edit, Write');
+    expect(tools.detail).toContain('the only write boundary this runtime has');
+    // The permission mode is the same story: `analysis` asks for plan mode and
+    // the runtime says it is accepting edits.
+    expect(mismatches.find((entry) => entry.aspect === 'permissionMode')).toMatchObject({ requested: 'plan', reported: 'acceptEdits' });
+    // The requested surface is on the record beside the granted one, so a
+    // reader of the events never has to guess which is which.
+    expect(started.payload['requestedTools']).toEqual(['Read', 'Glob', 'Grep']);
+  });
+
+  it('reports no mismatch when the runtime grants exactly the profile that was requested', async () => {
+    const { adapter, handle } = await session('session-hello.synthetic.json', { policy: 'local-development' });
+    const events = await collect(adapter, await adapter.startTurn(handle, { prompt: 'do the work' }));
+
+    const started = firstOfKind(events, 'session_started')!;
+    expect(started.payload['profileMismatch']).toEqual([]);
+    expect(started.payload['permissionMode']).toBe('acceptEdits');
   });
 
   it('refuses a second concurrent turn in the same session', async () => {
@@ -633,5 +670,54 @@ describe('capability table (FR005)', () => {
     const report = replayAdapter().capabilities().capabilities.write_containment;
     expect(report.status).toBe('unsupported');
     expect(report.note).toContain('no OS sandbox');
+  });
+});
+
+/**
+ * The adapter reads a login-status command the same way passive discovery
+ * does, because this reading is the one a run records.
+ *
+ * This file used to carry a second, looser copy of the parser: it ignored the
+ * exit code entirely, read stdout and stderr together, and answered
+ * `logged_in` for `{"loggedIn": true}` printed by a command that then exited 1
+ * or died on a signal. `doctor --connect` lets the adapter's answer replace
+ * the probe's, so the conservative reading was computed and then overwritten
+ * by the permissive one — a false readiness claim, which is the failure this
+ * coordinator exists to prevent.
+ */
+describe('the adapter reads `claude auth status` by the one set of rules (FR002)', () => {
+  function stub(body: string): string {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'wf-auth-stub-'));
+    const file = path.join(dir, 'claude');
+    writeFileSync(file, `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "${TESTED_CLAUDE_VERSION} (Claude Code)"; exit 0; fi\nif [ "$1" = "auth" ] && [ "$2" = "status" ]; then\n${body}\nfi\nexit 64\n`, { mode: 0o755 });
+    chmodSync(file, 0o755);
+    return file;
+  }
+
+  it('never reports logged_in for a status command that failed, however cheerful its output', async () => {
+    const adapter = new ClaudeCodeAdapterClass({ probeTimeoutMs: 5_000 });
+
+    // A signed-in JSON answer from a command that then exits 1.
+    const claiming = stub('echo \'{"loggedIn": true, "authMethod": "claude.ai"}\'\nexit 1');
+    expect((await adapter.probe(claiming)).authentication).toBe('unknown');
+
+    // The same answer from a command that printed it and then died.
+    const crashing = stub('echo \'{"loggedIn": true}\'\nkill -SEGV $$');
+    expect((await adapter.probe(crashing)).authentication).toBe('unknown');
+
+    // And a crash whose wording happens to contain "not logged in" is not an
+    // answer either — it is a failure that mentions a login.
+    const proxy = stub('echo "fatal: proxy rejected request: you are not logged in to corp-proxy" >&2\nexit 70');
+    expect((await adapter.probe(proxy)).authentication).toBe('unknown');
+  });
+
+  it('still reads the answer the installed build actually gives when it is signed out', async () => {
+    const adapter = new ClaudeCodeAdapterClass({ probeTimeoutMs: 5_000 });
+    // 2.1.260 signed out: exit 1, the complete JSON answer on stdout.
+    const signedOut = stub('echo \'{"loggedIn": false, "authMethod": "none"}\'\nexit 1');
+    const readiness = await adapter.probe(signedOut);
+
+    expect(readiness.authentication).toBe('logged_out');
+    expect(readiness.ready).not.toBe('verified_ready');
   });
 });

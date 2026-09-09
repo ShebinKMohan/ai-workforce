@@ -365,8 +365,15 @@ export interface ObservedRuntimeState {
 
 export interface RuntimeAdapter {
   readonly id: AdapterId;
-  /** Passive readiness probe: must not start a paid model turn or run repository hooks. */
-  probe(executablePath: string): Promise<RuntimeReadiness>;
+  /**
+   * Passive readiness probe: must not start a paid model turn or run
+   * repository hooks.
+   *
+   * `{ live: true }` additionally asks the runtime itself — the control
+   * handshake, not a model turn — which is the only check that may report
+   * `verified_ready`. An adapter that has no live check may ignore it.
+   */
+  probe(executablePath: string, options?: { readonly live?: boolean }): Promise<RuntimeReadiness>;
   capabilities(): RuntimeCapabilities;
   /** Validate a model/effort request against offered values. `openSession` must refuse a binding this reports as not ok. */
   validateSettings(requested: RequestedSettings): SettingsValidation;

@@ -24,7 +24,7 @@ import { ClaudeCodeAdapter, CodexAdapter, type RuntimeReadiness } from '../../ad
 import { applyLiveCheck, readinessFrom } from '../../discovery/readiness.js';
 import { loadVerifiedCapabilityOverrides, DISCOVERY_CAPABILITY_NAMES, type LoadedOverrides } from '../../discovery/capabilities.js';
 import { discoverRuntime, discoverRuntimes, type RuntimeReadinessReport } from '../../discovery/readiness.js';
-import { DISCOVERABLE_ADAPTERS, type DiscoverableAdapter } from '../../discovery/runtimes.js';
+import { DISCOVERABLE_ADAPTERS, runtimeDescriptor, type DiscoverableAdapter } from '../../discovery/runtimes.js';
 import { validateRuntimeSettings } from '../../discovery/settings.js';
 import type { ProbeSpawner } from '../../discovery/spawn.js';
 import { resolveStateRoot } from '../../storage/paths.js';
@@ -400,6 +400,24 @@ export async function commandDoctor(args: DoctorArgs, deps: DoctorDeps = {}): Pr
     data['config'] = rendered.data;
   }
 
-  // Doctor is informational: a missing runtime is a reported fact, not a failure.
+  // Doctor is informational: it never fails, and a runtime that is missing or
+  // signed out is a reported fact rather than an error. A signed-out runtime
+  // IS a required user action, and it is named as one — in the human output and
+  // in `actionRequired`, so a wrapper can branch on it without parsing prose.
+  // What it is not is a reason for doctor itself to exit non-zero. One machine
+  // can hold two runtimes: with codex signed in and claude signed out the
+  // system is fully usable, and exiting 3 there would announce that the user
+  // must act before anything can run, which is false. Exit 3 belongs where the
+  // missing login actually blocks work — `run`, which refuses with
+  // `runtime_not_logged_in` — not on the command whose whole job is to report
+  // what is present.
+  const signedOut = checked.filter((report) => report.installed && report.auth === 'logged_out');
+  if (signedOut.length > 0) {
+    lines.push('');
+    for (const report of signedOut) {
+      lines.push(`action required: ${runtimeDescriptor(report.adapter).displayName} is installed and signed out — run \`${runtimeDescriptor(report.adapter).loginHint}\``);
+    }
+  }
+  data['actionRequired'] = signedOut.map((report) => ({ adapter: report.adapter, action: runtimeDescriptor(report.adapter).loginHint }));
   return { command: 'doctor', exitCode: EXIT_CODES.verifiedCandidate, data, lines };
 }

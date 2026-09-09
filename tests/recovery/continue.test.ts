@@ -8,10 +8,12 @@
  * closes that gap, with the orchestrator itself stubbed.
  */
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateAgentConfig } from '../../src/core/contracts.js';
-import type { RunDirectInput, RunDirectResult } from '../../src/core/run-direct.js';
+import { createAdapter, type RunDirectInput, type RunDirectResult } from '../../src/core/run-direct.js';
 import { runWithFallback } from '../../src/recovery/continue.js';
+import type { CapabilityStatus, RuntimeAdapter, RuntimeReadiness } from '../../src/adapters/types.js';
 import { listEvents } from '../../src/storage/events.js';
 import { insertAttempt, upsertAgentSnapshot } from '../../src/storage/records.js';
 import { computeAgentSnapshot } from '../../src/core/snapshot.js';
@@ -76,7 +78,44 @@ function failedResult(runId: string, taskId: string, attemptId: string, override
   };
 }
 
-function inputFor(state: ReturnType<typeof openTempState>, runId: string): RunDirectInput {
+/**
+ * A runtime that answers a readiness probe without a process.
+ *
+ * Fallback selection now probes each configured runtime instead of assuming
+ * every configured one is ready, so a test that did not inject this would
+ * spawn whatever `codex` happens to be installed on the machine running it —
+ * and pass or fail depending on that machine's login state.
+ */
+function stubAdapter(id: string, readiness: Partial<RuntimeReadiness>, containment: CapabilityStatus, testedVersion: string | null = '1.0.0'): RuntimeAdapter {
+  return {
+    id,
+    probe: async (executablePath: string) =>
+      ({
+        adapter: id,
+        executablePath,
+        installed: true,
+        version: '1.0.0',
+        adapterSupported: true,
+        controllable: true,
+        authentication: 'logged_in',
+        ready: 'verified_ready',
+        probeKind: 'live',
+        diagnostics: [],
+        observedAt: new Date().toISOString(),
+        ...readiness,
+      }) as RuntimeReadiness,
+    capabilities: () => ({ capabilities: { write_containment: { status: containment, testedVersion, os: 'darwin', note: 'stub' } } }),
+  } as unknown as RuntimeAdapter;
+}
+
+function inputFor(
+  state: ReturnType<typeof openTempState>,
+  runId: string,
+  adapters: Readonly<Record<string, RuntimeAdapter>> = {
+    'codex-local': stubAdapter('codex', {}, 'verified'),
+    'claude-local': stubAdapter('claude-code', {}, 'unsupported'),
+  },
+): RunDirectInput {
   return {
     repoPath: '/repo',
     config: CONFIG,
@@ -87,6 +126,7 @@ function inputFor(state: ReturnType<typeof openTempState>, runId: string): RunDi
     agentId: 'engineer',
     paths: state.paths,
     db: state.store.db,
+    adapterFactory: (runtime: { id: string }) => adapters[runtime.id] ?? stubAdapter(runtime.id, { ready: 'not_ready' }, 'unsupported'),
   } as unknown as RunDirectInput;
 }
 
@@ -150,6 +190,94 @@ describe('continuing a task on a second runtime', () => {
     expect(calls).toBe(1);
     expect(result.fallback).toBeNull();
     expect(result.note).toContain('code_failure');
+    state.store.close();
+  });
+
+  it('refuses a replacement runtime that was never shown to be ready, instead of calling every configured one ready', async () => {
+    const state = openTempState();
+    const { run, task } = seedRunAndTask(state);
+
+    // The failing case this closes: candidate readiness was the literal
+    // `verified_ready` for every runtime in the configuration, so the
+    // selector's readiness gate could never fire. Here the only replacement is
+    // signed out — the common case on a machine where the first runtime failed
+    // to authenticate — and handing it the work would burn a second full turn
+    // to fail identically.
+    const result = await runWithFallback(
+      inputFor(state, run.id, {
+        'codex-local': stubAdapter('codex', { ready: 'not_ready', authentication: 'logged_out' }, 'verified'),
+        'claude-local': stubAdapter('claude-code', {}, 'unsupported'),
+      }),
+      { run: async () => failedResult(run.id, task.id, 'attempt-1') },
+    );
+
+    expect(result.fallback?.toRuntimeId ?? null).toBeNull();
+    expect(result.note).toContain('no fallback runtime was eligible');
+    expect(result.note).toContain('readiness is "not_ready"');
+    expect(result.attempts).toHaveLength(1);
+    state.store.close();
+  });
+
+  it('refuses a runtime whose write boundary was established against another build, and one that has none at all', async () => {
+    const state = openTempState();
+    const { run, task } = seedRunAndTask(state);
+
+    // Two ways a "verified" status is not a boundary for THIS run: the
+    // deterministic test runtime, which enforces nothing and used to be
+    // hardcoded as `verified` by adapter name, and a real runtime whose status
+    // was established against a build that is not the installed one.
+    const result = await runWithFallback(
+      inputFor(state, run.id, {
+        // Ready, and its capability table says verified — for 0.147.0, which is
+        // not what answered the probe.
+        'codex-local': stubAdapter('codex', { version: '0.160.0' }, 'verified', '0.147.0'),
+        'claude-local': stubAdapter('claude-code', {}, 'unsupported'),
+      }),
+      { run: async () => failedResult(run.id, task.id, 'attempt-1') },
+    );
+
+    // The first attempt ran under local-development, so a replacement needs a
+    // boundary established for the build that would actually run.
+    expect(result.fallback?.toRuntimeId ?? null).toBeNull();
+    expect(result.note).toContain('write_containment "supported_unverified"');
+    expect(result.attempts).toHaveLength(1);
+    state.store.close();
+  });
+
+  it('never hands a writing task to the deterministic test runtime', async () => {
+    // The exact case this project's own AT03 evidence configuration produced:
+    // codex fails to authenticate, and the fallback selector picked
+    // `fake-local` — the scripted fixture runtime — because the candidate list
+    // hardcoded write_containment "verified" for the adapter named "fake". Its
+    // scripted patch then went through the real verifier and could be accepted.
+    const state = openTempState();
+    const { run, task } = seedRunAndTask(state);
+    const withFake = validateAgentConfig({
+      ...JSON.parse(readFileSync('fixtures/agents/example.json', 'utf8')),
+      runtimes: {
+        'codex-local': { adapter: 'codex', executable: 'codex' },
+        'claude-local': { adapter: 'claude-code', executable: 'claude' },
+        'fake-local': { adapter: 'fake', executable: path.resolve('fixtures/fake-runtime/fake-runtime.mjs') },
+      },
+    });
+
+    const input = {
+      ...inputFor(state, run.id),
+      config: withFake,
+      // The real FakeAdapter for the fake runtime — its own capability table
+      // is what must refuse it — and unreachable stand-ins for the rest.
+      adapterFactory: (runtime: { id: string; adapter: string; executable: string }) =>
+        runtime.adapter === 'fake' ? createAdapter(runtime) : stubAdapter(runtime.adapter, { ready: 'not_ready' }, 'unsupported'),
+    } as unknown as RunDirectInput;
+
+    const result = await runWithFallback(input, { run: async () => failedResult(run.id, task.id, 'attempt-1') });
+
+    expect(result.fallback?.toRuntimeId ?? null).not.toBe('fake-local');
+    expect(result.fallback?.toRuntimeId ?? null).toBeNull();
+    expect(result.attempts).toHaveLength(1);
+    const refusals = (result.fallback?.refused ?? []).map((entry) => `${entry.runtimeId}: ${entry.reason}`).join(' | ');
+    expect(refusals).toContain('fake-local');
+    expect(refusals).toContain('write_containment "unsupported"');
     state.store.close();
   });
 

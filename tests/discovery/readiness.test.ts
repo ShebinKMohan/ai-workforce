@@ -103,6 +103,19 @@ describe('passive readiness (FR002)', () => {
     expect(report.diagnostics.join(' ')).toContain('codex login');
   });
 
+  it('tells a user their runtime is signed out when the status command says so while exiting non-zero', async () => {
+    const bin = scratch();
+    // claude 2.1.260 signed out: `auth status` exits 1 and prints its answer on stdout.
+    writeExecutable(bin, 'claude', fakeClaude({ version: '2.1.260', auth: 'json-out', authExit: 1 }));
+
+    const report = await discoverRuntime('claude-code', { pathValue: bin, ...NO_KNOWN_LOCATIONS, ...NO_OVERRIDES });
+
+    expect(report.auth).toBe('logged_out');
+    expect(report.readiness).toBe('controllable');
+    expect(report.readiness).not.toBe('auth_unknown');
+    expect(report.diagnostics.join(' ')).toContain('Claude Code is not logged in; run `claude auth login`');
+  });
+
   it('honours an explicit executable path over the one on PATH', async () => {
     const onPath = scratch();
     const manual = scratch();

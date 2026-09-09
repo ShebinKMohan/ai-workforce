@@ -40,6 +40,7 @@ import {
   type CapabilityStatus,
   type RuntimeAdapter,
   type RuntimeEvent,
+  type RuntimeReadiness,
   type SessionHandle,
   type StopReceipt,
   type TurnHandle,
@@ -206,6 +207,14 @@ export interface ContainmentAssessment {
   readonly os: string | null;
   /** True when a writing profile is being run on a runtime that enforces no write boundary. */
   readonly unconfinedWrites: boolean;
+  /** The version of the runtime that is actually installed, when the run established one. */
+  readonly installedVersion: string | null;
+  /**
+   * True when a writing profile is being run on a build the boundary was never
+   * established against — an upgrade, a downgrade, or a version this run could
+   * not read at all.
+   */
+  readonly untestedVersion: boolean;
   /** Set when the operator explicitly accepted an unconfined writing run. */
   readonly acknowledged: boolean;
 }
@@ -223,19 +232,78 @@ export interface ContainmentAssessment {
  * manifest and printed, instead of the run producing evidence indistinguishable
  * from a kernel-confined one.
  */
-export function assessContainment(adapter: RuntimeAdapter, policy: Policy, acknowledged: boolean): ContainmentAssessment {
+export function assessContainment(adapter: RuntimeAdapter, policy: Policy, acknowledged: boolean, installedVersion: string | null = null): ContainmentAssessment {
   const report = adapter.capabilities().capabilities.write_containment;
   const writes = WRITING_POLICIES.has(policy);
+  const testedVersion = report.testedVersion;
+  // A capability status is a statement about a version on a platform, and the
+  // one that matters here is the version that is about to run. `verified`
+  // established against codex-cli 0.147.0 says nothing about 0.160.0, which
+  // may have changed or removed workspace-write entirely; a run that reads the
+  // status without reading the version cannot tell the two apart, and its
+  // evidence would be indistinguishable from a contained one.
+  const versionEstablished = testedVersion !== null && installedVersion !== null && installedVersion === testedVersion;
   return {
     policy,
     writes,
     status: report.status,
     note: report.note ?? '',
-    testedVersion: report.testedVersion,
+    testedVersion,
     os: report.os,
     unconfinedWrites: writes && report.status === 'unsupported',
+    installedVersion,
+    untestedVersion: writes && report.status !== 'unsupported' && !versionEstablished,
     acknowledged,
   };
+}
+
+/** The line a human sees when a writing run's boundary was established against a different build. */
+export function describeUntestedBoundary(adapter: string, containment: ContainmentAssessment): string {
+  const installed = containment.installedVersion ?? 'a version this run could not read';
+  return (
+    `the ${adapter} adapter reports write_containment "${containment.status}" established against ${containment.testedVersion ?? 'no stated version'} on ${containment.os ?? 'this platform'}, ` +
+    `and the installed runtime is ${installed}. The status is a statement about the tested build, so nothing here establishes that this build bounds writes at all. ${containment.note}`
+  );
+}
+
+/**
+ * Ask the runtime whether it can work, before the run creates anything.
+ *
+ * `probe` is the adapter's own readiness check: `--version`, the documented
+ * login-status command, and — with `{ live: true }` — the runtime's control
+ * handshake. None of those starts a model turn or runs a repository hook, and
+ * the live half is what makes the answer worth acting on: on the installed
+ * Claude Code build `auth status` describes a stored profile and has disagreed
+ * with the runtime in both directions, so only the runtime's own answer may
+ * refuse a run.
+ *
+ * A probe that fails is not an answer. It is reported and the run continues:
+ * refusing on a probe that could not run would turn a broken status command
+ * into a blocked coordinator.
+ */
+async function probeRuntimeReadiness(
+  adapter: RuntimeAdapter,
+  executable: string,
+  stream: RunStream,
+  unresolved: string[],
+): Promise<RuntimeReadiness | null> {
+  let readiness: RuntimeReadiness;
+  try {
+    readiness = await adapter.probe(executable, { live: true });
+  } catch (error) {
+    const note = `the ${adapter.id} readiness check could not be run against ${executable} (${(error as Error).message}), so this run started without knowing whether the runtime was usable`;
+    stream.line(`WARNING: ${note}`);
+    unresolved.push(note);
+    return null;
+  }
+  if (readiness.authentication === 'unknown') {
+    const note =
+      `the ${adapter.id} readiness check could not establish whether the runtime is logged in` +
+      `${readiness.diagnostics.length > 0 ? ` (${readiness.diagnostics.join('; ')})` : ''}; the run went ahead, so an authentication failure mid-run remains possible`;
+    stream.line(`WARNING: ${note}`);
+    unresolved.push(note);
+  }
+  return readiness;
 }
 
 /** The line a human sees when a writing run has no enforced boundary, and the line a manifest records. */
@@ -259,6 +327,39 @@ export function readUnenforceable(events: ReadonlyArray<RuntimeEvent>): Readonly
     if (event.kind !== 'session_started') continue;
     const parsed = UnenforceableSchema.safeParse(event.payload['unenforceable']);
     if (parsed.success) return parsed.data.map((entry) => ({ aspect: entry.aspect, reason: entry.reason }));
+  }
+  return [];
+}
+
+/**
+ * Aspects of the requested profile the runtime itself reports it applied
+ * differently.
+ *
+ * Both installed runtimes state what took effect — codex echoes the sandbox
+ * and approval policy in the `thread/start` result, Claude Code states the
+ * granted tool surface and permission mode in every `init` record — and both
+ * used to drop that answer on the floor or bury it in an adapter accessor no
+ * caller outside `src/adapters` reads. Read off `session_started` for the same
+ * reason `unenforceable` is: every adapter that publishes it gets it into the
+ * manifest, and a run whose runtime contradicted its profile can never report
+ * that its boundary held.
+ */
+const ProfileMismatchSchema = z.array(z.looseObject({ aspect: z.string(), requested: z.string(), reported: z.string(), detail: z.string() }));
+
+export interface ProfileMismatch {
+  readonly aspect: string;
+  readonly requested: string;
+  readonly reported: string;
+  readonly detail: string;
+}
+
+export function readProfileMismatches(events: ReadonlyArray<RuntimeEvent>): ReadonlyArray<ProfileMismatch> {
+  for (const event of events) {
+    if (event.kind !== 'session_started') continue;
+    const parsed = ProfileMismatchSchema.safeParse(event.payload['profileMismatch']);
+    if (parsed.success) {
+      return parsed.data.map((entry) => ({ aspect: entry.aspect, requested: entry.requested, reported: entry.reported, detail: entry.detail }));
+    }
   }
   return [];
 }
@@ -375,8 +476,20 @@ export function observeWriteBoundary(input: {
     findings.push(`a reported change cannot be placed inside the granted paths (${change.descriptor}): ${change.reason}`);
   }
 
+  // The runtime's own statement about what it applied. A profile whose
+  // boundary the runtime says it set differently is not a boundary this run
+  // may report as having held: nothing here observed a write escaping, and
+  // nothing here observed the requested boundary being in force either.
+  const contradictions = readProfileMismatches(events).map(
+    (mismatch) =>
+      `the runtime reports it applied a different ${mismatch.aspect} than the "${containment.policy}" profile requested (requested ${mismatch.requested}, reported ${mismatch.reported}): ${mismatch.detail}`,
+  );
+
   if (findings.length > 0) {
-    return { expected, held: false, escapes, unconfirmedEscapes, unplaceable, findings };
+    return { expected, held: false, escapes, unconfirmedEscapes, unplaceable, findings: [...findings, ...contradictions] };
+  }
+  if (contradictions.length > 0) {
+    return { expected, held: null, escapes, unconfirmedEscapes, unplaceable, findings: contradictions };
   }
   if (evidence === null) {
     return {
@@ -1104,11 +1217,54 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   // raised before a workspace exists.
   const unresolved: string[] = [];
 
+  // ---- 2a. Readiness, before anything is created -------------------------
+  //
+  // The runtime is asked whether it can work at all, through the same control
+  // handshake `doctor --connect` uses: no model turn, no repository hook, no
+  // credential store, a second or so. Without it a run against a signed-out
+  // runtime built a worktree and a branch, opened a session, spent 26 seconds
+  // inside the provider's own reconnect loop, reported `401 Unauthorized`,
+  // ran an acceptance check against an unchanged base and exited 4 with the
+  // headline "criterion node-tests-pass failed" — a code-failure framing for a
+  // credential problem, which is exactly the retry storm plan section 6 says
+  // not to enter.
+  //
+  // Only a definite answer refuses. `unknown` proceeds with a warning: the
+  // status command and the runtime have disagreed in both directions on the
+  // installed Claude Code build, so a probe that could not establish a login
+  // must not be able to block a run that would have worked.
+  const preflight = await probeRuntimeReadiness(adapter, binding.runtime.executable, stream, unresolved);
+  if (preflight?.authentication === 'logged_out') {
+    dispatchSpan.end();
+    throw new RunSetupError(
+      'runtime_not_logged_in',
+      `agent "${agentId}" runs on ${adapter.id} (${binding.runtime.executable}), and the runtime reports it is not logged in. ` +
+        `${preflight.diagnostics.join('; ')}${preflight.diagnostics.length > 0 ? '. ' : ''}` +
+        'Nothing this coordinator can do fixes that: log in interactively, then run this again. Refused before a workspace, a branch or a session was created, rather than after the provider rejects every retry.',
+    );
+  }
+
   // The write boundary, before anything is created (plan section 9: "fail setup
   // for an unsupported required boundary"). A profile that writes needs a
-  // runtime that can bound writes; if the adapter reports it cannot, this run
-  // is refused unless the operator explicitly accepted an unconfined run.
-  const containment = assessContainment(adapter, policy, input.allowUnconfinedWrites === true);
+  // runtime that can bound writes; if the adapter reports it cannot — or
+  // reports it for a build other than the one installed — this run is refused
+  // unless the operator explicitly accepted an unconfined run.
+  const containment = assessContainment(adapter, policy, input.allowUnconfinedWrites === true, preflight?.version ?? null);
+  if (containment.untestedVersion && !containment.acknowledged) {
+    dispatchSpan.end();
+    throw new RunSetupError(
+      'write_boundary_untested_version',
+      `agent "${agentId}" runs the "${policy}" profile, which lets the worker change files, but ${describeUntestedBoundary(adapter.id, containment)} ` +
+        'Plan section 8 requires an adapter that cannot enforce a required profile to fail that mode rather than silently broaden it, and a boundary established against another build is not an enforced one. ' +
+        'Install the tested version, give this agent the read-only "analysis" profile, or pass --allow-unconfined-writes to accept a run whose writes were not established as contained.',
+    );
+  }
+  if (containment.untestedVersion) {
+    stream.line(`WARNING: the write boundary was never established for this build — ${describeUntestedBoundary(adapter.id, containment)}`);
+    unresolved.push(
+      `this run's write boundary was never established for the installed build: ${describeUntestedBoundary(adapter.id, containment)} It was allowed by an explicit --allow-unconfined-writes`,
+    );
+  }
   if (containment.unconfinedWrites && !containment.acknowledged) {
     dispatchSpan.end();
     throw new RunSetupError(
@@ -2046,6 +2202,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
 
   // ---- 12. Manifest and human summary (FR059, FR060) ---------------------
   const sessionUnenforceable = readUnenforceable(runtimeEvents);
+  const profileMismatch = readProfileMismatches(runtimeEvents);
   const manifest: RunManifest = {
     manifestVersion: RUN_MANIFEST_VERSION,
     runId,
@@ -2201,6 +2358,8 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
         unconfinedWritesAcknowledged: containment.unconfinedWrites ? containment.acknowledged : false,
         // Everything the adapter said it cannot enforce for this profile.
         unenforceable: sessionUnenforceable,
+        // Everything the runtime said it applied differently from the request.
+        profileMismatch,
       },
       containmentNote: renderContainmentNote(adapter.id, containment, boundary),
     },
@@ -2840,6 +2999,10 @@ export function renderSummary(manifest: RunManifest): string {
     }
     const unenforceable = (containment['unenforceable'] as Array<{ aspect: string; reason: string }> | undefined) ?? [];
     for (const entry of unenforceable) lines.push(`  - not enforced by the runtime — \`${entry.aspect}\`: ${entry.reason}`);
+    const mismatches = (containment['profileMismatch'] as Array<{ aspect: string; requested: string; reported: string; detail: string }> | undefined) ?? [];
+    for (const entry of mismatches) {
+      lines.push(`  - **the runtime applied a different \`${entry.aspect}\` than requested** — requested \`${entry.requested}\`, reported \`${entry.reported}\`: ${entry.detail}`);
+    }
     const observation = (manifest.evidence['writeObservation'] ?? null) as { note?: unknown } | null;
     if (observation !== null && typeof observation.note === 'string') lines.push(`  - writes outside the granted paths: ${observation.note}`);
   }

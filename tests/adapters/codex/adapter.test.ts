@@ -242,6 +242,92 @@ describe('codex adapter: delivery, stopping and reconciliation', () => {
     expect(turnStart.line).toContain('do the work');
   });
 
+  it('reads the containment the server says it applied, and reports it when it is not the one that was asked for', async () => {
+    const cwd = workspace();
+    const root = path.dirname(cwd);
+    // The server answers thread/start with a read-only sandbox and an approval
+    // policy that prompts, for a session opened under local-development. Both
+    // fields used to be typed `unknown`, copied into the session and never
+    // looked at, so the only machine-readable statement the server makes about
+    // the containment it applied was discarded.
+    //
+    // thread/started is placed after turn/start so the session_started event it
+    // produces lands inside the turn's own event window whatever order the
+    // pump and the caller happen to run in.
+    const transcript = writeTranscript(root, 'sandbox-echo.jsonl', [
+      { dir: 'out', line: JSON.stringify({ id: 1, method: 'initialize' }) },
+      { dir: 'in', line: JSON.stringify({ id: 1, result: {} }) },
+      { dir: 'out', line: JSON.stringify({ method: 'initialized' }) },
+      { dir: 'out', line: JSON.stringify({ id: 2, method: 'thread/start' }) },
+      {
+        dir: 'in',
+        line: JSON.stringify({
+          id: 2,
+          result: { thread: { id: 'thread-echo' }, sandbox: { type: 'readOnly', networkAccess: false }, approvalPolicy: 'on-request' },
+        }),
+      },
+      { dir: 'out', line: JSON.stringify({ id: 3, method: 'turn/start' }) },
+      { dir: 'in', line: JSON.stringify({ id: 3, result: { turn: { id: 'turn-echo', items: [], status: 'inProgress' } } }) },
+      { dir: 'in', line: JSON.stringify({ method: 'thread/started', params: { thread: { id: 'thread-echo', cwd: '/workspace', cliVersion: '0.147.0' } } }) },
+      { dir: 'in', line: JSON.stringify({ method: 'turn/started', params: { threadId: 'thread-echo', turn: { id: 'turn-echo', items: [], status: 'inProgress' } } }) },
+      { dir: 'in', line: JSON.stringify({ method: 'turn/completed', params: { threadId: 'thread-echo', turn: { id: 'turn-echo', items: [], status: 'completed' } } }) },
+    ]);
+    const adapter = replayAdapter(transcript);
+    const handle = track(adapter, await openReplaySession(adapter, cwd));
+    const events = await collect(adapter, await adapter.startTurn(handle, { prompt: 'work' }));
+
+    const started = events.find((event) => event.kind === 'session_started')!;
+    const mismatches = started.payload['profileMismatch'] as Array<{ aspect: string; requested: string; reported: string; detail: string }>;
+    expect(mismatches.map((entry) => entry.aspect).sort()).toEqual(['approvalPolicy', 'sandbox']);
+    expect(mismatches.find((entry) => entry.aspect === 'sandbox')).toMatchObject({ requested: 'workspaceWrite', reported: 'readOnly' });
+    expect(mismatches.find((entry) => entry.aspect === 'approvalPolicy')).toMatchObject({ requested: 'never', reported: 'on-request' });
+    expect(adapter.sessionDiagnostics(handle).join(' ')).toContain('an approval prompt is an escalation');
+
+    // And the part no server statement covers is stated rather than assumed:
+    // the writable roots and the /tmp exclusions go out per turn and nothing
+    // comes back.
+    const unenforceable = started.payload['unenforceable'] as Array<{ aspect: string; reason: string }>;
+    expect(unenforceable.map((entry) => entry.aspect)).toContain('sandboxPolicy.writableRoots');
+    expect(unenforceable.find((entry) => entry.aspect === 'sandboxPolicy.writableRoots')?.reason).toContain('echoes nothing back');
+  });
+
+  it('raises nothing when the server reports the containment that was asked for', async () => {
+    const cwd = workspace();
+    const root = path.dirname(cwd);
+    // The answer codex-cli 0.147.0 actually gives for a local-development
+    // thread, including the thread-level exclusions it reports as off.
+    const transcript = writeTranscript(root, 'sandbox-echo-ok.jsonl', [
+      { dir: 'out', line: JSON.stringify({ id: 1, method: 'initialize' }) },
+      { dir: 'in', line: JSON.stringify({ id: 1, result: {} }) },
+      { dir: 'out', line: JSON.stringify({ method: 'initialized' }) },
+      { dir: 'out', line: JSON.stringify({ id: 2, method: 'thread/start' }) },
+      {
+        dir: 'in',
+        line: JSON.stringify({
+          id: 2,
+          result: {
+            thread: { id: 'thread-ok' },
+            sandbox: { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+            approvalPolicy: 'never',
+          },
+        }),
+      },
+      { dir: 'out', line: JSON.stringify({ id: 3, method: 'turn/start' }) },
+      { dir: 'in', line: JSON.stringify({ id: 3, result: { turn: { id: 'turn-ok', items: [], status: 'inProgress' } } }) },
+      { dir: 'in', line: JSON.stringify({ method: 'thread/started', params: { thread: { id: 'thread-ok', cwd: '/workspace', cliVersion: '0.147.0' } } }) },
+      { dir: 'in', line: JSON.stringify({ method: 'turn/started', params: { threadId: 'thread-ok', turn: { id: 'turn-ok', items: [], status: 'inProgress' } } }) },
+      { dir: 'in', line: JSON.stringify({ method: 'turn/completed', params: { threadId: 'thread-ok', turn: { id: 'turn-ok', items: [], status: 'completed' } } }) },
+    ]);
+    const adapter = replayAdapter(transcript);
+    const handle = track(adapter, await openReplaySession(adapter, cwd));
+    const events = await collect(adapter, await adapter.startTurn(handle, { prompt: 'work' }));
+
+    const started = events.find((event) => event.kind === 'session_started')!;
+    expect(started.payload['profileMismatch']).toEqual([]);
+    expect(started.payload['reportedApprovalPolicy']).toBe('never');
+    expect(adapter.sessionDiagnostics(handle).join(' ')).not.toContain('sandbox');
+  });
+
   it('steers an active turn when the runtime accepts it and says so in the receipt', async () => {
     const cwd = workspace();
     const root = path.dirname(cwd);

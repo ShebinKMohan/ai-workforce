@@ -441,6 +441,78 @@ export function mapPolicy(policy: Policy, options: PolicyMappingOptions = {}): P
 }
 
 // ---------------------------------------------------------------------------
+// What the runtime says it granted (FR042)
+// ---------------------------------------------------------------------------
+
+/** One aspect of the requested profile that the runtime says it applied differently. */
+export interface ProfileMismatch {
+  readonly aspect: string;
+  readonly requested: string;
+  readonly reported: string;
+  readonly detail: string;
+}
+
+/**
+ * Compare the tool surface and permission mode the runtime says took effect
+ * against the ones the profile asked for.
+ *
+ * This matters more here than the same check would anywhere else. Claude Code
+ * has no OS sandbox, so for this runtime the granted tool surface *is* the
+ * write boundary — `write_containment` is a claim that `--restricted --tools …`
+ * yields exactly the named tools and nothing else. The `init` record states
+ * what was actually granted, and until now nothing compared the two: the
+ * initialize-time permission-mode check wrote a string into an accessor no
+ * caller outside this directory reads, and `#normalizeSystem` then overwrote
+ * the very field that check had looked at.
+ *
+ * An extra tool is the dangerous direction — the boundary is wider than the
+ * profile the run claims — but a missing one is reported too, because a
+ * profile that silently lost `Edit` explains a worker that could not do its
+ * job.
+ */
+export function compareGrantedSurface(
+  mapping: PolicyMapping,
+  reported: { readonly permissionMode?: string | null | undefined; readonly tools?: ReadonlyArray<string> | null | undefined },
+): ProfileMismatch[] {
+  const mismatches: ProfileMismatch[] = [];
+  const permissionMode = reported.permissionMode ?? null;
+  if (permissionMode !== null && permissionMode !== mapping.permissionMode) {
+    mismatches.push({
+      aspect: 'permissionMode',
+      requested: mapping.permissionMode,
+      reported: permissionMode,
+      detail: `the "${mapping.policy}" profile asked for permission mode "${mapping.permissionMode}" and the runtime reports it is running under "${permissionMode}"`,
+    });
+  }
+  const tools = reported.tools ?? null;
+  if (tools !== null) {
+    const requested = new Set(mapping.tools);
+    const granted = new Set(tools);
+    const extra = [...granted].filter((tool) => !requested.has(tool)).sort();
+    const missing = [...requested].filter((tool) => !granted.has(tool)).sort();
+    if (extra.length > 0) {
+      mismatches.push({
+        aspect: 'tools',
+        requested: [...mapping.tools].sort().join(', '),
+        reported: [...granted].sort().join(', '),
+        detail:
+          `the runtime granted ${extra.length} tool(s) the "${mapping.policy}" profile did not ask for (${extra.join(', ')}). ` +
+          'Claude Code has no OS sandbox, so the granted tool surface is the only write boundary this runtime has: a wider surface than the profile requested is a wider boundary than the run claims',
+      });
+    }
+    if (missing.length > 0) {
+      mismatches.push({
+        aspect: 'tools',
+        requested: [...mapping.tools].sort().join(', '),
+        reported: [...granted].sort().join(', '),
+        detail: `the runtime did not grant ${missing.length} tool(s) the "${mapping.policy}" profile asked for (${missing.join(', ')})`,
+      });
+    }
+  }
+  return mismatches;
+}
+
+// ---------------------------------------------------------------------------
 // argv
 // ---------------------------------------------------------------------------
 

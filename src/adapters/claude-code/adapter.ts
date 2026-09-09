@@ -41,6 +41,7 @@ import path from 'node:path';
 import type { Policy } from '../../core/contracts.js';
 import { nowIso, uuidv7 } from '../../core/ids.js';
 import { isProcessAlive, isProcessGroupAlive, matchProcessIdentity, type ProcessIdentity, type ProcessIdentityStatus } from '../../core/process.js';
+import { parseAuthCommandOutcome } from '../../discovery/probe.js';
 import { isWithin } from '../../storage/paths.js';
 import {
   AdapterError,
@@ -84,6 +85,7 @@ import {
   UserRecordSchema,
   buildClaudeArgs,
   classifyClaudeError,
+  compareGrantedSurface,
   isDeltaRecord,
   mapPolicy,
   parseClaudeVersion,
@@ -92,6 +94,7 @@ import {
   type ClaudeErrorClass,
   type ContentBlock,
   type PolicyMapping,
+  type ProfileMismatch,
 } from './protocol.js';
 import { ClaudeTransport, ClaudeTransportError, type RawRecord, type StreamRecord } from './transport.js';
 
@@ -237,6 +240,13 @@ interface ClaudeSession {
   /** Deliveries held by the adapter because no live turn could take them; flushed into the next `startTurn`. */
   readonly queued: DeliveryInput[];
   effective: ClaudeEffectiveSettings;
+  /**
+   * Aspects of the requested profile the runtime says it applied differently,
+   * accumulated from the initialize response and from every `system/init`
+   * record. Reported on `session_started`, where the run can read them —
+   * `sessionDiagnostics()` is an accessor no caller outside this directory has.
+   */
+  profileMismatch: ReadonlyArray<ProfileMismatch>;
   readonly diagnostics: string[];
   lastUsage: ClaudeTurnUsage | null;
   sessionStartedEmitted: boolean;
@@ -273,6 +283,13 @@ function summarizeUnknown(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+/** One entry per (aspect, detail); the runtime restates its init record every turn. */
+function dedupeMismatches(mismatches: ReadonlyArray<ProfileMismatch>): ProfileMismatch[] {
+  const seen = new Map<string, ProfileMismatch>();
+  for (const mismatch of mismatches) seen.set(`${mismatch.aspect}\u0000${mismatch.detail}`, mismatch);
+  return [...seen.values()];
 }
 
 function requestedSettingsOf(input: SessionInput): RequestedSettings {
@@ -497,45 +514,39 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     });
   }
 
-  /** Documented status command only. No credential store is read and no token is extracted. */
+  /**
+   * Documented status command only. No credential store is read and no token
+   * is extracted.
+   *
+   * The reading itself lives in `src/discovery/probe.ts` and is shared with
+   * passive discovery. This file used to carry its own, looser copy: it
+   * ignored the exit code entirely, read stdout and stderr together, and so
+   * answered `logged_in` for a command that printed `{"loggedIn": true}` and
+   * then exited 1 or died on a signal. That mattered more than a duplicated
+   * parser usually does, because `doctor --connect` lets the adapter's answer
+   * replace the probe's: the conservative reading was computed and then
+   * overwritten by the permissive one. One reading, one set of rules — in
+   * particular the asymmetry that only a command which exited 0 may contribute
+   * to saying logged_in.
+   */
   #authStatus(executablePath: string, diagnostics: string[]): Promise<RuntimeReadiness['authentication']> {
     return new Promise((resolve) => {
       execFile(executablePath, ['auth', 'status'], { timeout: this.#options.probeTimeoutMs, windowsHide: true }, (error, stdout, stderr) => {
-        const text = `${stdout}${stderr}`;
-        if (error !== null && text.trim().length === 0) {
-          diagnostics.push(`claude auth status failed: ${error.message}`);
-          resolve('unknown');
-          return;
-        }
-        const start = text.indexOf('{');
-        const end = text.lastIndexOf('}');
-        if (start !== -1 && end > start) {
-          try {
-            const parsed: unknown = JSON.parse(text.slice(start, end + 1));
-            const loggedIn = (parsed as { loggedIn?: unknown }).loggedIn;
-            if (loggedIn === true) {
-              resolve('logged_in');
-              return;
-            }
-            if (loggedIn === false) {
-              resolve('logged_out');
-              return;
-            }
-          } catch {
-            // fall through to the text check
-          }
-        }
-        const lower = text.toLowerCase();
-        if (lower.includes('not logged in') || lower.includes('not signed in')) {
-          resolve('logged_out');
-          return;
-        }
-        if (lower.includes('logged in') || lower.includes('signed in')) {
-          resolve('logged_in');
-          return;
-        }
-        diagnostics.push(`claude auth status output was not recognised: ${text.trim().slice(0, 200)}`);
-        resolve('unknown');
+        const failure = error as (Error & { code?: number | string; killed?: boolean }) | null;
+        const observation = parseAuthCommandOutcome('claude-code', {
+          stdout,
+          stderr,
+          // execFile reports a spawn failure with a string `code` (ENOENT,
+          // EACCES) and a non-zero exit with a numeric one; a deadline kill
+          // arrives as `killed` with no usable code at all.
+          exitCode: failure === null ? 0 : typeof failure.code === 'number' ? failure.code : null,
+          timedOut: failure?.killed === true,
+          spawnError: typeof failure?.code === 'string' ? `${failure.code}` : null,
+          timeoutMs: this.#options.probeTimeoutMs,
+        });
+        if (observation.auth === 'unknown') diagnostics.push(`claude auth status did not establish a login state: ${observation.detail}`);
+        if (observation.caveat !== undefined) diagnostics.push(observation.caveat);
+        resolve(observation.auth);
       });
     });
   }
@@ -714,9 +725,12 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     if (effective.tokenSource === 'none') {
       diagnostics.push('the runtime reports account.tokenSource "none": it holds no usable credential, so every turn will fail authentication. Run `claude auth login`');
     }
-    if (effective.permissionMode !== null && effective.permissionMode !== mapping.permissionMode) {
-      diagnostics.push(`requested permission mode "${mapping.permissionMode}" but the runtime reports "${effective.permissionMode}"`);
-    }
+    // The initialize response already states the permission mode that took
+    // effect. Compared here and again on every `system/init` record, because
+    // that record restates both the mode and the granted tools and used to
+    // overwrite `effective` with no comparison at all.
+    const profileMismatch = compareGrantedSurface(mapping, { permissionMode: effective.permissionMode });
+    for (const mismatch of profileMismatch) diagnostics.push(`${mismatch.aspect}: ${mismatch.detail}`);
     if (this.#options.allowCommandExecution) {
       diagnostics.push(
         'command execution (Bash) was explicitly granted: `--restricted` confines the file tools to the granted directories, but a shell command is not a file tool, so writes outside the candidate are no longer bounded by this runtime',
@@ -755,6 +769,7 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
       foreignSessionIds: new Set(),
       queued: [],
       effective,
+      profileMismatch,
       diagnostics,
       lastUsage: null,
       sessionStartedEmitted: false,
@@ -984,6 +999,16 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
       return;
     }
     const init = parsed.data;
+    // Compare before overwriting. This record restates the permission mode the
+    // initialize check looked at and adds the granted tool surface, which is
+    // the whole of this runtime's write boundary; the fields below used to
+    // replace both with no comparison at all.
+    const mismatches = compareGrantedSurface(session.mapping, { permissionMode: init.permissionMode ?? null, tools: init.tools ?? null });
+    for (const mismatch of mismatches) {
+      const line = `${mismatch.aspect}: ${mismatch.detail}`;
+      if (!session.diagnostics.includes(line)) session.diagnostics.push(line);
+    }
+    session.profileMismatch = dedupeMismatches([...session.profileMismatch, ...mismatches]);
     session.effective = {
       ...session.effective,
       model: init.model ?? session.effective.model,
@@ -1028,6 +1053,10 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
           policy: session.policy,
           allowedWritePaths: session.allowedWritePaths,
           unenforceable: session.mapping.unenforceable,
+          requestedTools: session.mapping.tools,
+          requestedPermissionMode: session.mapping.permissionMode,
+          // What the runtime says it granted, compared with what was asked for.
+          profileMismatch: session.profileMismatch,
         },
         rawRef,
       );

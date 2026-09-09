@@ -298,6 +298,14 @@ export interface RunChecksInput {
    */
   readonly verificationRoot?: string;
   readonly defaultTimeoutMs?: number;
+  /**
+   * Capture bound for the frozen candidate's `git ls-tree` listing, which is
+   * the statement every disposable copy is checked against. A listing that
+   * does not fit is not silently a shorter listing: the copy is then marked
+   * unverifiable and every check refuses to run, so raising this is how a
+   * repository with an enormous tree is verified rather than skipped.
+   */
+  readonly treeListingMaxBytes?: number;
   readonly signal?: AbortSignal;
   readonly onReceipt?: (receipt: CheckReceipt) => void;
   /** Keep the disposable copies (debugging). They are deleted by default; each receipt records where they were. */
@@ -478,6 +486,14 @@ interface DisposableCopy {
    * manufactured, so this turns the receipt into an error instead.
    */
   readonly missingPaths: ReadonlyArray<string>;
+  /**
+   * Non-null when the set of paths the frozen candidate tracks could not be
+   * read in full, so `missingPaths` is an answer about a bounded list rather
+   * than about the candidate. An empty `missingPaths` means nothing in that
+   * state, and a check that ran on it would be reported as verifier-executed
+   * evidence about a tree nobody checked.
+   */
+  readonly unverifiableReason: string | null;
   dispose(): Promise<void>;
 }
 
@@ -494,6 +510,8 @@ export interface FrozenTree {
   readonly entries: ReadonlyMap<string, FrozenTreeEntry>;
   /** False when the listing could not be read in full; the completeness check is then bounded. */
   readonly complete: boolean;
+  /** Why the listing is incomplete, in the words the receipt will use. Null when it is complete. */
+  readonly incompleteReason: string | null;
 }
 
 /**
@@ -508,15 +526,19 @@ export interface FrozenTree {
  * diff shows one added file; the check runs against a tree with no tests in it
  * and exits 0.
  */
-export async function listFrozenTree(candidate: CandidateRef, signal?: AbortSignal): Promise<FrozenTree> {
+export async function listFrozenTree(candidate: CandidateRef, signal?: AbortSignal, maxBytes: number = TREE_LISTING_MAX_BYTES): Promise<FrozenTree> {
   const run = await git(['ls-tree', '-r', '-l', '-z', candidate.revision], {
     cwd: candidate.repoRoot,
-    maxOutputBytes: TREE_LISTING_MAX_BYTES,
+    maxOutputBytes: maxBytes,
     ...(signal !== undefined ? { signal } : {}),
   });
   const entries = new Map<string, FrozenTreeEntry>();
-  if (!run.ok) return { entries, complete: false };
-  for (const record of run.stdout.split('\0')) {
+  // Records git already wrote are kept even when the walk then failed. They
+  // are NUL-terminated, so every record before the last terminator is whole;
+  // anything after it is a fragment of a record that was still being written
+  // and is dropped rather than parsed into a wrong path or size.
+  const terminated = run.stdout.slice(0, run.stdout.lastIndexOf('\0') + 1);
+  for (const record of terminated.split('\0')) {
     if (record.length === 0) continue;
     const tab = record.indexOf('\t');
     if (tab < 0) continue;
@@ -527,7 +549,28 @@ export async function listFrozenTree(candidate: CandidateRef, signal?: AbortSign
     const rawSize = meta[3] ?? '-';
     entries.set(relative, { mode: meta[0] ?? '', size: /^\d+$/.test(rawSize) ? Number(rawSize) : null });
   }
-  return { entries, complete: !run.truncated };
+  // Two different incompletenesses, and both mean the same thing here: the set
+  // of paths this candidate tracks is not fully known, so "the copy holds
+  // every tracked path" cannot be established — however many entries were
+  // salvaged. `git ls-tree` streams, so a failure part-way through the walk
+  // yields a prefix of the tree, and the paths it never reached are exactly
+  // the ones an `export-ignore` rule would be hiding.
+  if (!run.ok) {
+    const cause = run.spawnError ?? (run.aborted ? 'the run was aborted' : run.timedOut ? 'it timed out' : `it exited ${String(run.exitCode)}`);
+    return {
+      entries,
+      complete: false,
+      incompleteReason: `\`git ls-tree -r -l -z ${candidate.revision}\` did not finish (${cause}) after listing ${entries.size} path(s)`,
+    };
+  }
+  if (run.truncated) {
+    return {
+      entries,
+      complete: false,
+      incompleteReason: `the tree listing of ${candidate.revision} exceeded the ${maxBytes}-byte capture limit after ${entries.size} path(s)`,
+    };
+  }
+  return { entries, complete: true, incompleteReason: null };
 }
 
 interface CopyDifference {
@@ -631,14 +674,24 @@ function describePaths(paths: ReadonlyArray<string>): string {
  * the result is compared against the revision's own tree listing and completed
  * from the object database before any check runs against it.
  */
-export async function materializeFrozenCandidate(candidate: CandidateRef, destination: string, signal?: AbortSignal): Promise<DisposableCopy> {
+export async function materializeFrozenCandidate(
+  candidate: CandidateRef,
+  destination: string,
+  signal?: AbortSignal,
+  treeListingMaxBytes?: number,
+): Promise<DisposableCopy> {
   const diagnostics: string[] = [];
   mkdirSync(destination, { recursive: true, mode: 0o700 });
   const tarPath = `${destination}.tar`;
-  const tree = await listFrozenTree(candidate, signal);
-  if (!tree.complete) {
-    diagnostics.push('the frozen candidate\'s tree listing could not be read in full, so the copy was checked against a bounded list of its tracked paths');
-  }
+  const tree = await listFrozenTree(candidate, signal, treeListingMaxBytes);
+  // Not a note. Until this listing is complete there is no statement to check
+  // the copy against, so the copy is carried out of here marked unverifiable
+  // and `runOneCheck` refuses to execute anything in it.
+  const unverifiableReason =
+    tree.incompleteReason === null
+      ? null
+      : `${tree.incompleteReason}, so the paths this candidate tracks are not fully known and the copy could not be checked against them`;
+  if (unverifiableReason !== null) diagnostics.push(unverifiableReason);
 
   const archive = await git(['archive', '--format=tar', `--output=${tarPath}`, candidate.revision], {
     cwd: candidate.repoRoot,
@@ -661,6 +714,7 @@ export async function materializeFrozenCandidate(candidate: CandidateRef, destin
         strategy: completed.repaired ? 'git_archive_repaired' : 'git_archive',
         diagnostics,
         missingPaths: completed.missing,
+        unverifiableReason,
         dispose: async () => {
           rmSync(destination, { recursive: true, force: true });
         },
@@ -687,6 +741,7 @@ export async function materializeFrozenCandidate(candidate: CandidateRef, destin
     strategy: 'git_worktree_detached',
     diagnostics,
     missingPaths: completed.missing,
+    unverifiableReason,
     dispose: async () => {
       await git(['worktree', 'remove', '--force', destination], { cwd: candidate.repoRoot, noHooksDir: path.dirname(destination) });
       rmSync(destination, { recursive: true, force: true });
@@ -839,7 +894,7 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, placement: C
   const startedAt = nowIso();
   let copy: DisposableCopy;
   try {
-    copy = await materializeFrozenCandidate(input.candidate, workDir, input.signal);
+    copy = await materializeFrozenCandidate(input.candidate, workDir, input.signal, input.treeListingMaxBytes);
   } catch (error) {
     rmSync(home, { recursive: true, force: true });
     rmSync(tmp, { recursive: true, force: true });
@@ -848,6 +903,16 @@ async function runOneCheck(check: CheckSpec, input: RunChecksInput, placement: C
   diagnostics.push(...copy.diagnostics);
 
   try {
+    if (copy.unverifiableReason !== null) {
+      return failReceipt(
+        'error',
+        startedAt,
+        `refusing to run this check: ${copy.unverifiableReason}. ` +
+          'git archive applies the archived revision\'s own .gitattributes, so a candidate that merely adds an export-ignore rule can remove the files this criterion executes; ' +
+          'without the full tree listing that removal is undetectable, and a passing exit code here would be evidence about a tree nobody checked',
+        copy.strategy,
+      );
+    }
     if (copy.missingPaths.length > 0) {
       return failReceipt(
         'error',

@@ -441,7 +441,15 @@ function toCliError(error: unknown): CliError {
     return new CliError(EXIT_CODES.invalidInput, `invalid_checks:${error.code}`, error.message);
   }
   if (error instanceof RunSetupError) {
+    // Exit 3 means "a human has to do something outside this tool, and no
+    // retry will help". A signed-out runtime is that condition exactly: it is
+    // fixed by an interactive login and by nothing else. Reporting it as 4
+    // made it indistinguishable from a crashed provider or broken code, so a
+    // wrapper that branches on the exit code could never prompt for the login.
+    const userAction = error.code === 'runtime_not_logged_in';
+    if (userAction) return new CliError(EXIT_CODES.userActionRequired, error.code, error.message);
     const invalid =
+      error.code === 'write_boundary_untested_version' ||
       error.code === 'not_a_git_repository' ||
       error.code === 'no_committed_base' ||
       error.code === 'unknown_agent' ||

@@ -366,3 +366,120 @@ export function sandboxPolicyForTurn(policy: Policy, writableRoots: ReadonlyArra
   if (sandboxModeForPolicy(policy) === 'read-only') return { type: 'readOnly', networkAccess: false };
   return { type: 'workspaceWrite', writableRoots: [...writableRoots], networkAccess: false, excludeSlashTmp: true, excludeTmpdirEnvVar: true };
 }
+
+// ---------------------------------------------------------------------------
+// What the server says it applied (FR042)
+// ---------------------------------------------------------------------------
+
+/**
+ * The sandbox block `thread/start` echoes back. 0.147.0 answers with an object
+ * (`{"type":"workspaceWrite","writableRoots":[],"networkAccess":false,
+ * "excludeSlashTmp":false,"excludeTmpdirEnvVar":false}`); older shapes echo the
+ * coarse mode string. Both are read, because this is the only machine-readable
+ * statement the server ever makes about the containment it applied — `turn/start`
+ * accepts a `sandboxPolicy` and echoes nothing at all.
+ */
+export const ReportedSandboxSchema = z.union([
+  z.string(),
+  z.looseObject({
+    type: z.string().optional(),
+    writableRoots: z.array(z.string()).optional(),
+    networkAccess: z.boolean().optional(),
+    excludeSlashTmp: z.boolean().optional(),
+    excludeTmpdirEnvVar: z.boolean().optional(),
+  }),
+]);
+
+/** One aspect of the requested profile that the runtime says it applied differently. */
+export interface ProfileMismatch {
+  readonly aspect: string;
+  readonly requested: string;
+  readonly reported: string;
+  readonly detail: string;
+}
+
+/** The `type` a thread started under this policy should report. */
+export function reportedSandboxTypeForPolicy(policy: Policy): 'readOnly' | 'workspaceWrite' {
+  return sandboxModeForPolicy(policy) === 'read-only' ? 'readOnly' : 'workspaceWrite';
+}
+
+function normalizeSandboxType(value: string): string {
+  return value.replace(/[-_]/g, '').toLowerCase();
+}
+
+/**
+ * Compare the containment the server reports for a thread against the one the
+ * coordinator asked for.
+ *
+ * This exists because the answer was previously typed `unknown`, copied into
+ * the session and never looked at again. The run's whole containment claim —
+ * "a write outside the granted paths would have been refused" — rests on a
+ * policy the coordinator sent and never had confirmed; the least this can do
+ * is notice when the server's own echo contradicts the request.
+ *
+ * Absence is a mismatch too. A build that stops reporting the sandbox has not
+ * agreed to anything, and reading silence as agreement is how a broadened
+ * profile becomes invisible.
+ */
+export function compareReportedContainment(policy: Policy, sandbox: unknown, approvalPolicy: unknown): ProfileMismatch[] {
+  const mismatches: ProfileMismatch[] = [];
+  const expectedType = reportedSandboxTypeForPolicy(policy);
+  const parsed = ReportedSandboxSchema.safeParse(sandbox);
+  if (!parsed.success || sandbox === null || sandbox === undefined) {
+    mismatches.push({
+      aspect: 'sandbox',
+      requested: expectedType,
+      reported: 'not reported',
+      detail: `the server did not report the sandbox it applied to this thread, so the "${policy}" profile's write boundary is a request this run never had confirmed`,
+    });
+  } else {
+    const reportedType = typeof parsed.data === 'string' ? parsed.data : (parsed.data.type ?? '');
+    if (normalizeSandboxType(reportedType) !== normalizeSandboxType(expectedType)) {
+      mismatches.push({
+        aspect: 'sandbox',
+        requested: expectedType,
+        reported: reportedType.length > 0 ? reportedType : 'not reported',
+        detail: `the "${policy}" profile asked the server for a ${expectedType} sandbox and the server reports it started this thread with "${reportedType}"`,
+      });
+    }
+  }
+  if (approvalPolicy !== undefined && approvalPolicy !== null && approvalPolicy !== 'never') {
+    mismatches.push({
+      aspect: 'approvalPolicy',
+      requested: 'never',
+      reported: typeof approvalPolicy === 'string' ? approvalPolicy : JSON.stringify(approvalPolicy),
+      detail: 'the coordinator asked for approvalPolicy "never" because an approval prompt is an escalation it must not grant, and the server reports a different policy',
+    });
+  }
+  return mismatches;
+}
+
+/**
+ * What the thread-level echo does *not* establish, in the shape the run
+ * manifest lists under "not enforced by the runtime".
+ *
+ * `thread/start` takes only the coarse mode, so the writable roots and the
+ * `/tmp` / `$TMPDIR` exclusions — the part that actually bounds a worker, and
+ * the part `write_containment: verified` is a claim about — are sent per turn
+ * through `turn/start.sandboxPolicy`, whose result echoes nothing back. The
+ * thread-level block therefore reports them off, and that is expected rather
+ * than alarming; what is not acceptable is leaving it unsaid, because then a
+ * build that quietly ignored the per-turn parameter would look exactly like a
+ * contained run.
+ */
+export function unconfirmedContainment(policy: Policy, sandbox: unknown): ReadonlyArray<{ aspect: string; reason: string }> {
+  if (sandboxModeForPolicy(policy) !== 'workspace-write') return [];
+  const parsed = ReportedSandboxSchema.safeParse(sandbox);
+  const block = parsed.success && typeof parsed.data !== 'string' ? parsed.data : null;
+  const threadLevel =
+    block === null
+      ? 'the server reported no sandbox block for this thread'
+      : `at thread level the server reports writableRoots ${JSON.stringify(block.writableRoots ?? null)}, excludeSlashTmp ${String(block.excludeSlashTmp ?? null)} and excludeTmpdirEnvVar ${String(block.excludeTmpdirEnvVar ?? null)}`;
+  return [
+    {
+      aspect: 'sandboxPolicy.writableRoots',
+      reason:
+        `the granted roots and the /tmp and $TMPDIR exclusions are sent per turn through turn/start.sandboxPolicy, whose result echoes nothing back, so no server statement confirms they took effect (${threadLevel})`,
+    },
+  ];
+}

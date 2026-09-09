@@ -18,7 +18,11 @@ export function writeExecutable(dir: string, name: string, body: string): string
 
 export interface FakeCodexOptions {
   readonly version?: string;
-  readonly login?: 'in' | 'out' | 'garbage';
+  /**
+   * `panic-out` is the dangerous shape: a crash on stderr whose wording happens
+   * to contain one of the signed-out phrases. It is a failure, not an answer.
+   */
+  readonly login?: 'in' | 'out' | 'garbage' | 'panic-out';
   readonly loginExit?: number;
   /** Append every invocation's argv to this file, so a test can prove what was run. */
   readonly argvLog?: string;
@@ -30,6 +34,7 @@ export function fakeCodex(options: FakeCodexOptions = {}): string {
   const login = options.login ?? 'in';
   const loginExit = options.loginExit ?? 0;
   const loginLine = login === 'in' ? 'Logged in using ChatGPT' : login === 'out' ? 'Not logged in' : 'Something else entirely';
+  const loginBody = login === 'panic-out' ? `echo "thread 'main' panicked: no credentials directory: /home/x/.codex" >&2` : `echo "${loginLine}"`;
   return `#!/bin/sh
 ${options.argvLog === undefined ? '' : `echo "$*" >> "${options.argvLog}"`}
 if [ "$1" = "--version" ]; then
@@ -37,7 +42,7 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 if [ "$1" = "login" ] && [ "$2" = "status" ]; then
-  echo "${loginLine}"
+  ${loginBody}
   exit ${loginExit}
 fi
 echo "fake codex refused unexpected argv: $*" >&2
@@ -47,7 +52,12 @@ exit 64
 
 export interface FakeClaudeOptions {
   readonly version?: string;
-  readonly auth?: 'json-in' | 'json-out' | 'text-in' | 'text-out' | 'garbage';
+  /**
+   * `crash-out` and `crash-eacces` are two identical crashes of the same
+   * command, differing only in wording: one happens to contain "not logged in",
+   * the other does not. Neither is an answer about a login.
+   */
+  readonly auth?: 'json-in' | 'json-out' | 'text-in' | 'text-out' | 'garbage' | 'crash-out' | 'crash-eacces';
   readonly authExit?: number;
   /** Personal data the real CLI prints; a report must never carry it. */
   readonly email?: string;
@@ -65,12 +75,17 @@ export function fakeClaude(options: FakeClaudeOptions = {}): string {
     auth === 'json-in'
       ? `echo '{"loggedIn": true, "authMethod": "claude.ai", "email": "${email}", "orgName": "Example Org"}'`
       : auth === 'json-out'
-        ? `echo '{"loggedIn": false}'`
+        ? // The exact shape claude 2.1.260 prints on stdout when signed out.
+          `echo '{"loggedIn": false, "authMethod": "none", "apiProvider": "firstParty"}'`
         : auth === 'text-in'
           ? `echo "Logged in as ${email}"`
           : auth === 'text-out'
             ? 'echo "Not logged in"'
-            : 'echo "no idea"';
+            : auth === 'crash-out'
+              ? 'echo "fatal: proxy rejected request: you are not logged in to corp-proxy" >&2'
+              : auth === 'crash-eacces'
+                ? `echo "Error: EACCES: permission denied, open '/Users/x/.claude.json'" >&2`
+                : 'echo "no idea"';
   return `#!/bin/sh
 ${options.argvLog === undefined ? '' : `echo "$*" >> "${options.argvLog}"`}
 if [ "$1" = "--version" ]; then

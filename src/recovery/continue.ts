@@ -26,7 +26,8 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentDefinition } from '../core/contracts.js';
 import { newId } from '../core/ids.js';
-import { runDirect, type RunDirectInput, type RunDirectResult } from '../core/run-direct.js';
+import { createAdapter, runDirect, type RunDirectInput, type RunDirectResult } from '../core/run-direct.js';
+import type { RuntimeAdapter, RuntimeReadiness } from '../adapters/types.js';
 import { beginNewGeneration } from '../storage/records.js';
 import {
   applyHandoffPacket,
@@ -86,7 +87,7 @@ export async function runWithFallback(input: RunDirectInput, options: RunWithFal
 
   const policy = policyOf(input, first);
   const selection = selectFallbackRuntime({
-    candidates: candidatesFrom(input, first.runtime.runtimeId),
+    candidates: await candidatesFrom(input, first),
     policy,
     exclude: [first.runtime.runtimeId],
     ...(input.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
@@ -160,25 +161,68 @@ function policyOf(input: RunDirectInput, first: RunDirectResult): AgentDefinitio
   return agent?.policy ?? (first.manifest.agent['policy'] as AgentDefinition['policy'] | undefined) ?? 'analysis';
 }
 
-/** Every runtime the configuration defines, as fallback candidates. */
-function candidatesFrom(input: RunDirectInput, failedRuntimeId: string): ReadonlyArray<RuntimeCandidate> {
-  return Object.entries(input.config.runtimes).map(([runtimeId, runtime]): RuntimeCandidate => {
+/**
+ * Every runtime the configuration defines, as fallback candidates — each one
+ * actually asked whether it is ready.
+ *
+ * The configuration alone establishes nothing. This used to set
+ * `ready: 'verified_ready'` as a literal for every configured runtime, which
+ * made the selector's own readiness gate dead code and its "verified ready"
+ * sentence untrue: with this project's own AT03 configuration, a codex failure
+ * handed the work to the deterministic *test* runtime, whose scripted patch
+ * then went through the real verifier. It also hardcoded `write_containment`
+ * per adapter name, which is how `fake` — a runtime that enforces no boundary
+ * at all — passed the writing-profile gate.
+ *
+ * So each candidate is probed the way `doctor --connect` probes: the runtime's
+ * own control handshake, no model turn, no repository hook. The containment
+ * status comes from the adapter's capability table and counts as `verified`
+ * only for the build it was established against.
+ */
+async function candidatesFrom(input: RunDirectInput, first: RunDirectResult): Promise<ReadonlyArray<RuntimeCandidate>> {
+  const failedRuntimeId = first.runtime.runtimeId;
+  const make = input.adapterFactory ?? createAdapter;
+  // A probe writes nothing; the context only tells an adapter where its raw
+  // capture would go, and the failed attempt's own logs directory is the right
+  // place for anything a readiness check does record.
+  const context = { runId: first.runId, taskId: first.taskId, attemptId: first.attemptId, logsDir: path.join(first.runDir, 'artifacts', 'logs') };
+  const candidates: RuntimeCandidate[] = [];
+  for (const [runtimeId, runtime] of Object.entries(input.config.runtimes)) {
     const agent = input.config.agents.find((candidate) => candidate.runtime === runtimeId);
-    return {
+    const base = {
       runtimeId,
       adapter: runtime.adapter,
-      adapterSupported: runtime.adapter === 'codex' || runtime.adapter === 'claude-code' || runtime.adapter === 'fake',
-      // The configuration alone does not establish readiness. `workforce
-      // doctor` is what verifies a runtime, so an unverified one is offered as
-      // a candidate and refused by the selector's own gates when it must be.
-      ready: 'verified_ready',
-      writeContainment: runtime.adapter === 'codex' || runtime.adapter === 'fake' ? ('verified' as const) : ('unsupported' as const),
       ...(agent?.model !== undefined ? { model: agent.model } : {}),
       ...(agent?.effort !== undefined ? { effort: agent.effort } : {}),
       ...(runtimeId === failedRuntimeId ? { note: 'this is the runtime whose attempt failed' } : {}),
       ...(agent === undefined ? { note: `no agent in the configuration is bound to runtime "${runtimeId}"` } : {}),
     };
-  });
+    let adapter: RuntimeAdapter;
+    try {
+      adapter = make({ id: runtimeId, adapter: runtime.adapter, executable: runtime.executable }, context);
+    } catch {
+      candidates.push({ ...base, adapterSupported: false, ready: 'not_ready' });
+      continue;
+    }
+    let readiness: RuntimeReadiness | null = null;
+    try {
+      readiness = await adapter.probe(runtime.executable, { live: true });
+    } catch {
+      readiness = null;
+    }
+    const report = adapter.capabilities().capabilities.write_containment;
+    // A status is a claim about the build it was established against. A
+    // replacement runtime that is not that build has not been shown to bound
+    // writes, so it does not pass the writing-profile gate on its name alone.
+    const establishedForThisBuild = report.testedVersion !== null && readiness?.version != null && readiness.version === report.testedVersion;
+    candidates.push({
+      ...base,
+      adapterSupported: true,
+      ready: readiness?.ready === 'verified_ready' ? 'verified_ready' : readiness === null ? 'unknown' : readiness.ready === 'not_ready' ? 'not_ready' : 'unknown',
+      writeContainment: report.status === 'unsupported' || !establishedForThisBuild ? (report.status === 'unsupported' ? 'unsupported' : 'supported_unverified') : report.status,
+    });
+  }
+  return candidates;
 }
 
 function agentFor(input: RunDirectInput, runtimeId: string): AgentDefinition | null {

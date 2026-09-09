@@ -133,7 +133,23 @@ describe('run-path adapter registry', () => {
     const configDir = tempDir('workforce-codex-config-');
     const configPath = writeCodexAgentsConfig(configDir, stubExecutable(configDir));
 
-    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
+    // --allow-unconfined-writes because the stand-in executable is not the
+    // codex build the write boundary was established against, and the run path
+    // now refuses a writing profile on an untested build. The subject here is
+    // what happens *after* that gate.
+    const result = await invoke([
+      'run',
+      '--repo',
+      fixture.path,
+      '--agents',
+      configPath,
+      '--task',
+      'Fix the pagination off-by-one.',
+      '--state-dir',
+      stateDir,
+      '--allow-unconfined-writes',
+      '--json',
+    ]);
 
     expect(result.code).toBe(EXIT_CODES.executionFailure);
     const document = JSON.parse(result.stdout.trimEnd().split('\n').at(-1) as string) as { error?: { code?: string; message?: string } };
@@ -142,6 +158,38 @@ describe('run-path adapter registry', () => {
     // adapter can produce.
     expect(`${document.error?.message ?? ''}`).toMatch(/app-server/);
     expect(existsSync(path.join(stateDir, 'coordinator.lock'))).toBe(false);
+  });
+});
+
+describe('a signed-out runtime is a required user action, not an execution failure', () => {
+  it('exits 3 from `workforce run` before a workspace, a branch or a session exists', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateDir = path.join(tempDir('workforce-signed-out-state-'), 'state');
+    const configDir = tempDir('workforce-signed-out-config-');
+    // A `claude` that answers --version normally and reports itself signed out
+    // exactly the way 2.1.260 does: exit 1, the JSON answer on stdout.
+    const claude = path.join(configDir, 'claude');
+    writeFileSync(
+      claude,
+      '#!/bin/sh\n' +
+        'if [ "$1" = "--version" ]; then echo "2.1.260 (Claude Code)"; exit 0; fi\n' +
+        'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then echo \'{"loggedIn": false, "authMethod": "none"}\'; exit 1; fi\n' +
+        'exit 64\n',
+    );
+    chmodSync(claude, 0o755);
+    const configPath = writeClaudeAgentsConfig(configDir, { executable: claude, policy: 'analysis' });
+
+    const result = await invoke(['run', '--repo', fixture.path, '--agents', configPath, '--task', 'Fix the pagination off-by-one.', '--state-dir', stateDir, '--json']);
+
+    // 3, not 4: no retry fixes this and no code change fixes this. A wrapper
+    // that branches on the exit code can now prompt for the login instead of
+    // filing a bug against the repository.
+    expect(result.code).toBe(EXIT_CODES.userActionRequired);
+    const document = JSON.parse(result.stdout.trimEnd().split('\n').at(-1) as string) as { error?: { code?: string; message?: string } };
+    expect(document.error?.code).toBe('runtime_not_logged_in');
+    expect(document.error?.message).toContain('log in interactively');
+    // Refused before anything was built: no candidate branch in the project.
+    expect(existsSync(path.join(fixture.path, '.git', 'refs', 'heads', 'workforce'))).toBe(false);
   });
 });
 
@@ -507,6 +555,11 @@ describe('the real Codex adapter drives the direct run path (no model turn)', ()
         requestSource: 'argument',
         paths,
         db: store.db,
+        // The replay binary is not the codex build write_containment was
+        // established against, so the boundary gate refuses this writing
+        // profile unless the run says it accepts that. The recorded session is
+        // what this test is about.
+        allowUnconfinedWrites: true,
         // The real Codex adapter, pointed at the recorded app-server
         // transcript instead of the installed binary: the whole adapter is
         // exercised, no model turn is started and no quota is spent.

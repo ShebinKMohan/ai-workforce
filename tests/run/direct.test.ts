@@ -1136,6 +1136,8 @@ describe('observeWriteBoundary reads the run, not the table', () => {
     testedVersion: '1.0.0',
     os: 'darwin',
     unconfinedWrites: false,
+    installedVersion: '1.0.0',
+    untestedVersion: false,
     acknowledged: false,
   };
 
@@ -1148,9 +1150,54 @@ describe('observeWriteBoundary reads the run, not the table', () => {
     return { ...summarizeTurnEvidence([]), ...overrides };
   }
 
+  function sessionStarted(payload: Record<string, unknown>): RuntimeEvent {
+    return { kind: 'session_started', adapter: 'codex', sessionId: 's', turnId: null, spawnToken: 'k', sequence: 0, timestamp: new Date().toISOString(), payload, rawRef: 'raw:0' };
+  }
+
   it('holds when a boundary is expected and the run saw nothing against it', () => {
     const observed = observeWriteBoundary({ containment: enforcing, evidence: evidenceWith(), events: [] });
     expect(observed).toMatchObject({ expected: true, held: true, findings: [] });
+  });
+
+  it('does not hold when the runtime reports it applied a different profile than the one requested', () => {
+    // Both installed runtimes state what took effect — codex echoes the
+    // sandbox it started the thread with, Claude Code states the tool surface
+    // it granted — and both answers used to be dropped. A run whose runtime
+    // says it applied something else has not observed an escape and has not
+    // observed the requested boundary either: "not established", never "held".
+    const events = [
+      sessionStarted({
+        profileMismatch: [
+          {
+            aspect: 'sandbox',
+            requested: 'workspaceWrite',
+            reported: 'readOnly',
+            detail: 'the server reports it started this thread with "readOnly"',
+          },
+        ],
+      }),
+    ];
+    const observed = observeWriteBoundary({ containment: enforcing, evidence: evidenceWith(), events });
+
+    expect(observed.held).toBeNull();
+    expect(observed.findings.join(' ')).toContain('applied a different sandbox');
+    expect(observed.findings.join(' ')).toContain('reported readOnly');
+  });
+
+  it('still records an escape as an escape when the runtime also contradicted the profile', () => {
+    const events = [
+      change({ itemId: 'item-1', withinAllowedPaths: false, path: '/elsewhere/x', phase: 'completed' }),
+      sessionStarted({ profileMismatch: [{ aspect: 'tools', requested: 'Glob, Grep, Read', reported: 'Bash, Glob, Grep, Read', detail: 'Bash was granted' }] }),
+    ];
+    const observed = observeWriteBoundary({
+      containment: enforcing,
+      evidence: evidenceWith({ fileChangesOutsideAllowedPaths: ['/elsewhere/x'] }),
+      events,
+    });
+
+    expect(observed.held).toBe(false);
+    expect(observed.findings.join(' ')).toContain('wrote outside the granted paths');
+    expect(observed.findings.join(' ')).toContain('applied a different tools');
   });
 
   it('does not hold when a change cannot be placed inside the granted paths', () => {
@@ -1186,5 +1233,130 @@ describe('observeWriteBoundary reads the run, not the table', () => {
   it('says nothing about a profile that grants no writes', () => {
     const readOnly: ContainmentAssessment = { ...enforcing, policy: 'analysis', writes: false };
     expect(observeWriteBoundary({ containment: readOnly, evidence: evidenceWith(), events: [] })).toMatchObject({ expected: null, held: null });
+  });
+});
+
+/**
+ * The run refuses before it builds anything when the runtime cannot work
+ * (findings on run-direct: no credential preflight, and a containment status
+ * read without reading the version it was established against).
+ *
+ * What this closes: a run against a signed-out runtime used to create a
+ * worktree and a branch, open a session, spend 26 seconds inside the
+ * provider's own reconnect loop, get `401 Unauthorized`, run an acceptance
+ * check against an unchanged base and exit 4 under the headline "criterion
+ * node-tests-pass failed" — a code-failure framing for a credential problem.
+ */
+describe('the run asks whether the runtime can work before it creates anything', () => {
+  /** A fake runtime whose readiness probe answers whatever a test needs. */
+  class ProbesAs extends FakeAdapter {
+    sessionsOpened = 0;
+    constructor(
+      private readonly readiness: { authentication?: 'logged_in' | 'logged_out' | 'unknown' | 'not_required'; version?: string | null },
+      options: ConstructorParameters<typeof FakeAdapter>[0],
+    ) {
+      super(options);
+    }
+
+    override async probe(executablePath: string): Promise<Awaited<ReturnType<FakeAdapter['probe']>>> {
+      const base = await super.probe(executablePath);
+      return { ...base, ...this.readiness };
+    }
+
+    override capabilities(): RuntimeCapabilities {
+      const base = super.capabilities();
+      return {
+        ...base,
+        capabilities: {
+          ...base.capabilities,
+          write_containment: { status: 'verified', testedVersion: FAKE_RUNTIME_VERSION, os: process.platform, note: 'a boundary established for one build only' },
+        },
+      };
+    }
+
+    override async openSession(input: Parameters<FakeAdapter['openSession']>[0]): ReturnType<FakeAdapter['openSession']> {
+      this.sessionsOpened += 1;
+      return super.openSession(input);
+    }
+  }
+
+  async function runWith(
+    readiness: { authentication?: 'logged_in' | 'logged_out' | 'unknown' | 'not_required'; version?: string | null },
+    options: { allowUnconfinedWrites?: boolean } = {},
+  ): Promise<{ error: unknown; adapters: ProbesAs[]; lines: string[] }> {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-preflight-state-');
+    const configPath = writeFakeAgentsConfig(tempDir('workforce-preflight-config-'));
+    const scenarioPath = writeScenario(fixTheBugScenario());
+    const paths = createStatePaths(stateRoot);
+    const store = openStateStore(paths, { mode: 'mutating' });
+    const adapters: ProbesAs[] = [];
+    const lines: string[] = [];
+    try {
+      const loaded = loadAgentConfigFile(configPath);
+      let error: unknown = null;
+      try {
+        await runDirect({
+          repoPath: fixture.path,
+          config: loaded.config,
+          configRaw: loaded.raw,
+          configPath: loaded.path,
+          requestText: REQUEST_TEXT,
+          requestSource: 'argument',
+          paths,
+          db: store.db,
+          stream: { line: (text) => lines.push(text), event: () => {} },
+          sessionEnv: { [FAKE_SCENARIO_ENV]: scenarioPath },
+          ...(options.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
+          adapterFactory: (runtimeRef) => {
+            const adapter = new ProbesAs(readiness, { scriptPath: runtimeRef.executable });
+            adapters.push(adapter);
+            return adapter;
+          },
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { error, adapters, lines };
+    } finally {
+      store.close();
+    }
+  }
+
+  it('refuses a signed-out runtime with the one code that means "only you can fix this"', async () => {
+    const { error, adapters } = await runWith({ authentication: 'logged_out' });
+
+    expect(error).toBeInstanceOf(RunSetupError);
+    expect((error as RunSetupError).code).toBe('runtime_not_logged_in');
+    expect((error as Error).message).toContain('log in interactively');
+    // Nothing was dispatched: no session, so no turn, so no retry storm.
+    expect(adapters.every((adapter) => adapter.sessionsOpened === 0)).toBe(true);
+  });
+
+  it('refuses a writing profile on a build the write boundary was never established against', async () => {
+    const { error } = await runWith({ version: '99.0.0' });
+
+    expect(error).toBeInstanceOf(RunSetupError);
+    expect((error as RunSetupError).code).toBe('write_boundary_untested_version');
+    expect((error as Error).message).toContain('99.0.0');
+    expect((error as Error).message).toContain(FAKE_RUNTIME_VERSION);
+  });
+
+  it('lets an explicitly accepted unconfined run past that gate, and records why it was needed', async () => {
+    const { error, lines } = await runWith({ version: '99.0.0' }, { allowUnconfinedWrites: true });
+
+    expect(error).toBeNull();
+    expect(lines.join('\n')).toContain('the write boundary was never established for this build');
+  });
+
+  it('does not refuse a run whose readiness could not be established, and says so', async () => {
+    // The direction that must never be blocked: `claude auth status` and the
+    // runtime have disagreed in both directions on the installed build, so a
+    // probe that could not establish a login must not be able to stop a run
+    // that would have worked.
+    const { error, lines } = await runWith({ authentication: 'unknown' });
+
+    expect(error).toBeNull();
+    expect(lines.join('\n')).toContain('could not establish whether the runtime is logged in');
   });
 });
