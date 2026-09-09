@@ -205,6 +205,64 @@ describe('the acceptance surface follows the module graph', () => {
     expect(surfaceBlockers(surface)).toEqual([]);
   });
 
+  it('follows a cd inside a shell entry point to the runner beyond it', async () => {
+    // The hole this closes: the scanner resolved every word against the
+    // script's own directory, so a runner named after a `cd` matched nothing,
+    // the criterion fell back to a CONSERVATIVE surface that protected only
+    // `check.sh`, and a candidate that deleted the whole acceptance suite was
+    // ACCEPTED with exit 0.
+    const files = tree({
+      'package.json': JSON.stringify({ scripts: { test: 'sh check.sh' } }),
+      'check.sh': '#!/bin/sh\ncd verify && exec node acceptance.js\n',
+      'verify/acceptance.js': "import { expectEqual } from './expect.js';\nexpectEqual(1, 1, 'ok');\n",
+      'verify/expect.js': 'export function expectEqual(a, b, what) { if (a !== b) throw new Error(what); }\n',
+    });
+    const surface = await resolveAcceptanceSurface([PACKAGE_CHECK], files.baseFiles, {
+      packageManifest: await files.readBaseFile('package.json'),
+      readBaseFile: files.readBaseFile,
+    });
+
+    // The runner beyond the `cd`, and the helper it imports, are both protected.
+    expect(surface.byCriterion.get('package-test-script')).toEqual([
+      'check.sh',
+      'package.json',
+      'verify/acceptance.js',
+      'verify/expect.js',
+    ]);
+    // Nothing conservative about it: the closure was established, not assumed.
+    expect(surface.resolution.limitations).toEqual([]);
+    expect(surface.resolution.unresolved).toEqual([]);
+    expect(surfaceBlockers(surface)).toEqual([]);
+
+    // And the attack the hole allowed is now a mutation of the surface.
+    const attack = findSurfaceChanges(surface, [
+      { status: 'D', path: 'verify/acceptance.js' },
+      { status: 'D', path: 'verify/expect.js' },
+    ]);
+    expect(attack.mutations).toEqual([
+      { criterionId: 'package-test-script', changedPaths: ['D verify/acceptance.js', 'D verify/expect.js'] },
+    ]);
+  });
+
+  it('does not guess a runner when the cd itself is computed', async () => {
+    // `cd "$ROOT"` moves somewhere this walk cannot name, so every later word
+    // is relative to an unknown directory. Resolving `acceptance.js` against
+    // the script's own directory anyway would be a guess, and a guess that
+    // happened to match would protect the wrong file while reporting success.
+    const files = tree({
+      'package.json': JSON.stringify({ scripts: { test: 'sh check.sh' } }),
+      'check.sh': '#!/bin/sh\ncd "$ROOT" && exec node acceptance.js\n',
+      'acceptance.js': 'console.log("ok");\n',
+    });
+    const surface = await resolveAcceptanceSurface([PACKAGE_CHECK], files.baseFiles, {
+      packageManifest: await files.readBaseFile('package.json'),
+      readBaseFile: files.readBaseFile,
+    });
+
+    expect(surfaceBlockers(surface)).toHaveLength(1);
+    expect(surfaceBlockers(surface)[0]).toContain('what it runs was not followed');
+  });
+
   it('refuses when a shell entry point names nothing this repository contains', async () => {
     const files = tree({
       'package.json': JSON.stringify({ scripts: { test: 'bash scripts/acceptance.sh' } }),

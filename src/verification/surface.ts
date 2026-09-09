@@ -1075,17 +1075,32 @@ function pathsFromShellScript(file: string, raw: string, state: WalkState): { pa
   const found = new Set<string>();
   let computed = false;
   const directory = path.posix.dirname(file);
+  // The directory the script has walked itself into. A runner named after a
+  // `cd` is named relative to THAT, not to the script's own directory, so a
+  // scanner that ignores `cd` misses `cd verify && exec node acceptance.js`
+  // entirely — and a criterion whose runner is missed is a criterion whose
+  // suite the candidate may rewrite without the surface noticing.
+  let cwd = directory;
   for (const line of raw.split('\n')) {
     for (const segment of line.replace(/#.*$/, '').split(SCRIPT_SEPARATORS)) {
       const words = segment
         .trim()
         .split(/\s+/)
-        .map((word) => word.replace(/^["']|["']$/g, ''))
+        .map((word) => word.replace(/^["']|["']$/g, '').replace(/^\(+/, ''))
         .filter((word) => word.length > 0);
       let index = 0;
       while (index < words.length && (SHELL_WRAPPERS.has(words[index]!) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index]!))) index += 1;
       const head = words[index];
       if (head === undefined) continue;
+      if (head === 'cd' || head === 'pushd') {
+        const target = words.slice(index + 1).find((word) => !word.startsWith('-'));
+        // `cd "$ROOT"` moves somewhere this walk cannot name. Every later word
+        // in the script is then relative to an unknown directory, so the
+        // runner is computed even though it is spelled literally.
+        if (target === undefined || target.includes('$')) computed = true;
+        else cwd = normalizeRelative(path.posix.join(cwd, target)) ?? cwd;
+        continue;
+      }
       // `npm run acceptance` inside the script: the package.json chain answers it.
       const nested = scriptNameOf(head, words.slice(index + 1));
       if (nested !== null) {
@@ -1098,7 +1113,11 @@ function pathsFromShellScript(file: string, raw: string, state: WalkState): { pa
           computed = true;
           continue;
         }
-        for (const candidate of [normalizeRelative(word), normalizeRelative(path.posix.join(directory, word))]) {
+        for (const candidate of [
+          normalizeRelative(word),
+          normalizeRelative(path.posix.join(directory, word)),
+          normalizeRelative(path.posix.join(cwd, word)),
+        ]) {
           if (candidate !== null && state.baseFileSet.has(candidate)) found.add(candidate);
         }
       }
@@ -1210,6 +1229,21 @@ async function reachableFrom(entries: ReadonlyArray<string>, state: WalkState, d
       if (language === null) {
         if (looksLikeShellScript(file, raw) && raw.length <= MAX_SCRIPT_BYTES) {
           const execed = pathsFromShellScript(file, raw, state);
+          // A script can be partly followable: `exec node run.js` beside
+          // `exec "$OTHER"`, or a `cd "$ROOT"` that moves the rest of the
+          // script somewhere unnameable. Following what resolves and saying
+          // nothing about the rest would report an established closure over a
+          // surface that is missing whatever the unresolvable word runs — the
+          // false-completion shape this whole module exists to prevent. So the
+          // paths found are still protected, and the gap is still reported.
+          if (execed.computed && execed.paths.length > 0 && !state.fixturesDeclared) {
+            note(
+              state,
+              'entry_not_module',
+              `${file} is executed by a criterion and is a shell script in which at least one command word is not literal, so what it runs was not followed in full; the files below are what could be resolved, not the whole closure`,
+              file,
+            );
+          }
           if (execed.paths.length > 0) {
             for (const target of execed.paths) {
               // The runner a criterion's script execs is what that criterion

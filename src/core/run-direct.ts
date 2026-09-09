@@ -1492,11 +1492,36 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     // next turn on it, so a `queued` receipt means the message was handed to
     // something that is about to die — that is recorded as a failed delivery
     // and the message is left undelivered rather than acknowledged.
+    // Messages the adapter accepted but has not put in front of the model.
+    // They are NOT acknowledged, so they stay deliverable; this set only stops
+    // the next boundary in the same turn handing the adapter a second copy.
+    const awaitingFlush = new Set<string>();
     const drainInbox = async (phase: 'turn' | 'closing'): Promise<void> => {
       if (bridge === null || session === null) return;
       for (const message of deliverableMessages(bridge, taskId)) {
+        if (phase === 'turn' && awaitingFlush.has(message.id)) continue;
         try {
           const receipt = await adapter.deliver(session, { messageId: message.id, body: message.text });
+          // A receipt that is not `submitted_to_active_turn` says the adapter
+          // took the message, not that the recipient got it. Acknowledging it
+          // here would mark as delivered something that is still sitting in a
+          // queue, and if the turn ends before the flush nothing ever retries
+          // it: the message is lost and the run reports it as sent. So the
+          // acknowledgement waits for the state that means the model saw it.
+          if (phase === 'turn' && receipt.state !== 'submitted_to_active_turn') {
+            awaitingFlush.add(message.id);
+            appendEvent(db, {
+              runId,
+              taskId,
+              attemptId,
+              type: 'coordination.delivery_deferred',
+              payload: { messageId: message.id, state: receipt.state, holder: receipt.holder ?? null, turnId: receipt.turnId },
+            });
+            stream.line(
+              `  coordination: a message for this worker is held by the ${receipt.holder ?? 'runtime'} (${receipt.state}) and is not delivered yet`,
+            );
+            continue;
+          }
           if (phase === 'closing' && receipt.state !== 'submitted_to_active_turn') {
             const reason = `the recipient's turn had already ended, so the runtime only ${receipt.state} it (${receipt.holder ?? 'nobody'} holding) and this session is being stopped`;
             appendEvent(db, {
