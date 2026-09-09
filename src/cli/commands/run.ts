@@ -27,7 +27,11 @@ import {
   type AdapterFactory,
   type RunDirectResult,
   type RunStream,
+  type RunStreamIdentity,
 } from '../../core/run-direct.js';
+import { createPlainRenderer, taskLabel, type PlainRenderer } from '../live/plain.js';
+import { createLiveView, type LiveTerminal, type LiveView } from '../live/view.js';
+import { MIN_COLUMNS, MIN_ROWS } from '../live/layout.js';
 import { runPlanned, type PlannedTaskInput, type RunPlannedResult } from '../../core/run-planned.js';
 import { runWithFallback } from '../../recovery/continue.js';
 import { describeFallback } from '../../recovery/fallback.js';
@@ -66,6 +70,10 @@ export interface RunCommandArgs {
    * decomposition deliberately invents no dependencies.
    */
   readonly plan?: string;
+  /** `--view live|plain`: force or refuse the board. Absent means the ladder in `decideView` decides. */
+  readonly view?: string;
+  /** `--watch`: print a ready-to-paste `workforce watch` line per planned task before the run starts. */
+  readonly watch?: boolean;
   readonly json: boolean;
 }
 
@@ -76,6 +84,8 @@ export interface RunCommandDeps {
   readonly signal?: AbortSignal;
   readonly adapterFactory?: AdapterFactory;
   readonly sessionEnv?: Readonly<Record<string, string>>;
+  /** stdin, for the live view's keys. Absent means no keys, which is a degrade and not an error. */
+  readonly stdin?: NodeJS.ReadStream;
 }
 
 function loadConfigOrFail(file: string): LoadedAgentConfig {
@@ -126,15 +136,136 @@ export function requireTaskText(args: RunCommandArgs): { text: string; source: s
 }
 
 /**
+ * Which renderer draws this run, decided once, before a byte is written.
+ *
+ * The ladder is checked in order and every rung is a real destination someone
+ * actually has:
+ *
+ * | # | condition | result |
+ * |---|---|---|
+ * | 1 | `--json` | plain. stdout is JSONL and must not carry one escape byte. |
+ * | 2 | `--view plain` or `WORKFORCE_VIEW=plain` | plain. |
+ * | 3 | stdout or stderr is not a TTY (a pipe, `> file`, CI, `tee`) | plain, zero escapes. |
+ * | 4 | `TERM` is `dumb` or unset | plain. |
+ * | 5 | the terminal is smaller than the board needs | plain, and it says why. |
+ * | 6 | fewer than two tasks | plain: a board around one agent is a frame around a log. `--view live` overrides. |
+ *
+ * `NO_COLOR` is deliberately NOT on this ladder. It is a colour convention,
+ * not a cursor convention: the board still draws, in monochrome. Nor is a
+ * non-TTY stdin — the keys are simply disabled, with no warning, because a
+ * board nobody can steer is still a board worth reading.
+ *
+ * Rung 6 is why single-task and non-TTY output stay byte-identical to what
+ * this command produced before the view existed.
+ */
+export interface ViewDecision {
+  readonly view: 'live' | 'plain';
+  /** Present when a live view was possible but declined; printed as one dim line. */
+  readonly reason: string | null;
+}
+
+export function decideView(input: {
+  readonly requested: string | undefined;
+  readonly json: boolean;
+  readonly taskCount: number;
+  readonly stdout: unknown;
+  readonly stderr: unknown;
+  readonly env: Readonly<Record<string, string | undefined>>;
+}): ViewDecision {
+  const requested = input.requested ?? input.env['WORKFORCE_VIEW'];
+  if (requested === 'plain') return { view: 'plain', reason: null };
+  if (input.json) return { view: 'plain', reason: null };
+  const isTty = (target: unknown): boolean => (target as { isTTY?: unknown } | null | undefined)?.isTTY === true;
+  if (!isTty(input.stdout) || !isTty(input.stderr)) return { view: 'plain', reason: null };
+  const term = input.env['TERM'];
+  if (term === undefined || term === '' || term === 'dumb') return { view: 'plain', reason: null };
+  const columns = (input.stderr as { columns?: number }).columns ?? 80;
+  const rows = (input.stderr as { rows?: number }).rows ?? 24;
+  if (columns < MIN_COLUMNS || rows < MIN_ROWS) {
+    return { view: 'plain', reason: `live view off: this terminal is ${columns}x${rows}; the board needs ${MIN_COLUMNS}x${MIN_ROWS}` };
+  }
+  if (requested === 'live') return { view: 'live', reason: null };
+  if (input.taskCount < 2) return { view: 'plain', reason: null };
+  return { view: 'live', reason: null };
+}
+
+export interface RendererOptions {
+  /** `--view live|plain`; `WORKFORCE_VIEW` is consulted when this is absent. */
+  readonly view?: string;
+  /** How many tasks this run will dispatch. One means no board. */
+  readonly taskCount?: number;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly stdin?: NodeJS.ReadStream;
+}
+
+/** The renderer plus, when there is one, the live view whose terminal must be restored. */
+export interface Renderer {
+  readonly stream: RunStream;
+  /** Null in plain mode. Non-null exactly when the alternate screen is in use. */
+  readonly view: LiveView | null;
+  /** Restore the terminal and replay, or stop the plain renderer's heartbeat. Idempotent. */
+  finish(): void;
+}
+
+export function createRenderer(reporter: Reporter, streams: Streams, options: RendererOptions = {}): Renderer {
+  const env = options.env ?? process.env;
+  const decision = decideView({
+    requested: options.view,
+    json: reporter.json,
+    taskCount: options.taskCount ?? 1,
+    stdout: streams.stdout,
+    stderr: streams.stderr,
+    env,
+  });
+  if (decision.reason !== null) reporter.diagnostic(decision.reason);
+  if (decision.view === 'plain') {
+    const plain: PlainRenderer = createPlainRenderer(reporter, streams);
+    return { stream: plain, view: null, finish: () => plain.dispose() };
+  }
+  const live = createLiveView({
+    streams,
+    terminal: streams.stderr as unknown as LiveTerminal,
+    env,
+    restoreOnExit: true,
+    ...(options.stdin !== undefined ? { stdin: options.stdin } : {}),
+  });
+  return { stream: live, view: live, finish: () => live.leave() };
+}
+
+/**
  * Progress rendering. In human mode every line goes to stdout. With --json
  * stdout carries one JSON object per line (JSONL) and the human lines become
  * stderr diagnostics, so stdout stays machine-readable end to end.
+ *
+ * Kept under its original name and signature because `cli/index.ts` and the
+ * stream-identity tests both import it. It is now the plain rung of
+ * `createRenderer`.
  */
 export function createRunStream(reporter: Reporter, streams: Streams): RunStream {
+  return createPlainRenderer(reporter, streams);
+}
+
+export { taskLabel };
+
+/**
+ * A stream that, the first time it sees `run.created`, writes one ready-to-paste
+ * `workforce watch` line per planned task.
+ *
+ * A wrapper rather than a branch inside the renderers: the hint is a property
+ * of this invocation (`--watch`), not of how the run happens to be drawn, and
+ * both renderers should show it the same way.
+ */
+export function withWatchHints(stream: RunStream, keys: ReadonlyArray<string>): RunStream {
+  let printed = false;
   return {
-    line: (text: string) => reporter.info(text),
+    ...stream,
     event: (record) => {
-      if (reporter.json) streams.stdout.write(`${redactedJson(record)}\n`);
+      stream.event(record);
+      if (printed || record.type !== 'run.created' || typeof record['runId'] !== 'string') return;
+      printed = true;
+      const runId = record['runId'];
+      stream.line('attach one agent in another terminal:');
+      for (const key of keys) stream.line(`  workforce watch ${runId} --task ${key}`);
     },
   };
 }
@@ -216,6 +347,19 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   }
 
   if (planFile !== null || (route.path === 'planned' && plannedTasks.length >= 2)) {
+    // The renderer is chosen from the task count, which is only known here.
+    const renderer = createRenderer(deps.reporter, deps.streams, {
+      taskCount: plannedTasks.length,
+      ...(args.view !== undefined ? { view: args.view } : {}),
+      ...(deps.stdin !== undefined ? { stdin: deps.stdin } : {}),
+    });
+    // `--watch` prints the commands ready to paste rather than describing
+    // them, because "the commands and the steps are too hard" is the whole
+    // complaint. They can only be printed once the run id exists, which is
+    // when `run.created` arrives — and they go through the stream, not around
+    // it, so in the live view they land in the run lane and in the replay
+    // rather than corrupting the board's screen.
+    const stream = args.watch === true ? withWatchHints(renderer.stream, plannedTasks.map((task) => task.key)) : renderer.stream;
     let planned: RunPlannedResult;
     try {
       planned = await runPlanned({
@@ -228,7 +372,7 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
         tasks: plannedTasks,
         paths,
         db: store.db,
-        stream: createRunStream(deps.reporter, deps.streams),
+        stream,
         ...(store.lock !== null ? { ownership: store.lock } : {}),
         ...(args.agent !== undefined ? { agentId: args.agent } : {}),
         ...(args.checks !== undefined ? { checkFlags: args.checks } : {}),
@@ -240,11 +384,23 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
     } catch (error) {
       throw toCliError(error);
     } finally {
+      // The terminal is restored and the transcript replayed BEFORE the
+      // result document is written, so the verdict lands under the history
+      // that produced it rather than into a buffer about to be discarded.
+      renderer.finish();
       store.close();
     }
     return plannedCommandResult(planned, paths.root, route);
   }
 
+  // The direct path dispatches one task, so the ladder resolves to plain
+  // unless `--view live` says otherwise: a board around one agent is a frame
+  // around a log.
+  const directRenderer = createRenderer(deps.reporter, deps.streams, {
+    taskCount: 1,
+    ...(args.view !== undefined ? { view: args.view } : {}),
+    ...(deps.stdin !== undefined ? { stdin: deps.stdin } : {}),
+  });
   let result: RunDirectResult;
   let fallbackNote: string | null = null;
   try {
@@ -257,7 +413,7 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
       requestSource: task.source,
       paths,
       db: store.db,
-      stream: createRunStream(deps.reporter, deps.streams),
+      stream: directRenderer.stream,
       ...(store.lock !== null ? { ownership: store.lock } : {}),
       ...(args.agent !== undefined ? { agentId: args.agent } : {}),
       ...(args.checks !== undefined ? { checkFlags: args.checks } : {}),
@@ -275,6 +431,7 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   } catch (error) {
     throw toCliError(error);
   } finally {
+    directRenderer.finish();
     store.close();
   }
 

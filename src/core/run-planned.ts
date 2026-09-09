@@ -44,7 +44,9 @@ import {
   type RunDirectResult,
   type RunOutcome,
   type RunStream,
+  type TaskStream,
 } from './run-direct.js';
+import { forTask } from './run-stream.js';
 import { createCoordinationBridge, type CoordinationBridge, type MessageRecord } from '../coordination/index.js';
 import { appendEvent } from '../storage/events.js';
 import { ensureRunDir, type StatePaths } from '../storage/paths.js';
@@ -306,6 +308,8 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
       readonly error: Error | null;
     }
     const inFlight = new Map<string, Promise<Settlement>>();
+    /** The per-task stream of every dispatched task, so a line written about a task after it settled still names it. */
+    const taskStreams = new Map<string, TaskStream>();
 
     // A dispatched task becomes an in-flight promise immediately. There is no
     // join across dispatched tasks: the loop below reacts to the FIRST one to
@@ -314,8 +318,62 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
     // still bounded — the scheduler hands out turn and writer slots and only
     // frees one when `complete`/`fail` records that task — and only the
     // repository-mutating setup is serialized, inside `withRepositoryLock`.
+    //
+    // Every dispatched task gets its OWN stream. Handing them all the run's
+    // shared one is what made concurrent output unreadable: N workers wrote
+    // into one flat stream and nothing in a line said who wrote it. The
+    // derived stream stamps this task's identity on every record and line, and
+    // is closed when the task settles so a renderer knows how many tasks are
+    // live at any moment.
+    //
+    // The whole dispatch round is opened before any of it is started, so a
+    // renderer knows two tasks are about to speak before the first one does.
+    // Opening each stream at the moment its task starts would leave the first
+    // task's opening line looking like run-level output.
+    const open = (key: string): void => {
+      const task = byKey.get(key)!;
+      const taskId = taskIds.get(key)!;
+      const ownerAgentId = task.agentId ?? input.agentId ?? input.config.defaults.workerAgent;
+      // The plan key is what a human wrote and what every line of output calls
+      // this task, but until now it existed only in memory: the tasks table
+      // stores an objective and an owner, never a key. A second terminal
+      // therefore had no way to say `--task docs`. This is that name, made
+      // durable, once per dispatched task.
+      appendEvent(db, { runId, taskId, type: 'task.registered', payload: { key, agentId: ownerAgentId, objective: task.objective } });
+      taskStreams.set(key, forTask(stream, { runId, taskId, key, agentId: ownerAgentId }));
+    };
+
+    /**
+     * Why each task that is not running is not running.
+     *
+     * Derived from the scheduler's own state, never guessed: a pending task
+     * whose dependencies are unsatisfied is waiting on those tasks; one whose
+     * dependencies ARE satisfied is waiting on a slot, and which slot is
+     * decided the same way `dispatch()` decides it. A `queued` row that cannot
+     * name what it is waiting for is exactly the idle-looking output this
+     * exists to remove, so nothing here reports a reason it cannot support.
+     */
+    const describeBlocked = (): Array<{ key: string; waitingOn: string[]; reason: 'dependency' | 'turn_slot' | 'writer_slot' }> => {
+      const snapshot = scheduler.snapshot();
+      const out: Array<{ key: string; waitingOn: string[]; reason: 'dependency' | 'turn_slot' | 'writer_slot' }> = [];
+      for (const task of input.tasks) {
+        const state = snapshot.states[task.key];
+        if (state !== 'pending' && state !== 'waiting') continue;
+        const unsatisfied = (task.dependencies ?? []).filter((dependency) => results.get(dependency)?.accepted !== true);
+        if (unsatisfied.length > 0 || !scheduler.isReady(task.key)) {
+          out.push({ key: task.key, waitingOn: [...unsatisfied], reason: 'dependency' });
+          continue;
+        }
+        const writer = task.writer ?? true;
+        const reason = writer && snapshot.activeWriters >= limits.maxActiveWriters ? 'writer_slot' : 'turn_slot';
+        out.push({ key: task.key, waitingOn: [...snapshot.running], reason });
+      }
+      return out;
+    };
+
     const start = (key: string): void => {
       const task = byKey.get(key)!;
+      const taskStream = taskStreams.get(key)!;
       inFlight.set(
         key,
         (async (): Promise<Settlement> => {
@@ -337,7 +395,7 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
                 peers: input.tasks
                   .filter((peer) => peer.key !== key)
                   .map((peer) => ({ key: peer.key, taskId: taskIds.get(peer.key)!, objective: peer.objective })),
-                stream,
+                stream: taskStream,
               }),
               error: null,
             };
@@ -345,6 +403,8 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
             // One task throwing is that task failing, not the run dying with
             // no manifest: the run still has to finish and record what it did.
             return { key, result: null, error: error instanceof Error ? error : new Error(String(error)) };
+          } finally {
+            taskStream.close();
           }
         })(),
       );
@@ -354,7 +414,13 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
       if (entry.error !== null || entry.result === null) {
         const detail = entry.error?.message ?? 'the task produced no result';
         unresolved.push(`task "${entry.key}" ended with an error before it could be assessed: ${detail}`);
-        stream.line(`task "${entry.key}" failed: ${detail}`);
+        (taskStreams.get(entry.key) ?? stream).line(`task "${entry.key}" failed: ${detail}`);
+        // A task's terminal state is stated, never inferred. Without this a
+        // live view would have to guess "accepted" from a closed stream plus
+        // a trailing check receipt, and then present the guess as fact — the
+        // exact move AGENTS.md rule 3 forbids.
+        appendEvent(db, { runId, taskId: taskIds.get(entry.key)!, type: 'task.settled', payload: { key: entry.key, accepted: false, repairsUsed: 0, detail } });
+        (taskStreams.get(entry.key) ?? stream).event({ type: 'task.settled', runId, key: entry.key, taskId: taskIds.get(entry.key)!, accepted: false, repairsUsed: 0, detail });
         results.set(entry.key, {
           key: entry.key,
           taskId: taskIds.get(entry.key)!,
@@ -369,6 +435,24 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
         return;
       }
       results.set(entry.key, entry.result);
+      // Durable as well as live. `workforce watch` reads rows, not the stream,
+      // and without this row a second terminal would show every lane stuck at
+      // "verifying" for ever — an observer that cannot see a task finish is
+      // an observer that misreports the run.
+      appendEvent(db, {
+        runId,
+        taskId: entry.result.taskId,
+        type: 'task.settled',
+        payload: { key: entry.key, accepted: entry.result.accepted, repairsUsed: entry.result.repairsUsed },
+      });
+      (taskStreams.get(entry.key) ?? stream).event({
+        type: 'task.settled',
+        runId,
+        key: entry.key,
+        taskId: entry.result.taskId,
+        accepted: entry.result.accepted,
+        repairsUsed: entry.result.repairsUsed,
+      });
       if (entry.result.accepted) {
         scheduler.complete(entry.key);
       } else {
@@ -381,8 +465,15 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
       const started = scheduler.dispatch();
       if (started.length > 0) {
         stream.event({ type: 'schedule.dispatch', runId, tasks: started, activeTurns: scheduler.activeTurns, activeWriters: scheduler.activeWriters });
+        for (const key of started) open(key);
         for (const key of started) start(key);
       }
+      // Why the rest are not running. `scheduler.blockers` is otherwise only
+      // read once the run is over, so a queued row could say "queued" and
+      // nothing more; a row that cannot say what it is waiting for is the
+      // kind of idle-looking output this view exists to remove.
+      const waiting = describeBlocked();
+      if (waiting.length > 0) stream.event({ type: 'schedule.blocked', runId, blocked: waiting });
       // Nothing running and nothing newly ready: the plan has been executed as
       // far as it can be.
       if (inFlight.size === 0) break;

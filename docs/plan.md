@@ -91,7 +91,7 @@ These defaults make the plan executable without another design interview. They a
 
 ### Explicit MVP exclusions
 
-No web dashboard, desktop installer, full-screen terminal UI, account service, billing, hosted database, remote runners, universal GUI automation, API-key gateway, agent marketplace, avatar office, vector database, automatic runtime installation or production deployment.
+No web dashboard, desktop installer, persistent TUI application shell (a single run's live view is FR080), account service, billing, hosted database, remote runners, universal GUI automation, API-key gateway, agent marketplace, avatar office, vector database, automatic runtime installation or production deployment.
 
 Skipping these features does not remove the core requirements for real handoffs, collaboration, evidence, safe workspace ownership and bounded recovery. A single prompt launcher is an intermediate demonstration, not the complete MVP.
 
@@ -207,6 +207,10 @@ The IDs below are stable implementation and review references. "By" is the first
 | ID | Feature | By | Acceptance criterion |
 | --- | --- | --- | --- |
 | FR058 | Live terminal event stream | R0 | Show task, agent, action, errors and check status as execution occurs; save a machine-readable event stream. |
+| FR080 | Live run board | R1 | A planned run on a TTY shows one board row per dispatched task with state, elapsed, last action and counters, plus one focus pane; on exit the terminal's scrollback holds the complete transcript. |
+| FR081 | Attachable per-task view | R1 | `workforce watch <run-id> [--task <key>]` renders a live or finished run read-only from a second terminal, taking no coordinator lock. |
+| FR082 | Heartbeat status block | R1 | The plain renderer prints a periodic status block while two or more tasks are live, so a pipe, a CI log and a small terminal still say what is alive. |
+| FR083 | Interactive launcher | R1 | `workforce` with no arguments asks, on a TTY, only for what it cannot determine: it defaults the repository to the working directory, discovers runtimes passively, finds or offers to write an agent configuration, shows the resolved acceptance checks before running them, gets an explicit answer to the unconfined-writes question when the binding needs it, and prints the equivalent flag form. Without a TTY it exits 2 naming that flag form; every flag keeps its meaning. |
 | FR059 | Artifact manifest | R1 | Export a portable run report containing contract versions, revisions, patches, check results and unresolved issues. |
 | FR060 | Honest timing and usage | R1 | Separate dispatch, startup, model/runtime, validation and integration time; distinguish measured/estimated/unavailable usage. |
 | FR061 | Read-only status inspection | R1 | Another terminal can inspect a run without taking coordinator ownership or creating duplicate execution. |
@@ -586,6 +590,7 @@ The commands below are proposed public contracts, not installed commands. `workf
 
 | Command | Behavior |
 | --- | --- |
+| `workforce` | Interactive launcher on a TTY: ask only what cannot be determined, show what was determined, then run. Refuses without a TTY and names the flag form (FR083). |
 | `workforce doctor [--json]` | Read-only discovery/readiness report; no automatic inference or installation. |
 | `workforce run --repo <path> --agents <file> --task <text>` | Start a foreground run with explicit configuration; support a task-file input for larger briefs. |
 | `workforce status <run-id> [--json]` | Inspect persisted current/history state without executing work. |
@@ -671,6 +676,8 @@ Use fake runtimes and small fixture repositories for deterministic failure tests
 | AT22 | R3 | Window close, Quit, Stop Run, renderer crash and sleep/wake follow the documented execution policy without duplicate coordinators. |
 | AT23 | R4 | Backup/restore, migration and failed-update recovery preserve configuration/manifests and identify missing external sessions or workspaces honestly. |
 | AT24 | R4 | External developer onboarding, accessibility, large logs/diffs, compatibility upgrades and signed update checks pass on each declared platform. |
+| AT25 | R1 | A three-task planned run in a 100x30 pty shows three board rows, one per dispatched task; after the view exits, the run's human output is byte for byte what the same run produces under `--view plain`. |
+| AT26 | R1 | A session started with no arguments and answered at the prompt dispatches the same run the printed flag form would; the repository is defaulted rather than asked for, a signed-out runtime is refused with its login command, and a repository with no acceptance check refuses to run. |
 
 The R1 demonstration must include AT02, AT04, AT05 and both a failed-check repair and interruption/resume case. The additional deterministic tests protect the coordination boundary. A successful unit suite does not substitute for these real-runtime demonstrations.
 

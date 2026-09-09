@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * workforce CLI: doctor | run | status | resume.
+ * workforce CLI: (interactive) | doctor | run | status | watch | resume.
  *
  * WP01 wired argument parsing, configuration validation (exit 2 on invalid
  * input) and state-root resolution. WP02 implements `doctor` (passive runtime
@@ -11,6 +11,15 @@
  * proven R0 path, unchanged), the planned path when the request enumerates
  * several deliverables and a planner is configured. `--path` overrides the
  * choice in either direction.
+ *
+ * `workforce` with no arguments, on a terminal, starts the interactive
+ * launcher in `commands/launch.ts`: it defaults the repository to the working
+ * directory, discovers the runtimes itself, finds or writes an agent
+ * configuration, shows the acceptance checks before running them, and asks
+ * only for what it could not work out. Every flag still means exactly what it
+ * meant — the launcher assembles the same `commandRun` call and prints the
+ * flag form it assembled — and without a terminal the bare invocation exits 2
+ * with that flag form, as it always did.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,16 +28,30 @@ import { ContractValidationError } from '../core/contracts.js';
 import { loadAgentConfigFile, type LoadedAgentConfig } from '../core/config.js';
 import { commandDoctor as runDoctor } from './commands/doctor.js';
 import { commandRun, createRunStream } from './commands/run.js';
+import { commandLaunch, type LaunchArgs } from './commands/launch.js';
+import { commandWatch } from './commands/watch.js';
+import { leaveActiveViews } from './live/restore.js';
 import { commandStatus } from './commands/status.js';
 import { commandResume as runResume } from './commands/resume.js';
 import { CliError, EXIT_CODES, Reporter, type CommandResult, type ExitCode, type Streams } from './output.js';
 
 export const USAGE = `workforce — coordinate installed coding runtimes on one engineering task
 
+Start here:
+  workforce             ask what this run needs and then run it. Defaults the
+                        repository to the working directory, discovers the
+                        installed runtimes, finds or writes an agent
+                        configuration, shows the acceptance checks before
+                        running them, and prints the equivalent flag form.
+                        Needs a terminal; in a pipe or CI use "workforce run".
+
+Every flag form below still works exactly as it did.
+
 Usage:
   workforce doctor [--connect] [--codex-path <file>] [--claude-path <file>] [--agents <file>] [--state-dir <dir>] [--json]
-  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--path direct|planned] [--plan <file>] [--check "<cmd> [args]"]... [--allow-unconfined-writes] [--state-dir <dir>] [--workspace-root <dir>] [--json]
+  workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--path direct|planned] [--plan <file>] [--check "<cmd> [args]"]... [--allow-unconfined-writes] [--view live|plain] [--watch] [--state-dir <dir>] [--workspace-root <dir>] [--json]
   workforce status <run-id> [--state-dir <dir>] [--json]
+  workforce watch <run-id> [--task <key>] [--state-dir <dir>] [--json]
   workforce resume <run-id> [--agents <file>] [--allow-unconfined-writes] [--state-dir <dir>] [--json]
 
 Options:
@@ -55,6 +78,17 @@ Options:
                        write boundary. Without it such a run is refused; with
                        it the missing boundary is printed and recorded in the
                        run manifest.
+  --view live|plain    how a run reports itself. "live" draws one board row
+                       per dispatched task plus a focus pane on the alternate
+                       screen, and replays the complete transcript into the
+                       scrollback when it exits. The default draws it only for
+                       a planned run of two or more tasks on a real terminal;
+                       --json, a pipe, a redirect, TERM=dumb and a terminal
+                       smaller than 60x12 always take the plain renderer, whose
+                       output is unchanged. NO_COLOR still draws the board, in
+                       monochrome: it is a colour convention, not a cursor one.
+  --watch              print a ready-to-paste "workforce watch" line for every
+                       planned task before the run starts.
   --connect            ask each installed runtime its own control handshake
                        (doctor). Starts a process, starts no model turn, and is
                        the only way to reach verified_ready: a login-status
@@ -88,6 +122,8 @@ interface ParsedArgs {
   readonly agent?: string;
   readonly path?: string;
   readonly plan?: string;
+  readonly view?: string;
+  readonly watch: boolean;
   readonly checks?: ReadonlyArray<string>;
   readonly allowUnconfinedWrites: boolean;
   readonly json: boolean;
@@ -118,6 +154,8 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     ...(values.agent !== undefined ? { agent: values.agent } : {}),
     ...(values.path !== undefined ? { path: values.path } : {}),
     ...(values.plan !== undefined ? { plan: values.plan } : {}),
+    ...(values.view !== undefined ? { view: values.view } : {}),
+    watch: values.watch === true,
     ...(values.check !== undefined ? { checks: values.check } : {}),
     allowUnconfinedWrites: values['allow-unconfined-writes'] === true,
     json: values.json === true,
@@ -138,6 +176,8 @@ const OPTIONS = {
   agent: { type: 'string' },
   path: { type: 'string' },
   plan: { type: 'string' },
+  view: { type: 'string' },
+  watch: { type: 'boolean', default: false },
   check: { type: 'string', multiple: true },
   'allow-unconfined-writes': { type: 'boolean', default: false },
   json: { type: 'boolean', default: false },
@@ -211,6 +251,24 @@ function commandResume(args: ParsedArgs, deps: { reporter: Reporter; streams: St
   );
 }
 
+/** The subset of the parsed flags the launcher pre-fills its questions from. */
+function launchArgs(args: ParsedArgs): LaunchArgs {
+  return {
+    json: args.json,
+    ...(args.repo !== undefined ? { repo: args.repo } : {}),
+    ...(args.agents !== undefined ? { agents: args.agents } : {}),
+    ...(args.task !== undefined ? { task: args.task } : {}),
+    ...(args.taskFile !== undefined ? { taskFile: args.taskFile } : {}),
+    ...(args.agent !== undefined ? { agent: args.agent } : {}),
+    ...(args.checks !== undefined ? { checks: args.checks } : {}),
+    ...(args.allowUnconfinedWrites ? { allowUnconfinedWrites: true } : {}),
+    ...(args.stateDir !== undefined ? { stateDir: args.stateDir } : {}),
+    ...(args.workspaceRoot !== undefined ? { workspaceRoot: args.workspaceRoot } : {}),
+    ...(args.view !== undefined ? { view: args.view } : {}),
+    ...(args.watch ? { watch: true } : {}),
+  };
+}
+
 export async function runCli(argv: ReadonlyArray<string>, streams: Streams = process, signal?: AbortSignal): Promise<ExitCode> {
   let json = argv.includes('--json');
   let reporter = new Reporter(json, streams);
@@ -219,23 +277,63 @@ export async function runCli(argv: ReadonlyArray<string>, streams: Streams = pro
     const args = parseCliArgs(argv);
     json = args.json;
     reporter = new Reporter(json, streams);
-    if (args.help || args.command === null) {
-      if (args.command === null && !args.help) throw new CliError(EXIT_CODES.invalidInput, 'missing_command', 'a command is required', [USAGE]);
+    if (args.help) {
       reporter.info(USAGE);
       return EXIT_CODES.verifiedCandidate;
+    }
+    if (args.command === null) {
+      // A bare `workforce` on a terminal is the easy path; anywhere else it is
+      // the same exit-2 usage error it has always been, now naming the flag
+      // form that replaces the questions.
+      if (process.stdin.isTTY === true) {
+        // `--json` reaches the launcher and is refused there, by name: it is a
+        // contract about a machine-readable stdout, and a session of questions
+        // has no such form.
+        return reporter.result(await commandLaunch(launchArgs(args), { reporter, streams, stdin: process.stdin, ...(signal !== undefined ? { signal } : {}) }));
+      }
+      throw new CliError(
+        EXIT_CODES.invalidInput,
+        'missing_command',
+        'a command is required — "workforce" with no arguments starts the interactive launcher, which needs a terminal',
+        [USAGE],
+      );
     }
     command = args.command;
     switch (args.command) {
       case 'doctor':
         return reporter.result(await commandDoctor(args));
       case 'run':
-        return reporter.result(await commandRun(args, { reporter, streams, ...(signal !== undefined ? { signal } : {}) }));
+        return reporter.result(
+          await commandRun(args, {
+            reporter,
+            streams,
+            ...(process.stdin.isTTY === true ? { stdin: process.stdin } : {}),
+            ...(signal !== undefined ? { signal } : {}),
+          }),
+        );
       case 'status':
         return reporter.result(commandStatus(args));
+      case 'watch':
+        return reporter.result(
+          await commandWatch(
+            {
+              positionals: args.positionals,
+              json: args.json,
+              ...(args.stateDir !== undefined ? { stateDir: args.stateDir } : {}),
+              ...(args.task !== undefined ? { task: args.task } : {}),
+            },
+            {
+              reporter,
+              streams,
+              ...(process.stdin.isTTY === true ? { stdin: process.stdin } : {}),
+              ...(signal !== undefined ? { signal } : {}),
+            },
+          ),
+        );
       case 'resume':
         return reporter.result(await commandResume(args, { reporter, streams, ...(signal !== undefined ? { signal } : {}) }));
       default:
-        throw new CliError(EXIT_CODES.invalidInput, 'unknown_command', `unknown command "${args.command}"`, ['commands: doctor, run, status, resume']);
+        throw new CliError(EXIT_CODES.invalidInput, 'unknown_command', `unknown command "${args.command}"`, ['commands: doctor, run, status, watch, resume']);
     }
   } catch (error) {
     if (error instanceof CliError) return reporter.failure(command, error);
@@ -251,6 +349,14 @@ async function main(): Promise<void> {
   const interruption = new AbortController();
   let signals = 0;
   process.on('SIGINT', () => {
+    // FIRST, before anything is written. Raw mode delivers Ctrl+C as a
+    // keystroke that `keys.ts` re-raises as this signal, so by the time we get
+    // here the board may own the screen. Writing the interruption line into an
+    // alternate buffer that is about to be discarded would make a five-minute
+    // run appear to vanish with no explanation; leaving first puts the line,
+    // the preserved-work note and the artifact paths on a screen that still
+    // holds the full attributed history of the run.
+    leaveActiveViews();
     signals += 1;
     if (signals >= 2) {
       process.stderr.write('\nforced termination requested; owned processes and state may be left in an uncertain state\n');

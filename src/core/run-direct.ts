@@ -30,6 +30,7 @@ import {
 } from './contracts.js';
 import { newId, nowIso } from './ids.js';
 import { computeAgentSnapshot } from './snapshot.js';
+import { SILENT_STREAM, forTask, writeLineFrom, type RunStream, type RunStreamIdentity, type TaskStream } from './run-stream.js';
 import type { ProcessIdentity } from './process.js';
 import {
   ClaudeCodeAdapter,
@@ -68,6 +69,7 @@ import {
 import { appendEvent } from '../storage/events.js';
 import { createCoordinationBridge, type AttemptBridgeConfig, type CoordinationBridge, type MessageRecord } from '../coordination/index.js';
 import { projectEventsJsonl, recordRuntimeEvent, summarizeTurnEvidence, type TurnEvidence } from '../telemetry/events.js';
+import { previewPatch, renderRuntimeEvent, truncateLine } from '../telemetry/render.js';
 import { PhaseTimer, USAGE_UNAVAILABLE, type UsageReport } from '../telemetry/timing.js';
 import {
   assertGrantedPathsSafe,
@@ -982,14 +984,10 @@ export function composeTaskPrompt(input: PromptInput): string {
 // Run inputs and outputs
 // ---------------------------------------------------------------------------
 
-export interface RunStream {
-  /** One normalized record; rendered as a line for humans or a JSONL object with --json. */
-  event(record: Record<string, unknown> & { readonly type: string }): void;
-  /** Human progress line. */
-  line(text: string): void;
-}
-
-export const SILENT_STREAM: RunStream = { event: () => {}, line: () => {} };
+// `RunStream` and its identity live in ./run-stream.ts; they are re-exported
+// here because every caller already imports them from this module.
+export type { RunStream, RunStreamIdentity, TaskStream };
+export { SILENT_STREAM, forTask };
 
 export interface RunDirectInput {
   readonly repoPath: string;
@@ -1162,7 +1160,13 @@ export class RunSetupError extends Error {
 // ---------------------------------------------------------------------------
 
 export async function runDirect(input: RunDirectInput): Promise<RunDirectResult> {
-  const stream = input.stream ?? SILENT_STREAM;
+  // The caller's stream is the run-level one. As soon as this task's ids are
+  // minted it is narrowed to a per-task stream (below), so every record and
+  // every line this function emits names the task that produced it — the
+  // direct path has one task, but it emits the same shape the planned path
+  // does, and a renderer never has to special-case it.
+  const parentStream = input.stream ?? SILENT_STREAM;
+  let stream: RunStream = parentStream;
   const timer = new PhaseTimer();
   const { db, paths } = input;
   const contextRefs = [...(input.contextRefs ?? [])];
@@ -1202,6 +1206,20 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   const attemptId = slot?.attemptId ?? newId();
   // A planned task carries its own objective; the raw request stays the run's.
   const taskText = slot?.objective ?? input.requestText;
+
+  // Narrow the stream to this task. On the planned path the caller already
+  // handed us a per-task stream naming the same task, so this derivation only
+  // adds what that caller could not know (the attempt id) and registers no
+  // second live task.
+  stream = forTask(stream, {
+    runId,
+    taskId,
+    attemptId,
+    agentId,
+    runtimeId: binding.runtime.id,
+    ...(slot?.key !== undefined ? { key: slot.key } : {}),
+  });
+
   const adapter = (input.adapterFactory ?? createAdapter)(
     { id: binding.runtime.id, adapter: binding.runtime.adapter, executable: binding.runtime.executable },
     { runId, taskId, attemptId, logsDir: path.join(paths.runArtifactsDir(runId), 'logs') },
@@ -1212,6 +1230,8 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     const problems = [settings.model, settings.effort].filter((report) => report.status === 'unsupported').map((report) => report.message);
     throw new RunSetupError('unsupported_runtime_setting', `agent "${agentId}" requests settings the ${adapter.id} adapter does not support: ${problems.join('; ')}`);
   }
+  // The adapter is only known now, so it joins the identity now.
+  stream = forTask(stream, { adapter: adapter.id });
 
   // Unresolved issues are collected from here on: the first of them can be
   // raised before a workspace exists.
@@ -1786,7 +1806,10 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       recordRuntimeEvent(db, event, { runId, taskId, attemptId, paths });
       stream.event({ type: `runtime.${event.kind}`, sequence: event.sequence, turnId: event.turnId, rawRef: event.rawRef, payload: event.payload });
       const line = renderRuntimeEvent(event, shorten);
-      if (line !== null) stream.line(line);
+      // The words in this line are the runtime's: a model sentence, a shell
+      // command, a path it chose. A renderer must know that before it decides
+      // whether to put a mark on it.
+      if (line !== null) writeLineFrom(stream, line, 'runtime');
       if (event.kind === 'turn_completed') turnConclusion = 'completed';
       else if (event.kind === 'turn_interrupted') turnConclusion = 'interrupted';
       else if (event.kind === 'error' && event.payload['fatal'] === true) turnConclusion = 'runtime_exited';
@@ -1892,6 +1915,11 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
 
     // ---- 9. Verifier-executed checks (FR049, FR050) ----------------------
     stream.line(`running ${contract.acceptanceCriteria.length} acceptance check(s) against the frozen candidate`);
+    // The criteria list existed only in the DB operation intent, so a live
+    // view had no way to name the checks a task is about to run and its
+    // checks strip read "--" for most of the run. This is the same list, on
+    // the stream, before the first one starts.
+    stream.event({ type: 'checks.planned', runId, taskId, criterionIds: contract.acceptanceCriteria.map((criterion) => criterion.id) });
     receipts = await runChecks({
       candidate: { repoRoot: projectRoot, revision: candidateSnapshot.candidateRevision, patchHash: candidateSnapshot.patchHash },
       checks: resolvedChecks.checks,
@@ -1904,7 +1932,14 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       ...(input.keepCheckCopies !== undefined ? { keepCopies: input.keepCheckCopies } : {}),
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
       onReceipt: (receipt) => {
-        stream.line(`  check ${receipt.criterionId}: ${receipt.outcome}${receipt.exitCode !== null ? ` (exit ${receipt.exitCode})` : ''} in ${receipt.durationMs}ms`);
+        // The one line in a run that is evidence rather than report: this
+        // coordinator ran this command against the frozen candidate and read
+        // this exit code. `verifier` is what earns it a green tick anywhere.
+        writeLineFrom(
+          stream,
+          `  check ${receipt.criterionId}: ${receipt.outcome}${receipt.exitCode !== null ? ` (exit ${receipt.exitCode})` : ''} in ${receipt.durationMs}ms`,
+          'verifier',
+        );
         stream.event({ type: 'check.completed', criterionId: receipt.criterionId, outcome: receipt.outcome, exitCode: receipt.exitCode, durationMs: receipt.durationMs, evidenceProvenance: receipt.evidenceProvenance });
       },
     });
@@ -2398,7 +2433,8 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     // The change itself, not only a path to it: R0's terminal has to show the
     // resulting diff. Long diffs are cut off and the full patch path is given.
     stream.line(`candidate diff (${candidateSnapshot.baseRevision.slice(0, 12)} → ${candidateSnapshot.candidateRevision.slice(0, 12)}):`);
-    for (const line of previewPatch(readFileSync(candidateSnapshot.patchPath, 'utf8'))) stream.line(line);
+    // Repository content, written by the worker: quoted, never classified.
+    for (const line of previewPatch(readFileSync(candidateSnapshot.patchPath, 'utf8'))) writeLineFrom(stream, line, 'runtime');
   }
   stream.line(`artifacts: ${artifactsDir}`);
   stream.line(`  result.json · summary.md${patchArtifact !== null ? ' · candidate.patch' : ''}${persistedChecks.length > 0 ? ' · checks/' : ''}${runtimeEvents.length > 0 ? ' · logs/' : ''}`);
@@ -2567,96 +2603,11 @@ function buildContract(requestText: string, checks: ReadonlyArray<CheckSpec>, ac
   });
 }
 
-/**
- * One human line per meaningful runtime action, or `null` for an event that
- * should not produce one.
- *
- * Two rules keep the terminal readable without hiding anything:
- *
- * - an adapter reports the same action twice (`phase: "started"`, then
- *   `phase: "completed"`). The line is printed when the action starts, so
- *   progress is visible as it happens, and repeated on completion only when
- *   the completion carries something new — an exit code, a refusal;
- * - `raw` events are well-formed runtime output the adapter did not normalize
- *   (MCP server startup, reasoning items, token usage, unknown methods). They
- *   are counted and summarized after the turn instead of printed one by one.
- *
- * Nothing is dropped: every event still reaches `--json`, `events.jsonl` and
- * the adapter's raw capture.
- */
-function renderRuntimeEvent(event: RuntimeEvent, shorten: (value: string) => string = (value) => value): string | null {
-  const payload = event.payload;
-  const phase = typeof payload['phase'] === 'string' ? (payload['phase'] as string) : null;
-  switch (event.kind) {
-    case 'session_started': {
-      const id = payload['threadId'] ?? payload['sessionId'] ?? event.sessionId;
-      return `  runtime session ${String(id)} started`;
-    }
-    case 'turn_started':
-      return '  turn started';
-    case 'assistant_message':
-      return `  message: ${truncateLine(String(payload['text'] ?? ''))}`;
-    case 'tool_call':
-      return `  tool ${String(payload['tool'] ?? 'unknown')}${payload['path'] !== undefined ? ` ${shorten(String(payload['path']))}` : ''}`;
-    case 'tool_result': {
-      const outcome = payload['status'] ?? (payload['ok'] === true ? 'ok' : payload['ok'] === false ? 'failed' : payload['isError'] === false ? 'ok' : payload['isError'] === true ? 'failed' : 'outcome not reported');
-      return `  tool ${String(payload['tool'] ?? 'unknown')} -> ${String(outcome)}`;
-    }
-    case 'file_change': {
-      const where = payload['path'] === null || payload['path'] === undefined ? '(path not reported)' : shorten(String(payload['path']));
-      if (payload['denied'] === true) return `  change denied: ${where}`;
-      const outside = payload['withinAllowedPaths'] === false;
-      // A request is not a change. The line says which it is, because a write
-      // the model merely asked for and a write that landed are different facts
-      // — and for a runtime with no sandbox that is the whole distinction.
-      if (phase === 'requested') return outside ? `  requested a write to ${where} (OUTSIDE the granted paths)` : null;
-      if (phase === 'started') return null;
-      if (payload['applied'] === false || payload['applied'] === null) {
-        return outside ? `  write to ${where} not confirmed by the runtime (OUTSIDE the granted paths)` : `  write to ${where} not confirmed by the runtime`;
-      }
-      return outside ? `  changed ${where} (OUTSIDE the granted paths; not part of the candidate)` : `  changed ${where}`;
-    }
-    case 'command_exec': {
-      const command = truncateLine(String(payload['command'] ?? ''));
-      if (phase === 'started' || phase === null) return `  exec ${command}`;
-      if (payload['denied'] === true) return `  exec denied: ${command}`;
-      const exitCode = payload['exitCode'];
-      return typeof exitCode === 'number' ? `  exec -> exit ${exitCode}` : null;
-    }
-    case 'turn_completed':
-      return '  turn completed';
-    case 'turn_interrupted':
-      return '  turn interrupted';
-    case 'error':
-      return `  runtime error: ${truncateLine(JSON.stringify(payload))}`;
-    case 'raw':
-      // Counted and summarized once the turn ends; see the caller.
-      return null;
-    default:
-      return `  ${event.kind}`;
-  }
-}
-
-export const MAX_PATCH_PREVIEW_LINES = 120;
-
-/**
- * The candidate diff as terminal lines, cut off at a bounded length. A big
- * change must not flood the terminal, and the cut is stated rather than left
- * for the reader to notice; the complete patch is always on disk.
- */
-export function previewPatch(patch: string, maxLines = MAX_PATCH_PREVIEW_LINES): string[] {
-  const lines = patch.split('\n');
-  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
-  if (lines.length <= maxLines) return lines.map((line) => `  ${line}`);
-  const shown = lines.slice(0, maxLines).map((line) => `  ${line}`);
-  shown.push(`  … ${lines.length - maxLines} more diff line(s); the complete patch is candidate.patch`);
-  return shown;
-}
-
-function truncateLine(text: string, max = 160): string {
-  const single = text.replace(/\s+/g, ' ').trim();
-  return single.length <= max ? single : `${single.slice(0, max - 1)}…`;
-}
+// `renderRuntimeEvent`, `previewPatch` and `truncateLine` moved to
+// telemetry/render.ts, so `workforce watch` re-derives exactly the same lines
+// from the persisted event rows instead of a second, drifting copy. They are
+// re-exported here because callers already import them from this module.
+export { MAX_PATCH_PREVIEW_LINES, previewPatch, renderRuntimeEvent, truncateLine } from '../telemetry/render.js';
 
 // ---------------------------------------------------------------------------
 // The runtime's machine-readable failure signals (FR053)

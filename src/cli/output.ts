@@ -6,6 +6,7 @@
  * goes to stderr so stdout stays machine-readable. All output is redacted.
  */
 import { redactText, redactedJson } from '../telemetry/redaction.js';
+import { sanitizeRow } from './ansi.js';
 
 /** Frozen once CLI tests exist (AGENTS.md). */
 export const EXIT_CODES = {
@@ -44,6 +45,23 @@ export interface Streams {
   readonly stderr: NodeJS.WritableStream;
 }
 
+/**
+ * The last thing that happens to a human line: redact, then drop every escape
+ * that is not this program's own colour.
+ *
+ * A run's lines carry text nobody here composed — a model's sentence, a check
+ * command's stderr, a path from a repository — and any of it can contain a
+ * cursor sequence. Renderers strip at ingest, which is where it belongs; this
+ * is the backstop for every line that reaches a terminal by some other route,
+ * such as a `CommandResult` assembled from verifier receipts.
+ */
+function safe(message: string): string {
+  // Sanitised per physical line, so a deliberately multi-line message — an
+  // invalid contract listing its issues, a rejected plan listing its codes —
+  // keeps the shape it was written in. Only control characters go.
+  return redactText(message).split('\n').map(sanitizeRow).join('\n');
+}
+
 export class Reporter {
   readonly #json: boolean;
   readonly #streams: Streams;
@@ -59,19 +77,19 @@ export class Reporter {
 
   /** Diagnostic line: stderr in every mode. */
   diagnostic(message: string): void {
-    this.#streams.stderr.write(`${redactText(message)}\n`);
+    this.#streams.stderr.write(`${safe(message)}\n`);
   }
 
   /** Progress/informational line: stdout for humans, stderr in JSON mode. */
   info(message: string): void {
-    (this.#json ? this.#streams.stderr : this.#streams.stdout).write(`${redactText(message)}\n`);
+    (this.#json ? this.#streams.stderr : this.#streams.stdout).write(`${safe(message)}\n`);
   }
 
   result(result: CommandResult): ExitCode {
     if (this.#json) {
       this.#streams.stdout.write(`${redactedJson({ ok: result.exitCode === 0, command: result.command, exitCode: result.exitCode, ...result.data })}\n`);
     } else {
-      for (const line of result.lines) this.#streams.stdout.write(`${redactText(line)}\n`);
+      for (const line of result.lines) this.#streams.stdout.write(`${safe(line)}\n`);
     }
     return result.exitCode;
   }
