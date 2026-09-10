@@ -59,10 +59,18 @@ describe('cli argument handling and exit codes', () => {
     expect((await invoke(['--help'])).stdout).toContain('Exit codes: 0 verified candidate');
   });
 
-  it('requires --repo, --agents and exactly one task source for run', async () => {
+  it('requires --repo, a discoverable agent config, and exactly one task source for run', async () => {
     const repo = scratch();
     expect((await invoke(['run', '--agents', EXAMPLE, '--task', 'x'])).stderr).toMatch(/--repo <path> is required/);
-    expect((await invoke(['run', '--repo', repo, '--task', 'x'])).stderr).toMatch(/--agents <file> is required/);
+    // --agents is optional: it is discovered from the state root or the
+    // repository. What must never happen is a run starting without one, so
+    // with an empty state root and no config in the repo the run refuses and
+    // says where it looked.
+    const empty = await invoke(['run', '--repo', repo, '--task', 'x', '--state-dir', scratch()]);
+    expect(empty.code).toBe(EXIT_CODES.invalidInput);
+    expect(empty.stderr).toMatch(/no agent configuration was found/);
+    expect(empty.stderr).toMatch(/looked in:/);
+    expect(empty.stderr).toMatch(/workforce` with no arguments/);
     const both = await invoke(['run', '--repo', repo, '--agents', EXAMPLE, '--task', 'x', '--task-file', path.join(repo, 'brief.md')]);
     expect(both.code).toBe(EXIT_CODES.invalidInput);
     expect(both.stderr).toMatch(/either --task or --task-file/);

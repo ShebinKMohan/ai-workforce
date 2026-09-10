@@ -41,6 +41,7 @@ import { limitsFromDefaults } from '../../core/contracts.js';
 import { LockHeldError, LockLostError } from '../../storage/lock.js';
 import { openStateStore } from '../../storage/db.js';
 import { createStatePaths, PathsManifestSchema, resolveStateRoot } from '../../storage/paths.js';
+import { configSearchPath } from './launch.js';
 import { ProjectInspectionError } from '../../workspaces/project.js';
 import { CandidateWorkspaceError } from '../../workspaces/candidate.js';
 import { redactedJson } from '../../telemetry/redaction.js';
@@ -274,8 +275,29 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   // Validate every input before touching state: an invalid invocation must
   // exit 2 without creating a state root or taking the coordinator lock.
   const repo = requireRepo(args.repo);
-  if (args.agents === undefined) throw new CliError(EXIT_CODES.invalidInput, 'missing_agents', '--agents <file> is required');
-  const loaded = loadConfigOrFail(args.agents);
+  // `--agents` is not the only way to say where the configuration is. The
+  // launcher already knows the places one lives — the state root, the
+  // repository, the home directory — and a user who has a config in one of
+  // them should not have to name it on every run. The flag still wins when it
+  // is given; this only removes the need to repeat what is already true.
+  //
+  // The home directory is deliberately NOT a separate candidate here. The
+  // state root already defaults to ~/.workforce, so a config living there is
+  // found anyway — while an explicit --state-dir means "use this coordinator
+  // state, not this machine's default", and a discovery that reached past it
+  // into the real home directory would make a run depend on whatever the
+  // machine happens to have. That is also what keeps the tests honest.
+  const stateRoot = resolveStateRoot(args.stateDir);
+  const configPath =
+    args.agents ??
+    configSearchPath({ env: process.env, repoRoot: repo, stateRoot, homeDir: stateRoot }).find((candidate) => existsSync(candidate.path))?.path;
+  if (configPath === undefined) {
+    throw new CliError(EXIT_CODES.invalidInput, 'missing_agents', 'no agent configuration was found', [
+      `looked in: ${stateRoot}/agents.json and ${repo}/.workforce/agents.json`,
+      'pass --agents <file>, set WORKFORCE_AGENTS, or run `workforce` with no arguments to have one written for the runtimes you have installed',
+    ]);
+  }
+  const loaded = loadConfigOrFail(configPath);
   const task = requireTaskText(args);
   if (args.agent !== undefined && !loaded.config.agents.some((agent) => agent.id === args.agent)) {
     throw new CliError(
