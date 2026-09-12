@@ -881,21 +881,26 @@ The [start-here guide](start-here.md) documents ordinary use; the
    whose write containment is not verified runs alone, including a Claude Code analysis head.
    The page requests the relevant explicit consent. Exclusivity is an admission rule, not an
    OS filesystem boundary. Codex is the suggested head when available.
-5. **Office uses the user-selected original design over real state.** The user explicitly selected
-   the prototype at `127.0.0.1:4318` as the visual reference. The working `#/office` route in
-   `web/workspace` retains that composition, edge-to-edge office shell and Control center
-   structure, with the user's subsequent orientation edit: all 24 department desks face the
-   central Coordinator. The active `office-inward.png` and `office-inward-empty.png` are derivatives
-   of the unchanged original `office-clean.png`. The six drawn islands are visual slots, while
-   saved department/agent IDs remain authoritative. Unoccupied seats use the empty artwork and
-   are labeled open; overflow rosters remain
-   available through the complete Team list. The central Coordinator is the system scheduler,
-   with no invented model. Configured routing lines are distinct from recorded messages.
-   Control center Assign uses the existing project/department/check/consent submission sheet;
-   Tasks shows recorded work; Connections performs passive runtime inspection. Its text input
-   is a task draft, not a simulated chat. Home retains the setup checklist and work overview. The reference remains a read-only static
-   demo on 4318; real requests use the engine-backed app on 4317. No sample activity, model chat
-   or extra universal coordinator is introduced by the visual integration.
+5. **Office grows from the user's actual workforce.** The primary app serves `web/claude-office`,
+   retaining the selected Claude-designed shell, Control center sidebar, directory, employee
+   focus and settings interactions. Its Three.js scene generates original procedural rooms,
+   furniture and people from the saved workspace. A fresh workspace shows only the central
+   Coordinator, with no outer departments, desks or employee avatars. Registering a project
+   creates no agents. Creating a department saves the department and its analysis head together
+   in one atomic revisioned operation. Adding workers expands the same department room to
+   contain its whole roster, with no four-seat limit or fixed six-island template. Department
+   IDs govern membership, including departments with repeated names. Desks face toward the
+   central control, and pan, zoom, fit and selection operate on actual 3D geometry.
+   The central Coordinator is the system scheduler, with no invented model. Control center
+   Chat holds a task draft and opens a reviewed project/department/check/consent submission;
+   Tasks shows recorded work; Connections reports configured bindings and runtime information.
+   The existing setup, project, task and evidence pages remain under `/workspace/`. Real requests
+   use the app on 4317; the separate 4318 prototype is not an execution source. No sample work,
+   simulated chat or extra universal coordinator is introduced. This supersedes the earlier
+   fixed-raster/inward-artwork integration. The new scene does not copy Agents Office source
+   or artwork; vendored Three.js retains its MIT notice in
+   `web/claude-office/src/vendor/THREE-LICENSE.txt`. Visual acceptance and prior real-runtime
+   acceptance remain separate entries in the dated integration record.
 6. **Stopping and restarting keep truthful state.** A queued request becomes held after server
    restart and never auto-starts. Active tasks remain separate processes when the page server
    stops. A task stop must settle as interrupted, not failed; Resume reconciles its original
@@ -912,10 +917,10 @@ replace proposals bearing those IDs in the earlier unimplemented redesign draft.
 | FR086 | Department head assignment | WP10b, FR030 extended | Every workspace request plans in a project analysis candidate. A head-only `workforce_propose_plan` tool proposes bounded tasks with assignees. Code validates dependencies, task limits and membership in department ∩ project. Invalid proposals get at most one correction attempt; a plan in prose assigns nothing. Dispatch and resume use the frozen eligible roster. |
 | FR087 | Separate project execution roots | WP10b, selected FR026 scope | Each registered project has a distinct database, execution lock, run directory and candidate workspace root. One existing foreground coordinator mutates each active project root. Different project executions do not share task truth. The page aggregates read-only project status with explicit project identity; removing a registration never deletes source. |
 | FR088 | Project request admission | WP10b, selected FR038 scope | One page queue manager per workspace admits one request per project at a time, respects the concurrent-project cap, refuses overlapping use of a roster worker, and runs unverified-containment rosters alone. Every queued request carries its blocking reason. Restored queued requests are held until Start; Discard starts nothing. |
-| FR089 | Guided workspace setup and editing | WP10b, selected FR016/FR018/FR072 scope | The local page offers passive tool checks, Add project with detected or entered checks, an editable suggested department, project assignments and first-task submission. Ready requires a sendable department/project pair. Configuration operations require the existing Host/Origin/token gate and revision check; malformed files are never silently overwritten. |
-| FR090 | Recorded workspace task view | WP10b, selected FR040/FR057/FR063/FR073 scope | Home, the selected Office composition with the requested inward-facing desks and Control center, Needs you and task history consume recorded state. Each task displays Sent, Department head, Work, Checks and Review, current actors, changes, checks, events and record disclosures. A passing uncompromised verifier receipt is required for green/Verified. Queueing, planning, interruption, failure and missing proof remain visibly distinct; stop/resume controls reflect actual ownership. |
+| FR089 | Guided workspace setup and editing | WP10b, selected FR016/FR018/FR072 scope | The local page offers passive tool checks, Add project with detected or entered checks, explicit atomic department/head creation, worker/project assignments and first-task submission. Project creation adds no agents. Ready requires a sendable department/project pair. Configuration operations require the existing Host/Origin/token gate and revision check; malformed files are never silently overwritten. |
+| FR090 | Recorded workspace task view | WP10b, selected FR040/FR057/FR063/FR073 scope | Home, the dynamic 3D Office within the selected Claude shell and Control center, Needs you and task history consume recorded state. Zero departments renders only the central scheduler; each configured department room grows around its complete roster without a fixed seat cap. Each task displays Sent, Department head, Work, Checks and Review, current actors, changes, checks, events and record disclosures. A passing uncompromised verifier receipt is required for green/Verified. Queueing, planning, interruption, failure and missing proof remain visibly distinct; stop/resume controls reflect actual ownership. |
 
-FR084 now serves `web/workspace` by default. Its loopback-only Host/Origin/token and
+FR084 now serves `web/claude-office` by default and `web/workspace` under `/workspace/`. Its loopback-only Host/Origin/token and
 `shell:false` launch boundaries remain. It also writes validated workspace configuration and
 its request queue under the state root; project databases are still read-only in the page
 server. Starts and resumes invoke the CLI engine with argument arrays. This is a local browser
@@ -938,7 +943,7 @@ labelled.
 | AT30 | Project isolation | Two fixture projects use distinct database, lock, run, artifact and candidate paths. Audit task/attempt and artifact identities for cross-project contamination. Original project checkouts remain unchanged by the controlled task. A project path with a Git fsmonitor hook is inspected without executing the hook. |
 | AT31 | Admission and concurrency | Two eligible confined-runtime projects overlap in execution. A second request to one project waits, the concurrent-project limit holds, a shared worker never overlaps, and an unverified-containment roster runs exclusively in both directions. Every waiting request has its actual reason. |
 | AT32 | Stop, resume and held requests | Stop during head planning and during planned worker execution settles interrupted and remains recoverable. Resume preserves the validated plan when one exists, completed work and the saved roster, with no competing writer. Restart holds queued work until Start; Discard starts nothing. Server close and task stop have their documented distinct effects. |
-| AT33 | New-user browser walkthrough | In a real browser, start at an empty state; inspect tools; add projects and checks; review and save the starter department; assign workers; submit work; inspect the five phases, changes and checks; stop/resume. Exercise the Office map, real Control center actions, configured routing view, keyboard pan/zoom/fit and complete team-list/overflow access. Repeat relevant views at 390 px with usable controls and no page clipping. A bounded real Codex task independently proves head planning, worker execution and verifier acceptance on a disposable demo copy. |
+| AT33 | New-user browser walkthrough | In a real browser, start at an empty state; inspect tools; add projects and checks; create a department and head atomically; add and assign workers; submit work; inspect the five phases, changes and checks; stop/resume. Exercise a coordinator-only empty Office, project creation without agents, head-only departments, room growth beyond four workers within the same department, real Control center actions, keyboard pan/zoom/fit, 3D selection and complete directory access. Repeat relevant views at 390 px with usable controls and no page clipping. A bounded real Codex task independently proves head planning, worker execution and verifier acceptance on a disposable demo copy. |
 | AT34 | Honest results and regression | False runtime success, rewritten acceptance tests, missing/compromised receipts, stopped tasks and old history never become Verified without valid evidence. Displayed actors/stages trace to stored rows or events. Full typecheck/build and existing tests pass; legacy CLI contracts and exit codes remain unchanged. |
 | AT35 | Local server security | Against the live server, foreign/missing Origin on writes, bad Host/token, stale revisions, oversized/invalid bodies, path traversal and symlink escape attempts are refused without launching work or changing configuration. Task text survives argument-array dispatch literally. A malformed workspace file causes a clear refusal and is preserved. |
 

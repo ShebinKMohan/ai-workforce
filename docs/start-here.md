@@ -58,7 +58,9 @@ workspace uses `$WORKFORCE_STATE_DIR` when set, otherwise `~/.workforce`.
 
 ### 1. Check your coding tools
 
-Home shows a four-step checklist. Workforce looks for Codex and Claude Code using passive
+The main page opens the Office. A fresh workspace shows only the central Coordinator, with no
+departments, worker desks or employee avatars. The setup checklist is available at
+`/workspace/#/home`; Settings is at `/workspace/#/settings`. Workforce looks for Codex and Claude Code using passive
 version and sign-in checks. Opening the page, editing your team and checking tools starts no
 model task. Readiness reported by a tool is distinct from a completed real task.
 
@@ -78,10 +80,12 @@ Then click **Check again** in Settings. You do not enter a token into Workforce.
 
 ### 2. Add a project
 
-Click **Add a project**, paste the path to a local Git repository and click **Check folder**.
+Open **Projects** in the Office header, click **Add a project**, paste the path to a local Git repository and click **Check folder**.
 Review the repository, its last commit and the checks the verifier will run. Name it and add it.
 A folder without a commit cannot be used yet. A project without a check can be saved, but cannot
 receive a task until you add a check in its project page.
+
+Adding a project creates no department, head or worker. Team setup is a separate action.
 
 Checks are commands that succeed with exit code zero. For example, `npm test` is suitable when
 it runs the project's meaningful tests. Workforce executes command arguments without a shell;
@@ -101,15 +105,22 @@ silently include those edits, and it does not reset, clean or stash your folder.
 
 ### 3. Create a department
 
-Open **Create a department**. Review the suggested Engineering team before saving:
+Return to the Office and click **+ Department**. Configure the department and its head:
 
-- **Head:** decides how to split and assign each request. Codex is preselected when available;
-  the head uses the analysis policy.
-- **Worker:** does the implementation. Set its name and coding tool, and select the projects it
-  may work on. More options exposes instructions, model and file access. Capabilities and
-  reasoning effort can be configured through the CLI; the page has no editor for those fields.
+- **Head:** enter a name, coding runtime, optional model ID and instructions. The head decides
+  how to split and assign each request and uses the read-only analysis policy.
 - **Department:** choose a name and color. Names may repeat when different notes tell them apart,
   such as Engineering / Payments and Engineering / Storefront.
+
+Click **Create department** to save the department and its head together in one revisioned
+operation. Its room and head workstation appear in the Office. No task starts.
+
+Use **Add agent** to add workers to that department. Set each worker's name, runtime, model and
+instructions, and select the projects it may work on. The same department room grows to contain
+every saved worker; there is no four-seat limit or separate overflow department. You can create a
+department before adding a project, then assign projects when adding or editing its workers.
+The **Agents** directory keeps the full configured roster available. Capabilities and reasoning
+effort can be configured through the CLI; the page has no editor for those fields.
 
 No starter department is silently saved. A worker assigned to no projects remains unassigned
 and cannot receive work. Only workers in the chosen department and assigned to the chosen
@@ -118,9 +129,9 @@ configuration for execution and resume.
 
 ### 4. Send a small first task
 
-From Office, use the Control center's **Assign** tab. Optionally select a department, describe
+From Office, use the Control center's **Chat** tab. Optionally select a department, describe
 the task and click the composer arrow, labelled **Review task before sending**. This opens the
-existing **New task** sheet with your draft. You can also use the New task button from the
+**Review task** dialog with your draft. You can also use the New task button from the
 workspace pages. Choose the project and department and describe one change whose result you
 can inspect. For example, on the provided rounding demo:
 
@@ -128,8 +139,9 @@ can inspect. For example, on the provided rounding demo:
 > src/. Do not modify anything under test/.
 
 That prompt is specific to the rounding demo; use an equivalent bounded request for your own
-repository. Read **Before it starts**, including the base, checks, head and workers, and any queue
-reason. Click **Send to [head name]**. This is the point where real runtime model turns begin.
+repository. Review the selected project, department, head, eligible workers, checks and execution
+boundary. Click **Send to department head** in the Office dialog (or **Send to [head name]** in
+the workspace sheet). This submits the request; model turns start when the queue admits it.
 
 If anyone on the roster uses a runtime without a verified file boundary, the page explains the
 limit and requires a consent checkbox. Claude Code currently falls into this category even for
@@ -138,41 +150,39 @@ create an OS sandbox. Choose Codex for a first contained trial.
 
 ## See what is happening
 
-**Home** shows work in motion and **Needs you**. **Office** keeps the selected original composition
-and shell, with live workspace overlays and the user's requested inward-facing desk orientation.
-The active artwork is `office-inward.png` with `office-inward-empty.png` for unoccupied seats:
-all 24 department desks face the central Coordinator. These are derivatives of the unchanged
-original `office-clean.png`. The six drawn islands are physical layout; a saved
-department is placed on a matching visual island when available, otherwise the next free one.
-Department IDs, heads, workers and project assignments still come from your actual configuration.
+**Office** is an interactive Three.js scene built from your saved workspace. The original
+Claude-designed header, Control center sidebar, employee focus, directory and settings
+interactions surround the new procedural rooms, desks, chairs and people.
 
-- An unused island says **Unassigned · add a department**. Unoccupied seats use the empty artwork
-  and are marked **Open desk**; the artwork does not invent employees.
-- Up to four configured agents appear on an island. Additional workers or departments are
-  represented by a visible overflow count and the complete **Team list**.
-- Select an employee or department to inspect its real workspace context. The central
-  **Coordinator / System scheduler** is the coordination software, with no extra model assigned.
-- Drag to pan, pinch to zoom on touch devices, or use the map's zoom and Fit controls. Keyboard
-  arrows pan, **+ / −** zoom, and **0 / Home** fit the scene.
-- **Connections** on the map displays configured routing relationships. Lines are not proof that
-  a message or model turn occurred; there is no invented animated task traffic.
+- An empty workspace has only the central **Coordinator / System scheduler**. It is coordination
+  software, with no model assigned. There are no sample departments or placeholder employees.
+- Each saved department has its own room and head. Adding workers expands that same room to
+  fit its complete roster, including the fifth worker and beyond. Department and employee IDs
+  determine membership; repeated department names do not merge teams.
+- Select a department to focus its room, or select an employee to inspect its recorded assignment
+  and edit its configuration. **Agents** opens the searchable directory; **Add agent** adds a
+  worker to a saved department. **+ Department** creates a department and head together.
+- Drag the scene to pan, scroll to zoom, or use the zoom and Fit controls. With the scene focused,
+  keyboard arrows pan, **+ / −** zoom, and **0 / Home** fit the office.
+- Status labels and task counts come from recorded workspace state. Furniture, camera motion and
+  configured connections do not establish that a runtime has executed work.
 
 The **Control center** beside the scene has three tabs:
 
 | Tab | What it does |
 | --- | --- |
-| Assign | Holds your draft. The arrow opens the normal New task sheet, where you review project, department, checks and any required consent before sending. There is no scripted conversation or additional coordinator model. |
-| Tasks | Lists recorded Needs you, In motion, Queued and Recently finished work. Selecting a card opens its full task evidence; All tasks opens the complete history. The department selector narrows this panel's task view. |
-| Connections | Reports installed coding tools, their reported readiness/version, configured agents and model bindings. Check again repeats passive discovery. A configured model is distinct from the effective model recorded by a real task. |
+| Chat | Holds a task draft in the selected office, department or employee context. The arrow opens Review task, where you confirm the project/department pair, checks and any required consent before sending. The tab does not add a separate conversational coordinator model. |
+| Tasks | Shows recorded work with All, Review, Running and Needs you filters. Open a task to inspect its details and full evidence. Selection narrows the panel to the relevant department or employee. |
+| Connections | Shows configured runtime/model bindings and reported runtime information. A configured model is distinct from the effective model recorded by a real task. |
 
-Use the **Workspace** menu for Home/setup, Projects, Departments, Tasks and Settings. The
-**Agents** header link opens Departments. **Add agent** opens the selected department's editor,
-or lets you select/create a department first. Configuration still needs Save; clicking the header
-control does not silently create an employee. A ready workspace opens Office by default, while a
-fresh workspace begins with setup.
+The **Projects** header link opens the workspace project pages. Home/setup, Departments, Tasks
+and Settings remain available in the workspace interface at `/workspace/`. The original employee
+directory and settings panels are also available directly in Office. Saving configuration starts
+no model task; changes must be saved before they appear in the persisted roster.
 
 Use the actual app at **http://127.0.0.1:4317/** for execution. The original reference at
-**http://127.0.0.1:4318/** remains a static prototype, including its demo task data.
+**http://127.0.0.1:4318/** is a separate prototype. Its sample state is not execution evidence
+for your workspace.
 
 **Tasks** gives the recorded history grouped by project. Open a task for its current actors,
 five phases and evidence:

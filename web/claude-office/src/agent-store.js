@@ -77,7 +77,7 @@ export function createAgentStore({employees=[],departments=[],runtimes=[],contro
         for(const id of existing.projectIds) if(!projectIds.includes(id)) ops.push({op:'agent.unassign',agentId:existing.id,projectId:id});
         for(const id of projectIds) if(!existing.projectIds.includes(id)) ops.push({op:'agent.assign',agentId:existing.id,projectId:id});
       }
-    } else ops.push({op:'agent.add',name,role:'worker',departmentId:values.departmentId,runtime,instructions,projectIds,...(model?{model}:{})});
+    } else { const reservedId = name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') === 'control'; let id; if(reservedId){const used=new Set([...base.agents.map(a=>a.id),...(base.retiredIds?.agents||[])]);id='control-worker';let n=2;while(used.has(id))id=`control-worker-${n++}`;} ops.push({op:'agent.add',...(id?{id}:{}),name,role:'worker',departmentId:values.departmentId,runtime,instructions,projectIds,...(model?{model}:{})}); }
     const result=await request('/api/workspace/ops',{expectRevision:values.expectRevision??current()?.revision??base.revision,ops});
     const next={...(current()?.workspace?current():{}),workspace:result.workspace,revision:result.revision};
     setWorkspace(next);

@@ -501,6 +501,7 @@ function closeMenu() {
 
 function onRoute() {
   state.route = parseRoute(location.hash);
+  if (state.route.name === 'office') { location.replace('/#/office'); return; }
   state.ui.confirm = null;
   state.ui.actionError = null;
   state.ui.resumeConsent = null;
@@ -994,5 +995,5 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && state.loaded) refreshLive();
 });
 
-render();
-loadAll();
+if (state.route.name === 'office') location.replace('/#/office');
+else { render(); loadAll(); }

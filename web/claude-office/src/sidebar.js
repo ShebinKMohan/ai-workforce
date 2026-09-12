@@ -19,7 +19,7 @@ const initials = (name = '') => name.split(/\s+/).slice(0, 2).map((part) => part
 
 
 /** Original office panel. Profiles and canvas callbacks are preserved; task truth comes from workspace records. */
-export function createSidebar({ element, departments = [], employees = [], runtimes = [], coordinator = {}, onFocus = () => {}, onCommunication = () => {}, onEditAgent = () => {}, onManageAgents = () => {}, onAddAgent = () => {}, onAssignTask = null, onOpenTask = () => {} }) {
+export function createSidebar({ element, departments = [], employees = [], runtimes = [], coordinator = {}, onFocus = () => {}, onCommunication = () => {}, onEditAgent = () => {}, onManageAgents = () => {}, onAddAgent = () => {}, onAddDepartment = () => {}, onAssignTask = null, onOpenTask = () => {} }) {
   let selection = { type: 'office' };
   let activeTab = 'chat';
   let expandedTask = null;
@@ -37,13 +37,15 @@ export function createSidebar({ element, departments = [], employees = [], runti
   const employeeById = (id) => employees.find((item) => item.id === id);
   const runtimeById = (id) => runtimes.find((item) => item.id === id);
   const coordinatorName = () => coordinator.name || 'Office coordinator';
+  const roleLabel = (employee) => /head|lead/i.test(employee.workspaceRole || employee.role || '') ? 'Department head' : 'Worker';
   const configurationFor = (employee = {}) => {
     const mapping = runtimeById(employee.runtimeId);
     return {
-      model: employee.model || mapping?.model || 'Model unassigned',
+      model: employee.model || mapping?.model || 'Tool default model',
       provider: employee.provider === 'custom' ? employee.customProvider : ({openai:'OpenAI',anthropic:'Anthropic',google:'Google',ollama:'Ollama / local'}[employee.provider || mapping?.provider] || 'Provider unassigned'),
       runtime: {'codex-cli':'Codex CLI','claude-code':'Claude Code',ollama:'Ollama',api:'Direct model API'}[employee.runtime || mapping?.runtime] || mapping?.name || 'Runtime unassigned',
       instructions: employee.instructions || '',
+      status: mapping?.connectionLabel || 'Sign-in not checked',
     };
   };
   const selectedEmployees = () => selection.type === 'employee' ? employees.filter((employee) => employee.id === selection.id) : selection.type === 'department' ? employees.filter((employee) => employee.departmentId === selection.id) : employees;
@@ -57,7 +59,7 @@ export function createSidebar({ element, departments = [], employees = [], runti
   };
 
   function contextOptions() {
-    return `<option value="office">Whole office</option>${departments.map((department) => `<optgroup label="${esc(department.name)}"><option value="department:${esc(department.id)}">${esc(department.name)}</option>${employees.filter((employee) => employee.departmentId === department.id).map((employee) => `<option value="employee:${esc(employee.id)}">${esc(employee.name)} · ${esc(employee.role)}</option>`).join('')}</optgroup>`).join('')}`;
+    return `<option value="office">Whole office</option>${departments.map((department) => `<optgroup label="${esc(department.name)}"><option value="department:${esc(department.id)}">${esc(department.name)}</option>${employees.filter((employee) => employee.departmentId === department.id).map((employee) => `<option value="employee:${esc(employee.id)}">${esc(employee.name)} · ${esc(roleLabel(employee))}</option>`).join('')}</optgroup>`).join('')}`;
   }
 
   element.classList.add('office-sidebar');
@@ -67,7 +69,7 @@ export function createSidebar({ element, departments = [], employees = [], runti
       <div class="sidebar-heading-top"><span class="coordinator-kicker"><i></i> OFFICE COORDINATOR</span><span class="sidebar-demo-label">LOCAL WORKSPACE</span></div>
       <div class="sidebar-title-row"><h1>Control center<span>.</span></h1><span class="coordinator-mark">${icon('center', 22)}</span></div>
       <p><span class="sidebar-coordinator-name">${esc(coordinatorName())}</span> · your office coordinator.</p>
-      <div class="sidebar-agent-actions"><button type="button" class="sidebar-roster-button" data-manage-agents>${icon('center', 14)}Agents <span class="sidebar-agent-count">${employees.length}</span></button><button type="button" class="sidebar-add-agent" data-add-agent><span aria-hidden="true">+</span> Add agent</button></div>
+      <div class="sidebar-agent-actions" style="flex-wrap:wrap"><button type="button" class="sidebar-roster-button" data-manage-agents>${icon('center', 14)}Agents <span class="sidebar-agent-count">${employees.length}</span></button><button type="button" class="sidebar-add-agent" data-add-agent><span aria-hidden="true">+</span> Add agent</button><button type="button" class="sidebar-add-agent" data-add-department><span aria-hidden="true">+</span> Add department</button></div>
     </header>
     <div class="sidebar-context-row">
       <span class="context-icon">${icon('focus', 15)}</span>
@@ -91,8 +93,9 @@ export function createSidebar({ element, departments = [], employees = [], runti
   const contextSelect = element.querySelector('.sidebar-context-select');
 
   function renderConfiguration(employee, isCoordinator = false) {
+    if (isCoordinator) return `<div class="person-configuration"><span class="sidebar-small-label">SYSTEM SCHEDULER</span><strong>Plans are handled by department heads.</strong><p>The Control center routes your requests and records the results. Create a department to configure its head, workers, models, and instructions.</p></div><button type="button" class="person-edit" data-add-department>Add department${icon('arrow', 13)}</button>`;
     const config = configurationFor(employee);
-    return `<div class="person-configuration"><span class="sidebar-small-label">${employee.isCustom ? 'SAVED CONFIGURATION' : 'AGENT CONFIGURATION'}</span><strong>${esc(config.model)}</strong><p>${esc(config.provider)} · ${esc(config.runtime)}</p><span class="person-config-status">Configured locally · execution recorded per task</span></div>
+    return `<div class="person-configuration"><span class="sidebar-small-label">${employee.isCustom ? 'SAVED CONFIGURATION' : 'AGENT CONFIGURATION'}</span><strong>${esc(config.model)}</strong><p>${esc(config.provider)} · ${esc(config.runtime)}</p><span class="person-config-status">${esc(config.status)}</span></div>
       ${config.instructions ? `<details class="person-instructions"><summary>Instructions <span>${esc(config.instructions.slice(0, 84))}${config.instructions.length > 84 ? '…' : ''}</span></summary><p>${esc(config.instructions)}</p></details>` : '<p class="person-instructions-empty">No instructions added yet.</p>'}
       <button type="button" class="person-edit" data-edit-agent="${esc(employee.id || 'control')}">${isCoordinator ? 'Configure coordinator' : 'Edit agent'}${icon('arrow', 13)}</button>`;
   }
@@ -103,15 +106,15 @@ export function createSidebar({ element, departments = [], employees = [], runti
       if (!employee) return '';
       const department = departmentById(employee.departmentId);
       return `<section class="selected-employee">
-        <div class="selected-person-top"><span class="employee-monogram" style="--department-color:${esc(department?.color || '#628273')}">${esc(initials(employee.name))}</span><div><h2>${esc(employee.name)}</h2><p>${esc(employee.role)} · ${esc(department?.name || '')}</p></div><button class="sidebar-icon-button" data-focus="employee" data-id="${esc(employee.id)}" aria-label="Focus ${esc(employee.name)} on canvas">${icon('focus', 16)}</button></div>
-        <p class="person-task"><span>${!hasTask(employee) ? 'ASSIGNMENT' : employee.status === 'idle' ? 'LAST ASSIGNMENT' : employee.status === 'review' ? 'AWAITING REVIEW' : 'WORKING ON'}</span>${esc(hasTask(employee) ? taskText(employee.task) : 'No task assigned')}</p>
+        <div class="selected-person-top"><span class="employee-monogram" style="--department-color:${esc(department?.color || '#628273')}">${esc(initials(employee.name))}</span><div><h2>${esc(employee.name)}</h2><p>${esc(roleLabel(employee))} · ${esc(department?.name || '')}</p></div><button class="sidebar-icon-button" data-focus="employee" data-id="${esc(employee.id)}" aria-label="Focus ${esc(employee.name)} on canvas">${icon('focus', 16)}</button></div>
+        <p class="person-task"><span>${!hasTask(employee) ? 'ASSIGNMENT' : employee.status === 'idle' ? 'LAST ASSIGNMENT' : employee.status === 'review' ? 'AWAITING REVIEW' : 'WORKING ON'}</span>${esc(hasTask(employee) ? taskText(employee.task) : 'No task assigned')}${employee.statusLabel ? `<br><small>${esc(employee.statusLabel)}</small>` : ''}</p>
         ${renderConfiguration(employee)}
       </section>`;
     }
     if (selection.type === 'department') {
       const department = departmentById(selection.id);
       if (!department) return '';
-      return `<section class="selected-department"><div><i style="background:${esc(department.color || '#628273')}"></i><h2>${esc(department.name)}</h2></div><p>${selectedEmployees().length} agents · tasks scoped to this team</p><button type="button" class="person-edit" data-add-agent="${esc(department.id)}">Add agent to team<span aria-hidden="true">+</span></button>${selectedEmployees().some(employee => employee.isCustom) ? `<button type="button" class="person-edit" data-focus-extra="${esc(department.id)}">Show additional desks${icon('arrow', 13)}</button>` : ''}</section>`;
+      return `<section class="selected-department"><div><i style="background:${esc(department.color || '#628273')}"></i><h2>${esc(department.name)}</h2></div><p>${selectedEmployees().filter(employee => roleLabel(employee) === 'Department head').length} department head · ${selectedEmployees().filter(employee => roleLabel(employee) === 'Worker').length} workers</p><div class="runtime-employees">${selectedEmployees().slice().sort((a, b) => (roleLabel(a) === 'Department head' ? -1 : 1) - (roleLabel(b) === 'Department head' ? -1 : 1)).map(employee => `<button type="button" data-focus="employee" data-id="${esc(employee.id)}"><span>${esc(initials(employee.name))}</span>${esc(employee.name)} · ${esc(roleLabel(employee))}${icon('arrow', 12)}</button>`).join('')}</div><button type="button" class="person-edit" data-add-agent="${esc(department.id)}">Add agent to team<span aria-hidden="true">+</span></button>${selectedEmployees().some(employee => employee.isCustom) ? `<button type="button" class="person-edit" data-focus-extra="${esc(department.id)}">View the whole department${icon('arrow', 13)}</button>` : ''}</section>`;
     }
     if (selection.type !== 'control') return `<div class="coordinator-quick-settings"><span>${esc(coordinatorName())} coordinates your team</span><button type="button" class="person-edit" data-edit-agent="control">Settings ${icon('arrow', 13)}</button></div>`;
     return `<section class="selected-coordinator"><div class="selected-person-top"><span class="employee-monogram">${esc(initials(coordinatorName()))}</span><div><h2>${esc(coordinatorName())}</h2><p>${esc(coordinator.role || 'Office coordinator')} · Control center</p></div></div>${renderConfiguration(coordinator, true)}</section>`;
@@ -121,12 +124,12 @@ export function createSidebar({ element, departments = [], employees = [], runti
     const visibleMessages = messages.slice(-30);
     scroll.innerHTML = `${renderSelection()}
       <div class="chat-conversation" role="log" aria-label="Coordinator conversation" aria-live="polite">
-        <div class="coordinator-intro"><div class="chat-avatar">${icon('center', 18)}</div><div><div class="chat-author">${esc(coordinatorName())} <span>COORDINATOR</span></div><p>Good work starts with a clear view.</p><p class="chat-intro-detail">Pick a team on the canvas, then describe the work. Review the project and checks before sending it to the department head.</p></div></div>
+        <div class="coordinator-intro"><div class="chat-avatar">${icon('center', 18)}</div><div><div class="chat-author">${esc(coordinatorName())} <span>COORDINATOR</span></div><p>${departments.length ? 'Good work starts with a clear view.' : 'Your office starts here.'}</p><p class="chat-intro-detail">${departments.length ? 'Pick a team on the canvas, then describe the work. Review the project and checks before sending it to the department head.' : 'The Control center is ready. Create your first department and its head, then add workers as your team grows.'}</p></div></div>
         ${visibleMessages.map((message) => `<article class="chat-message ${message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}"><div class="chat-message-meta">${message.role === 'user' ? 'You' : esc(coordinatorName())}${message.role === 'user' && message.context !== 'Whole office' ? `<span>${esc(message.context)}</span>` : ''}</div><p>${esc(message.text)}</p></article>`).join('')}
       </div>
-      ${submitError ? `<p class="person-instructions-empty" role="alert">${esc(submitError)}</p>` : ''}${liveData.error ? `<p class="person-instructions-empty" role="alert">${esc(liveData.error)}</p>` : ''}${visibleMessages.length ? '' : `<div class="chat-suggestions"><span class="sidebar-small-label">A PLACE TO START</span><button data-show-tab="tasks"><span>See team activity</span>${icon('arrow', 15)}</button><button data-show-tab="tasks"><span>Show tasks to review</span>${icon('arrow', 15)}</button><button data-show-tab="connections"><span>How is the team connected?</span>${icon('arrow', 15)}</button></div>`}
+      ${submitError ? `<p class="person-instructions-empty" role="alert">${esc(submitError)}</p>` : ''}${liveData.error ? `<p class="person-instructions-empty" role="alert">${esc(liveData.error)}</p>` : ''}${visibleMessages.length ? '' : `<div class="chat-suggestions"><span class="sidebar-small-label">A PLACE TO START</span>${!departments.length ? `<button type="button" data-add-department><span>Create your first department</span>${icon('arrow', 15)}</button>` : ''}<button data-show-tab="tasks"><span>See team activity</span>${icon('arrow', 15)}</button><button data-show-tab="tasks"><span>Show tasks to review</span>${icon('arrow', 15)}</button><button data-show-tab="connections"><span>How is the team connected?</span>${icon('arrow', 15)}</button></div>`}
       ${!visibleMessages.length ? `<div class="chat-office-note"><div class="mini-avatar-stack">${employees.slice(0, 4).map((employee) => `<span>${esc(initials(employee.name))}</span>`).join('')}</div><p>${employees.length} specialists. ${departments.filter(d=>d.configured).length} departments.<br><span>One place to bring everything together.</span></p></div>` : ''}`;
-    composerWrap.hidden = false;
+    composerWrap.hidden = departments.length === 0;
     composerWrap.innerHTML = `<form class="sidebar-composer" aria-label="Message office coordinator"><label class="sr-only" for="coordinator-message">Message the control center</label><textarea id="coordinator-message" rows="2" maxlength="1800" placeholder="Message the control center…">${esc(draft)}</textarea><div class="composer-bottom"><span class="composer-scope">${icon('center', 13)}<span>${esc(contextName())}</span></span><button class="composer-send" type="submit" aria-label="Review task before sending" ${draft.trim() && !sending ? '' : 'disabled'}>${icon('send', 18)}</button></div></form><div class="composer-help"><span>Enter to review <span aria-hidden="true">↵</span></span><span>Shift + Enter for a new line</span></div>`;
     const textarea = composerWrap.querySelector('textarea');
     textarea.addEventListener('input', () => {
@@ -163,7 +166,7 @@ export function createSidebar({ element, departments = [], employees = [], runti
   function renderTasks() {
     const selected = selection.type === 'employee' ? employeeById(selection.id) : null;
     const departmentId = selection.type === 'department' ? selection.id : selected?.departmentId;
-    const scopedTasks = tasks.filter((task) => !departmentId || task.departmentId === departmentId);
+    const scopedTasks = tasks.filter((task) => selected ? (task.employeeIds || [task.employeeId]).includes(selected.id) : !departmentId || task.departmentId === departmentId);
     const filteredTasks = scopedTasks.filter((task) => taskFilter === 'all' || task.status === taskFilter);
     scroll.innerHTML = `${renderSelection()}<div class="panel-section-heading"><div><h2>Team workspace</h2><p>Small steps. Visible progress.</p></div><span class="sample-pill">LIVE RECORDS</span></div>
       <div class="task-filter-row" aria-label="Filter tasks">${[['all', 'All'], ['review', 'Review'], ['running', 'Running'], ['failed', 'Needs you']].map(([id, label]) => `<button class="task-filter ${taskFilter === id ? 'is-active' : ''}" data-task-filter="${id}" aria-pressed="${taskFilter === id}">${label}<span>${id === 'all' ? scopedTasks.length : scopedTasks.filter((task) => task.status === id).length}</span></button>`).join('')}</div>
@@ -262,6 +265,7 @@ export function createSidebar({ element, departments = [], employees = [], runti
     const button = event.target.closest('button');
     if (!button || !element.contains(button)) return;
     if (button.hasAttribute('data-manage-agents')) onManageAgents();
+    else if (button.hasAttribute('data-add-department')) onAddDepartment();
     else if (button.hasAttribute('data-add-agent')) onAddAgent(button.dataset.addAgent || (selection.type === 'department' ? selection.id : selection.type === 'employee' ? employeeById(selection.id)?.departmentId : undefined));
     else if (button.hasAttribute('data-edit-agent')) onEditAgent(button.dataset.editAgent);
     else if (button.dataset.focusExtra) { const next = {type:'department',id:button.dataset.focusExtra,extra:true};select(next);onFocus(next); }

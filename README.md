@@ -24,16 +24,18 @@ the current source and opens the workspace. For the `workforce` commands in this
 `npm link` once from the checkout; then `workforce serve --open` starts the last build directly.
 `node dist/cli/index.js serve --open` is the equivalent without a global link.
 
-A new workspace starts empty and walks you through four steps:
+A new workspace opens an empty Office with only its central system Coordinator. To get started:
 
 1. **Check your coding tools.** The page detects installed Codex and Claude Code without a model
    turn. If a tool is signed out, Settings gives its login command. Check again after signing in.
 2. **Add a project.** Choose an existing Git repository with at least one commit. Review the
    detected checks, or enter a check such as `npm test`. Work starts from its last commit;
-   uncommitted edits stay in your original folder and are excluded from the task.
-3. **Create a department.** Review the suggested Engineering department, its head and worker,
-   their instructions, and the worker's project assignment. Nothing is saved until you create it.
-   You can add departments and workers later; a worker with no project assignment receives no work.
+   uncommitted edits stay in your original folder and are excluded from the task. Adding a project
+   creates no department or employee.
+3. **Create a department.** Use **+ Department** to name the department and configure its head.
+   Both are saved together. Use **Add agent** to add workers and select their projects. Each worker
+   gets a workstation inside the same growing department room. A worker with no project assignment
+   receives no work.
 4. **Send your first task.** Choose a project and department, describe a bounded change, review
    who will take it and which checks will run, then send it to the head.
 
@@ -42,19 +44,17 @@ For the full walkthrough, troubleshooting and repeat-use commands, read **[Start
 
 ## Follow the work
 
-Home shows work in motion and **Needs you**. **Office** keeps the selected original composition
-and shell, with the user's requested orientation edit: all 24 department desks face the central
-Coordinator. It uses `office-inward.png` and `office-inward-empty.png`; the original
-`office-clean.png` remains unchanged. Names, open desks and status come from the saved workspace. Its six
-physical islands are a layout; departments keep their actual configured membership. Pan or zoom
-the office, switch to Connections for configured routing, or open the complete Team list when
-your roster exceeds the illustrated seats. The central Coordinator represents the system scheduler.
+**Office** combines the selected Claude-designed shell, sidebar and employee directory with an
+original procedural Three.js scene. It shows only saved departments and employees. A department's
+room grows around its full roster, including the fifth worker and beyond; there is no fixed set
+of islands or four-seat limit. Pan, zoom or select a room or employee to inspect its real context.
+The central Coordinator represents the system scheduler, with no additional model assigned.
 
-The **Control center** has three tabs: **Assign** drafts a task and opens the usual project/team/
-checks review before you send it; **Tasks** shows recorded work and links to its evidence;
-**Connections** shows passive coding-tool status and configured agent bindings. Use the
-**Workspace** menu for Home, Projects, Departments, Tasks and Settings. **Agents / Add agent**
-open the existing team editor. Typing in Assign does not start a model or produce a simulated reply.
+The **Control center** has three tabs: **Chat** holds a task draft and opens **Review task** before
+you send it; **Tasks** shows recorded work and links to its evidence; **Connections** shows runtime
+information and configured agent bindings. **Projects** opens the workspace pages at `/workspace/`,
+where Home/setup, Departments, Tasks and Settings remain available. **Agents** opens the full
+directory and **Add agent** opens the worker editor. Typing a draft starts no model task.
 
 Use **4317** for the working application. The original prototype on **4318** is a visual reference
 with static demo data; it is not the place to submit real tasks.
