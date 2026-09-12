@@ -367,7 +367,7 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
       return sendBody(res, resolved.status, 'text/plain; charset=utf-8', resolved.status === 404 ? 'Not found\n' : 'Bad request\n', {}, method === 'HEAD');
     }
     const bytes = readFileSync(resolved.file);
-    const body = resolved.contentType.startsWith('text/html') ? injectSessionToken(bytes.toString('utf8'), token) : bytes;
+    const body = resolved.contentType.startsWith('text/html') ? injectSessionToken(target.startsWith('/workspace') ? bytes.toString('utf8').replaceAll('href="/src/', 'href="/workspace/src/').replaceAll('src="/src/', 'src="/workspace/src/') : bytes.toString('utf8'), token) : bytes;
     sendBody(res, 200, resolved.contentType, body, {}, method === 'HEAD');
   }
 

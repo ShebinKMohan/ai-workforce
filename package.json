@@ -15,6 +15,7 @@
     "dist",
     "web/office",
     "web/workspace",
+    "web/claude-office",
     "fixtures/fake-runtime"
   ],
   "scripts": {

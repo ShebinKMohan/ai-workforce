@@ -233,9 +233,9 @@ describe('static files: the page and nothing but the page', () => {
 });
 
 describe('the workspace UI', () => {
-  it('is served from web/workspace unchanged on disk, with the token added only to the response; web/office is no longer served', async () => {
+  it('serves the original Claude UI with live bridges and injects its token only in the response', async () => {
     const root = defaultWebRoot();
-    expect(path.basename(root)).toBe('workspace');
+    expect(path.basename(root)).toBe('claude-office');
     const indexPath = path.join(root, 'index.html');
     const before = createHash('sha256').update(readFileSync(indexPath)).digest('hex');
     const office = await startOfficeServer({ stateRoot: server.stateRoot, port: 0, discover: async () => [] });
@@ -243,20 +243,21 @@ describe('the workspace UI', () => {
       const page = await rawRequest(office, { path: '/' });
       expect(page.status).toBe(200);
       expect(page.headers['content-security-policy']).toContain("frame-ancestors 'none'");
-      expect(page.body).toContain('<title>Workforce</title>');
-      expect(page.body).toContain('<script type="module" src="/src/app.js"></script>');
+      expect(page.body).toContain('<title>Agent Office · Your team, in one place</title>');
+      expect(page.body).toContain('<script type="module" src="/src/main.js"></script>');
       expect(sessionToken(page.body)).toBe(office.token);
       expect(readFileSync(indexPath, 'utf8')).not.toContain('workforce-session-token');
 
-      for (const file of ['/src/app.js', '/src/model.js', '/src/truth.js', '/src/office/floor.js', '/src/styles.css']) {
+      for (const file of ['/src/main.js', '/src/live-data.js', '/src/agent-store.js', '/src/sidebar.js', '/src/styles.css']) {
         const response = await rawRequest(office, { path: file });
         expect({ file, status: response.status }).toEqual({ file, status: 200 });
         expect(statSync(path.join(root, file)).size).toBe(Number(response.headers['content-length']));
       }
-      expect((await rawRequest(office, { path: '/src/main.js' })).status).toBe(404);
+      expect((await rawRequest(office, { path: '/workspace/src/app.js' })).status).toBe(200);
+      expect((await rawRequest(office, { path: '/workspace/../src/main.js' })).status).toBe(404);
       // The selected original artwork is now explicitly vendored into the
       // workspace. Its bytes are served unchanged; the old application is not.
-      for (const name of ['office-clean.png', 'office-empty.png', 'office-inward.png', 'office-inward-empty.png']) {
+      for (const name of ['office-clean.png']) {
         const artwork = await fetch(`http://127.0.0.1:${office.port}/assets/${name}`);
         expect(artwork.status).toBe(200);
         expect(artwork.headers.get('content-type')).toBe('image/png');

@@ -39,7 +39,7 @@ export function packageRoot(): string {
 }
 
 export function defaultWebRoot(): string {
-  return path.join(packageRoot(), 'web', 'workspace');
+  return path.join(packageRoot(), 'web', 'claude-office');
 }
 
 export type StaticResolution =
@@ -52,6 +52,10 @@ const BAD_REQUEST: StaticResolution = { ok: false, status: 400 };
 /** Resolve a raw request target to a file under `webRoot`, or refuse it. */
 export function resolveStaticFile(webRoot: string, rawTarget: string): StaticResolution {
   const rawPath = rawTarget.split('?', 1)[0]!.split('#', 1)[0]!;
+  if (webRoot === defaultWebRoot() && (rawPath === '/workspace' || rawPath.startsWith('/workspace/'))) {
+    const target = rawTarget.slice('/workspace'.length) || '/';
+    return resolveStaticFile(path.join(packageRoot(), 'web', 'workspace'), target);
+  }
   if (!rawPath.startsWith('/') || rawPath.startsWith('//')) return BAD_REQUEST;
   let decoded: string;
   try {
