@@ -1,0 +1,546 @@
+
+added 46 packages in 3s
+
+> workforce@0.1.0 build
+> tsc
+
+
+> workforce@0.1.0 typecheck
+> tsc -p tsconfig.check.json
+
+
+> workforce@0.1.0 test
+> vitest run
+
+
+ RUN  v5.0.0 /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-V59nlU/verification/workforce-verification-LQG8Di/01-check-1/candidate
+
+ ✓ tests/verification/surface.test.ts (52 tests) 62ms
+ ↓ tests/adapters/claude-code/real-runtime.test.ts (18 tests | 18 skipped)
+ ↓ tests/adapters/codex/real-runtime.test.ts (12 tests | 12 skipped)
+ ✓ tests/adapters/codex/adapter.test.ts (29 tests) 1485ms
+ ✓ tests/fake-adapter.test.ts (13 tests) 1960ms
+   ✓ fake adapter: session and turn lifecycle (10)
+     ✓ terminates a hung runtime together with its child as a process group 489ms
+ ✓ tests/adapters/claude-code/adapter.test.ts (42 tests) 2917ms
+   ✓ delivery receipts (plan section 6: queued vs submitted) (4)
+     ✓ holds an unacknowledged message itself and flushes it into the next turn 367ms
+   ✓ interrupt receipts (plan section 6: requested vs observed) (3)
+     ✓ reports requested when the runtime accepts the interrupt but never ends the turn 471ms
+ ✓ tests/adapters/codex/rpc.test.ts (18 tests) 5118ms
+   ✓ codex json-rpc transport (9)
+     ✓ times out a request that is never answered and keeps the process usable 355ms
+     ✓ shuts down cleanly by closing stdin, and escalates to SIGKILL when the server ignores SIGTERM 4160ms
+ ✓ tests/office/office-model.test.js (17 tests) 16ms
+ ✓ tests/server/read-api.test.ts (17 tests) 3144ms
+   ✓ GET /api/events (3)
+     ✓ resumes after Last-Event-ID with nothing missed and nothing repeated 538ms
+ ✓ tests/server/project-reads.test.ts (7 tests) 3573ms
+   ✓ one project's run (4)
+     ✓ keeps an older verified run self-contained after it falls outside the newest 100 runs 2099ms
+   ✓ GET /api/events with a workspace (2)
+     ✓ streams every project’s events tagged with their project, resumes each project where it stopped, and picks up a new project 513ms
+     ✓ switches a stream opened before any workspace to project cursors once one exists, and a plain cursor resumes the root 336ms
+ ✓ tests/cli/launch.test.ts (23 tests) 11243ms
+   ✓ the real prompter, driven the way a person drives it (1)
+     ✓ asks on stderr, keeps stdout for the run alone, and assembles the same run 606ms
+   ✓ the interactive launcher runs a job without a single flag (2)
+     ✓ defaults the repository, shows the checks, and dispatches the run it described 2291ms
+   ✓ it finds or writes the agent configuration rather than demanding a path (3)
+     ✓ writes a default configuration for the runtimes that are actually installed, in the state root 624ms
+     ✓ prefers a configuration it found over writing one, and says where it came from 525ms
+     ✓ refuses with exit 3 when no installed runtime could back a configuration 485ms
+   ✓ a signed-out runtime is named, with the command that fixes it (1)
+     ✓ marks the agent unavailable and exits 3 when nothing else can take the work 588ms
+   ✓ acceptance is shown before it is executed, and never assumed (4)
+     ✓ refuses to run when the repository has no checks and none is given 526ms
+     ✓ takes an override and passes it to the run as a --check 552ms
+     ✓ rejects a check that needs a shell and asks again 520ms
+     ✓ does not ask at all when --check was given 615ms
+   ✓ the unconfined-writes decision is explained and answered, never assumed (2)
+     ✓ refuses the run when the acknowledgement is declined 573ms
+     ✓ passes the flag when it is accepted, and does not ask when the flag was already given 778ms
+   ✓ the task comes from a prompt, an editor or the flags (1)
+     ✓ does not ask when --task was given 567ms
+   ✓ a longer brief comes from the editor (2)
+     ✓ opens $EDITOR on an empty answer and takes the whole file as the task 616ms
+     ✓ says so and asks again when there is no editor to open 581ms
+   ✓ cancelling starts nothing (1)
+     ✓ exits 130 when the final confirmation is declined, and dispatches no run 645ms
+ ✓ tests/server/workspace-routes.test.ts (11 tests) 6298ms
+   ✓ changing the workspace (2)
+     ✓ is compare-and-swap: a stale revision is 409 with the fresh one, an invalid change is 400, and neither writes 983ms
+     ✓ applies one operation through its own route, with the tool names and folders a page sends made into what the workspace stores 662ms
+   ✓ the suggested starter department (2)
+     ✓ appears once there is a project and no department, puts the head on Codex when Codex is ready, and is saved only when applied 1134ms
+     ✓ uses Claude Code when only Claude Code is ready, and says that its tasks run on their own 764ms
+   ✓ POST /api/projects/inspect (2)
+     ✓ inspects and registers ~/ paths as the canonical repository, with duplicate detection 992ms
+     ✓ reads a folder with Git — base, uncommitted changes, checks — and changes nothing 1071ms
+   ✓ the legacy start route once a workspace exists (1)
+     ✓ refuses POST /api/runs and its preview with 409, before any process starts 553ms
+ ✓ tests/recovery/continue.test.ts (11 tests) 323ms
+ ✓ tests/discovery/doctor.test.ts (13 tests) 3049ms
+   ✓ a configured executable is probed, not assumed (FR001, FR002) (3)
+     ✓ reports a configured path that is not installed as missing, not as the discovered binary 926ms
+     ✓ probes the configured binary itself, so its version and capabilities are the ones reported 881ms
+     ✓ leaves a bare command name to PATH and says so rather than probing a guessed path 504ms
+ ✓ tests/integration-wp08/combine.test.ts (16 tests) 15191ms
+   ✓ serialized integration (FR045) (6)
+     ✓ combines two non-overlapping artifacts and re-checks the combined revision 1511ms
+     ✓ refuses artifacts whose changes overlap semantically, naming the conflict 938ms
+     ✓ combines two distant edits to the same file without guessing 1459ms
+     ✓ refuses to combine artifacts produced against different contract versions 884ms
+     ✓ refuses when one artifact deletes a file the other modifies 826ms
+   ✓ an individual branch pass never establishes the combination (AT13) (4)
+     ✓ carries branch receipts through a real combination without letting them establish it 1546ms
+   ✓ the combined acceptance surface follows the module graph (4)
+     ✓ refuses a combination that guts a helper the acceptance suite imports 1807ms
+     ✓ refuses a combination whose acceptance surface it could not establish, however green the checks are 1766ms
+     ✓ refuses a combination that guts a helper behind a shell entry point 2123ms
+     ✓ still accepts a combination that fixes the code the same suite imports 2100ms
+ ✓ tests/server/requests-queue.test.ts (21 tests) 22796ms
+   ✓ a request becomes exactly one `workforce run --project --department` argument array (6)
+     ✓ concurrent retries of one composer submission return one durable request and spawn only once 741ms
+     ✓ a retry after restart returns the completed receipt without running again or revalidating a changed roster 797ms
+     ✓ a reused submission ID refuses changed text, route or consent rather than launching different work 685ms
+     ✓ never uses a shell, carries the task verbatim, and the item ends with what the process printed 699ms
+     ✓ passes --state-dir only when the server was given one 650ms
+     ✓ refuses what the run would refuse — and asks for consent for a writer without a file boundary — before anything is queued 865ms
+   ✓ when a request starts (8)
+     ✓ a consented Codex version outside the tested boundary remains exclusive while queued and running 1319ms
+     ✓ waits behind the running request for the same project, and requests for one project start in arrival order 1221ms
+     ✓ holds the global cap of concurrent project runs, and a raised limit lets the next one start 1547ms
+     ✓ runs a roster with Claude Code on its own: it waits for the others, and nothing starts beside it 1196ms
+     ✓ never puts a worker in two live runs 1190ms
+     ✓ counts a run started outside this page from its project lock, and refuses to remove that project 1045ms
+     ✓ does not infer an external process’s containment from a stale pending run or recently written old roster 749ms
+     ✓ ends an item with the run process’s own refusal when it exits before recording a run 741ms
+   ✓ held on restart (3)
+     ✓ keeps a restarted process exclusive until it exits even if it has already printed a result 1005ms
+     ✓ shows the owning server’s live reservations on a second read-only page server 834ms
+     ✓ holds what was still waiting when the server stopped, starts nothing on its own, and Start and Discard act on it 1858ms
+   ✓ stop and resume (3)
+     ✓ admits only one concurrent resume while passive discovery is pending 556ms
+     ✓ stops a live run with SIGINT to its tracked pid, and the item ends with what the run printed 866ms
+     ✓ resumes a project run as `workforce resume` with that project’s state root, through the same queue 1004ms
+   ✓ end to end with the real CLI (1)
+     ✓ spawns `workforce run --project --department`, and the item ends with exactly the exit code and result the run printed; the checkout is untouched 3225ms
+ ✓ tests/routing/worker-capacity.test.ts (18 tests) 11424ms
+   ✓ routes planned tasks through worker capacity and reports the actual task holding the worker 4156ms
+   ✓ runPlanned quota fallback refuses a busy worker and never substitutes the department head 3050ms
+   ✓ runPlanned quota fallback uses an idle worker and never substitutes the department head 4204ms
+ ✓ tests/integration/wiring.test.ts (16 tests) 23335ms
+   ✓ run-path adapter registry (2)
+     ✓ drives the real Codex adapter from "workforce run" and reports its transport failure, not a missing registration 1134ms
+   ✓ a signed-out runtime is a required user action, not an execution failure (1)
+     ✓ exits 3 from `workforce run` before a workspace, a branch or a session exists 464ms
+   ✓ the CLI refuses an unconfined writing run unless a human accepts one (2)
+     ✓ exits 2 with the missing boundary named, and creates no state 529ms
+     ✓ accepts the run when --allow-unconfined-writes is passed, and the flag reaches the coordinator 905ms
+   ✓ state and workspace roots reach the coordinator (2)
+     ✓ puts the candidate workspace under --workspace-root and the coordinator state under --state-dir 1656ms
+     ✓ refuses a --workspace-root that disagrees with the one the state root already records 309ms
+   ✓ the CLI routes between the direct and planned paths (2)
+     ✓ keeps a single bounded request on the direct path 1766ms
+     ✓ takes the planned path when asked, and refuses to combine artifacts that collide 3517ms
+   ✓ the CLI dispatches every implemented command (1)
+     ✓ runs doctor, run, status and resume against one state root 3566ms
+   ✓ usage reporting is measured or unavailable, never zero (FR060) (4)
+     ✓ records the token counts a runtime reports and still refuses to invent a cost 1786ms
+     ✓ records a currency cost when the runtime measured one 1861ms
+     ✓ reports usage as unavailable when the runtime reports a shape it cannot read 2296ms
+     ✓ reports usage as unavailable for an adapter that only exposes a private accessor 1793ms
+   ✓ the real Codex adapter drives the direct run path (no model turn) (1)
+     ✓ runs a recorded Codex session end to end, records its token counts and fails honestly when nothing was changed 1748ms
+ ✓ tests/verification/checks.test.ts (32 tests) 24135ms
+   ✓ runChecks executes checks itself against a frozen candidate (FR049) (11)
+     ✓ passes a fixed candidate and fails the same check on an unfixed one 2020ms
+     ✓ kills the whole process group when a check exceeds its deadline 2358ms
+     ✓ runs against every tracked file even when the candidate marks the acceptance suite export-ignore 1110ms
+     ✓ refuses to run when the frozen tree listing is incomplete, instead of checking the copy against nothing 862ms
+     ✓ keeps the records a partial tree listing did produce, and still calls the listing incomplete 848ms
+     ✓ treats a check that mutates tracked source as an integrity failure even when it exits zero 1064ms
+     ✓ fails a check that deletes candidate source, but tolerates build output it creates 1012ms
+     ✓ gives a check a sanitized environment with no coordinator secrets and a fresh HOME 885ms
+     ✓ records a command that cannot be started as an error, never as a pass 944ms
+     ✓ refuses a duplicate criterion id 833ms
+     ✓ leaves the user checkout untouched while it verifies 1251ms
+   ✓ a check that executed nothing is not a pass (2)
+     ✓ records node --test finding no runnable file as no_tests_executed, not passed 950ms
+     ✓ leaves a real suite alone 1090ms
+   ✓ persistCheckReceipts stores evidence durably (1)
+     ✓ writes logs and receipts to the artifact store and records the check row 1114ms
+   ✓ a check never runs inside the coordinator state root (plan section 9) (7)
+     ✓ cannot reach coordinator state by walking up from its working directory 911ms
+     ✓ records a write that reached the state root by absolute path as an integrity failure 1242ms
+     ✓ keeps the receipts, logs and hashes under the run directory and the execution outside it 1446ms
+     ✓ still fails an unfixed candidate for its own reason, with the state root untouched 1085ms
+     ✓ says plainly when there was no state root to guard 1035ms
+     ✓ runs no check at all when a named state root cannot be established 761ms
+     ✓ guards a state root whose workspaces live outside it (--workspace-root) 1307ms
+ ✓ tests/events.test.ts (12 tests) 385ms
+ ✓ tests/integration/planned.test.ts (7 tests) 22748ms
+   ✓ the planned path (2)
+     ✓ runs two dependent tasks, combines their artifacts and checks the COMBINED candidate 3940ms
+     ✓ refuses to integrate when a task never reaches acceptance 1781ms
+   ✓ the planned path refuses a plan it cannot execute (2)
+     ✓ refuses a dependency cycle instead of silently dropping the cycled tasks 342ms
+     ✓ refuses a self-dependency 362ms
+   ✓ the planned repair loop (2)
+     ✓ runs repairs as new generations instead of dying on the attempts unique index 8023ms
+     ✓ runs the tasks of one batch at the same time 3873ms
+   ✓ AT09: dependency release is per task, not per batch (1)
+     ✓ starts the dependent while the unrelated slow task is still running, within the scheduler caps 4425ms
+ ✓ tests/server/security.test.ts (12 tests) 156ms
+ ✓ tests/adapters/claude-code/protocol.test.ts (35 tests) 11ms
+ ✓ tests/discovery/probe.test.ts (18 tests) 6419ms
+   ✓ a probe is bounded and takes its whole process group with it (2)
+     ✓ kills a hanging probe and the child it started, and reports the timeout 6012ms
+ ✓ tests/recovery/continue-run.test.ts (5 tests) 2914ms
+   ✓ AT07: an interrupted run is continued by resume (4)
+     ✓ continues the run to a terminal state with exactly one accepted writer 1331ms
+ ✓ tests/recovery/classify.test.ts (49 tests) 7ms
+ ✓ tests/claude-office/layout.test.js (17 tests) 388ms
+ ✓ tests/run/stream-identity.test.ts (3 tests) 6218ms
+   ✓ run output carries the identity of the task that produced it (3)
+     ✓ tells two concurrently dispatched tasks apart by taskId and agentId, without reading the prose 2871ms
+     ✓ leaves a direct run's human output byte for byte unchanged 1632ms
+     ✓ keeps --json stdout pure JSONL and puts the identity in the records 1713ms
+ ✓ tests/workspace/run-project.test.ts (8 tests) 8351ms
+   ✓ workforce run --project --department: refusals before any state exists (4)
+     ✓ refuses an unknown or archived id, a headless department and a project nobody is placed on, each with exit 2 310ms
+     ✓ refuses a project with no acceptance check before taking any lock or writing any state 506ms
+   ✓ workforce run --project --department: the head decides (4)
+     ✓ asks the department head by default: a head that answers in prose starts no worker, and the run records only the roster 1677ms
+     ✓ refuses a plan that assigns work to the head or to anyone off the roster, and starts no worker 1018ms
+     ✓ passes a planner refusal through with its own code and exit code 645ms
+     ✓ runs the head's tasks through the roster worker in the project's own state root, to a verified candidate 4180ms
+ ✓ tests/verification/containment.test.ts (18 tests) 440ms
+ ✓ tests/workspaces/candidate.test.ts (12 tests) 8306ms
+   ✓ createCandidateWorkspace (FR041) (4)
+     ✓ creates a linked worktree on a new branch and leaves the user checkout alone 682ms
+     ✓ records the uncommitted changes the candidate excludes 614ms
+     ✓ refuses to reuse an existing branch rather than overwriting it 416ms
+     ✓ refuses an unresolvable base and a workspace root inside the repository 445ms
+   ✓ granted paths never include shared Git administration (1)
+     ✓ grants the worktree only and refuses grants that reach Git or coordinator state 505ms
+   ✓ snapshotCandidate freezes the candidate (FR041) (5)
+     ✓ materializes and freezes raw content without smudge, clean, process or textconv commands 1183ms
+     ✓ creates a checkpoint commit on the candidate branch with a coordinator identity, and a hashed patch 1077ms
+     ✓ reports an unchanged candidate honestly instead of inventing a commit 739ms
+     ✓ refuses to snapshot while the writing process is still alive 888ms
+     ✓ does not run repository hooks when it creates the checkpoint commit 827ms
+   ✓ removeCandidateWorkspace never discards unintegrated work (1)
+     ✓ refuses removal until the candidate is explicitly integrated or rejected 925ms
+ ✓ tests/routing/head-plan.test.ts (11 tests) 61ms
+ ✓ tests/run/failure-signals.test.ts (11 tests) 5ms
+ ✓ tests/coordination/head-review-bridge.test.ts (21 tests) 1358ms
+   ✓ department head review bridge authorization (21)
+     ✓ refuses worker and planning tokens even when a client advertises a review role 304ms
+ ✓ tests/lock.test.ts (7 tests) 1253ms
+   ✓ coordinator lock (7)
+     ✓ blocks a second mutating coordinator while the holder is alive, allows read-only access, and reclaims a dead holder 324ms
+     ✓ lets exactly one of several concurrent coordinators win a lock left behind by a dead holder 555ms
+ ✓ tests/coordination/messages.test.ts (12 tests) 781ms
+   ✓ coordination message store (12)
+     ✓ bounds the inbox no matter what limit is asked for 350ms
+ ✓ tests/server/start-run.test.ts (6 tests) 8305ms
+   ✓ a start request that the coordinator would refuse is refused before any process starts (2)
+     ✓ refuses a bad body, a bad repository, a missing base, an unknown agent and an unacknowledged unconfined runtime 1202ms
+     ✓ refuses a start when no agent configuration can be found for the repository 481ms
+   ✓ a valid start request becomes exactly one `workforce run --json` argument array (3)
+     ✓ never uses a shell, and the coordinator’s own parser reads back exactly the hostile text that was sent 672ms
+     ✓ relays the coordinator's own refusal, with its own code, when the run process exits before recording a run 1005ms
+     ✓ takes one start at a time, and reports a run process that never records a run instead of waiting for ever 2030ms
+   ✓ end to end: a start request becomes a real coordinator run (1)
+     ✓ runs `workforce run` for real, and the verifier — not the page — accepts the candidate; the checkout is untouched 2914ms
+ ✓ tests/adapters/startup-cleanup.test.ts (11 tests) 2206ms
+   ✓ adapter startup failures retain observed process cleanup receipts (11)
+     ✓ Claude preserves timeout and records SIGKILL when startup ignores SIGTERM 479ms
+     ✓ Fake preserves startup_failed with SIGKILL cleanup when no session handshake arrives 427ms
+ ✓ tests/coordination/socket-path.test.ts (4 tests) 323ms
+ ✓ tests/workspace-ui/honesty.test.js (21 tests) 43ms
+ ✓ tests/run/live/terminal-safety.test.ts (5 tests) 1628ms
+   ✓ a run whose worker writes escape sequences into a file (1)
+     ✓ prints the diff preview without handing the terminal a single one of them 1616ms
+ ✓ tests/server/control-requests.test.ts (13 tests) 18427ms
+   ✓ automatic Control Center request admission (13)
+     ✓ persists one pending receipt before classification and deduplicates simultaneous retries through dispatch 786ms
+     ✓ retains the semantic Finance destination when it has no workers instead of dispatching Engineering 333ms
+     ✓ holds an interrupted pending route after restart and never reclassifies it automatically 422ms
+     ✓ reserves free B while shared A is busy and passes the exact saved subset and workspace revision to the CLI 906ms
+     ✓ answers a greeting and routes an explicit directive while another classifier is waiting 774ms
+     ✓ waits for a live project to end before opening a consented unconfined classifier 950ms
+     ✓ refuses changed runtime authority while a preflighted request waits without starting a second paid turn 800ms
+     ✓ uses available Codex workers without requiring consent for an unselected Claude worker 558ms
+     ✓ retains a running routing process after the finished-history retention limit 5758ms
+     ✓ retains a unknown routing process after the finished-history retention limit 5403ms
+     ✓ uses the unknown startup cleanup receipt before permitting later project work 521ms
+     ✓ uses the requested startup cleanup receipt before permitting later project work 529ms
+     ✓ uses the process_tree_terminated startup cleanup receipt before permitting later project work 687ms
+ ✓ tests/run/live/degrade.test.ts (13 tests) 27ms
+ ✓ tests/run/cli.test.ts (10 tests) 13899ms
+   ✓ workforce run end to end (8)
+     ✓ exits 0 with a verified candidate and leaves the checkout alone 1945ms
+     ✓ takes the planned path from a --plan file, dependencies and all 3139ms
+     ✓ refuses a plan whose dependencies form a cycle, before any work starts 339ms
+     ✓ exits 4 when the runtime claims success without changing anything 1631ms
+     ✓ --json emits JSONL: events first, the result object last 1861ms
+     ✓ accepts repeated --check flags in place of the repository configuration 1929ms
+     ✓ rejects a --check that needs a shell with exit 2 and no state 605ms
+     ✓ rejects an unknown --agent before taking the lock 305ms
+   ✓ workforce status is read-only and works from another process (FR061) (2)
+     ✓ reports a finished run from a separate process while this one holds the coordinator lock 2124ms
+ ✓ tests/run/live/frame.test.ts (12 tests) 10ms
+ ✓ tests/operations.test.ts (7 tests) 207ms
+ ✓ tests/discovery/readiness.test.ts (12 tests) 1511ms
+   ✓ passive readiness (FR002) (10)
+     ✓ survives a runtime that hangs: the probe is bounded and the runtime is reported, not awaited forever 1214ms
+ ✓ tests/run/module-surface.test.ts (6 tests) 10178ms
+   ✓ the acceptance surface follows the module graph (the gutted-helper variant) (4)
+     ✓ refuses acceptance when the candidate guts a helper the acceptance suite imports 1730ms
+     ✓ names the imported helper as an acceptance fixture before the worker starts, and the code under test as work 1539ms
+     ✓ accepts the genuine fix to the code the same suite imports 1754ms
+     ✓ records what it resolved and what it could not, rather than leaving a gap silent 1765ms
+   ✓ following the module graph does not take legitimate work away (2)
+     ✓ still accepts a fix to a source file the acceptance suite imports (ts-bug) 1811ms
+     ✓ still accepts a fix that also adds a new test file 1578ms
+ ✓ tests/claude-office/usage-model.test.js (14 tests) 8ms
+ ✓ tests/routing/control-intake.test.ts (14 tests) 129ms
+ ✓ tests/cli.test.ts (6 tests) 1505ms
+   ✓ cli configuration validation happens before execution (2)
+     ✓ accepts a valid configuration and refuses to run against a directory that is not a Git repository 1455ms
+ ✓ tests/run/surface-blocks.test.ts (8 tests) 12477ms
+   ✓ an entry point that is not a module: the shell script that execs the real runner (2)
+     ✓ follows the script to its runner, so gutting the helper behind it is refused 1664ms
+     ✓ names the runner and its helper as fixtures, and the surface has no gap left to report 1524ms
+   ✓ a module reached through a symlink (2)
+     ✓ refuses when the candidate guts the file the link points at 1455ms
+     ✓ protects the link target by name and still accepts the genuine fix 1779ms
+   ✓ a computed specifier with a literal directory prefix (2)
+     ✓ takes the whole directory, so gutting the case it loads is refused 1617ms
+     ✓ still accepts the genuine fix, with nothing left unresolved 1526ms
+   ✓ a surface that genuinely cannot be resolved refuses instead of accepting (2)
+     ✓ refuses a passing check whose surface was never established, and says what and why 1431ms
+     ✓ accepts once the specifier is literal, so the block is a gate and not a wall 1479ms
+ ✓ tests/workspaces/project.test.ts (14 tests) 5695ms
+   ✓ inspectProject reads a repository without touching it (FR019) (6)
+     ✓ reports identity, base revision, branch and a clean working tree 886ms
+     ✓ summarizes staged, unstaged and untracked work and still changes nothing 794ms
+     ✓ resolves a subdirectory to the repository root and says so 552ms
+     ✓ expands a home-relative folder without shell interpretation 548ms
+     ✓ refuses an unreadable index instead of claiming the working tree is clean 487ms
+   ✓ registerProject persists a project without altering the checkout (FR019) (2)
+     ✓ stores the identity, reuses one record per repository and leaves the source untouched 755ms
+   ✓ inspection never runs repository hooks (3)
+     ✓ does not execute a configured fsmonitor command or change the index 470ms
+     ✓ does not execute a configured clean filter while reading changed source 609ms
+     ✓ leaves a hook that would create a marker file unexecuted 526ms
+ ✓ tests/workspace/operations.test.ts (12 tests) 22ms
+ ✓ tests/workspace-ui/history.test.js (11 tests) 64ms
+ ✓ tests/workspace-ui/spatial.test.js (11 tests) 28ms
+ ✓ tests/recovery/resume-command.test.ts (10 tests) 511ms
+ ✓ tests/coordination/delivery-lifecycle.test.ts (9 tests) 1760ms
+ ✓ tests/claude-office/agent-lifecycle.test.js (6 tests) 157ms
+ ✓ tests/workspace/config.test.ts (9 tests) 38ms
+ ✓ tests/workspace-ui/stages.test.js (9 tests) 35ms
+ ✓ tests/discovery/settings.test.ts (14 tests) 8ms
+ ✓ tests/run/head-planning.test.ts (13 tests) 42350ms
+   ✓ a request to a department: the head plans, its workers do the work (8)
+     ✓ surfaces a rejected runtime model request and starts neither a second head nor a worker 1542ms
+     ✓ runs two assigned tasks at once in their own worktrees and accepts only the verified combined candidate 5145ms
+     ✓ retains the combined candidate and semantic feedback when the head requests changes, without a success reply 5034ms
+     ✓ stops during review, preserves its required frozen gate, and resumes without repeating accepted worker tasks 6398ms
+     ✓ rejects a plan that gives work to someone outside the roster, twice, and never creates a worker attempt 2102ms
+     ✓ creates nothing from a plan written as prose 1432ms
+     ✓ gives an invalid plan exactly one retry with its issues, then fails with the reason and starts no worker 1804ms
+     ✓ starts the workers when the retry fixes the plan 4361ms
+   ✓ Stop and Resume of a planned department run (5)
+     ✓ preserves a stopped head request and resumes planning once under its original roster and checks 5090ms
+     ✓ keeps corrupt pending planning evidence interrupted and starts no replacement 962ms
+     ✓ refuses planning resume beside missing_receipt ownership and creates no duplicate writer 904ms
+     ✓ refuses planning resume beside live_session ownership and creates no duplicate writer 1017ms
+     ✓ ends interrupted, not failed, and resume finishes the same plan under the same assignees 6558ms
+ ✓ tests/run/live/state.test.ts (10 tests) 24ms
+ ✓ tests/recovery/reconcile.test.ts (9 tests) 425ms
+ ✓ tests/integration-wp08/ownership.test.ts (9 tests) 121ms
+ ✓ tests/coordination/bridge.test.ts (11 tests) 1936ms
+   ✓ coordination bridge (MCP over stdio) (11)
+     ✓ lets only the recipient acknowledge a message 346ms
+ ✓ tests/server/preview.test.ts (4 tests) 1878ms
+   ✓ POST /api/runs/preview (3)
+     ✓ shows the repository, the agent, the verifier’s checks and the consent question — and starts nothing, touches nothing 734ms
+     ✓ refuses what a start refuses with the same code, and names a repository with no acceptance check as a blocker 853ms
+ ✓ tests/workspace/store.test.ts (8 tests) 613ms
+   ✓ workspace store (8)
+     ✓ leaves the previous file intact when the writer is killed between the temp write and the rename 304ms
+ ✓ tests/cli/prompt.test.ts (12 tests) 20ms
+ ✓ tests/run/surface-conservative.test.ts (4 tests) 5773ms
+   ✓ a repository whose language the acceptance surface cannot analyse (4)
+     ✓ accepts the correct fix, and says on the terminal and in the manifest that the closure was not proven 1559ms
+     ✓ still refuses a candidate that rewrites the acceptance suite it could identify without parsing 1493ms
+     ✓ is upgraded to an established surface when the check names its fixtures 1406ms
+     ✓ refuses when the check declares a fixture the base revision does not contain 1314ms
+ ✓ tests/workspace-ui/editor.test.js (8 tests) 25ms
+ ✓ tests/config.test.ts (11 tests) 19ms
+ ✓ tests/recovery/fallback.test.ts (9 tests) 261ms
+ ✓ tests/run/coordination-boundaries.test.ts (2 tests) 5123ms
+   ✓ a message that arrives as the turn ends (2)
+     ✓ is not acknowledged by a session that is about to be stopped; it fails visibly instead 1921ms
+     ✓ is delivered into the live turn when it arrives while the worker is still working 3199ms
+ ✓ tests/claude-office/control-center-routing.test.js (9 tests) 11ms
+ ✓ tests/workspace-ui/floor-model.test.js (12 tests) 25ms
+ ✓ tests/workspace/admitted-roster.test.ts (6 tests) 735ms
+   ✓ admitted worker pool (6)
+     ✓ passes only admitted workers to the head and rejects a plan that reaches outside them 514ms
+ ✓ tests/routing/decide.test.ts (16 tests) 9ms
+ ✓ tests/workspace/cli.test.ts (7 tests) 3142ms
+   ✓ workforce workspace (7)
+     ✓ accepts a quoted ~/ project folder without relying on shell expansion 483ms
+     ✓ builds a workspace from nothing, one revision per change, until a request can be sent 1121ms
+     ✓ refuses invalid input with exit 2 and a revision conflict with exit 3, writing nothing either way 804ms
+     ✓ removes a project from the workspace without touching its folder, and retires the id 707ms
+ ✓ tests/claude-office/harness-integration.test.js (8 tests) 23ms
+ ✓ tests/server/dogfood-integration.test.ts (2 tests) 9542ms
+   ✓ assembled department request with the real CLI and verifier (2)
+     ✓ returns a verified candidate only after planning, worker edits, independent checks and structured head review 5844ms
+     ✓ rejects a worker that claims every test passes without fixing the bug 3696ms
+ ✓ tests/integration-wp08/review.test.ts (7 tests) 15ms
+ ✓ tests/routing/clarify.test.ts (13 tests) 7ms
+ ✓ tests/office/real-payloads.test.js (3 tests) 5051ms
+   ✓ a coordinator that dies mid-attempt (1)
+     ✓ stops being shown as working once no coordinator holds the state root, although its rows still say running 1617ms
+ ✓ tests/routing/schedule.test.ts (13 tests) 6ms
+ ✓ tests/routing/handoff.test.ts (12 tests) 42ms
+ ✓ tests/run/ansi.test.ts (11 tests) 7ms
+ ✓ tests/workspace-ui/head-review.test.js (5 tests) 50ms
+ ✓ tests/run/live/keys.test.ts (9 tests) 16ms
+ ✓ tests/workspace-ui/claude-live-data.test.js (10 tests) 22ms
+ ✓ tests/workspace/roster.test.ts (6 tests) 114ms
+ ✓ tests/integration-wp08/repair.test.ts (6 tests) 10ms
+ ✓ tests/routing/plan.test.ts (15 tests) 13ms
+ ✓ tests/discovery/resolve.test.ts (7 tests) 14ms
+ ✓ tests/discovery/capabilities.test.ts (7 tests) 22ms
+ ✓ tests/office/label-layout.test.js (8 tests) 38ms
+ ✓ tests/workspace-ui/setup.test.js (8 tests) 10ms
+ ✓ tests/coordination/delegation.test.ts (6 tests) 858ms
+ ✓ tests/workspace/control-center-settings.test.ts (4 tests) 124ms
+ ✓ tests/discovery/workspace-bindings.test.ts (3 tests) 126ms
+ ✓ tests/server/claude-department-creation.test.js (3 tests) 112ms
+ ✓ tests/workspace-ui/runtime-bindings.test.js (3 tests) 6ms
+ ✓ tests/artifacts.test.ts (4 tests) 167ms
+ ✓ tests/server/run-events.test.ts (2 tests) 110ms
+ ✓ tests/workspace-ui/control-center.test.js (5 tests) 30ms
+ ✓ tests/redaction.test.ts (4 tests) 7ms
+ ✓ tests/office/honesty.test.js (6 tests) 18ms
+ ✓ tests/tx.test.ts (2 tests) 223ms
+ ✓ tests/workspace-ui/render.test.js (7 tests) 8ms
+ ✓ tests/claude-office/recorded-output.test.js (5 tests) 7ms
+ ✓ tests/run/live/layout.test.ts (5 tests) 6ms
+ ✓ tests/state.test.ts (6 tests) 5ms
+ ✓ tests/cli/serve.test.ts (3 tests) 48ms
+ ✓ tests/workspace-ui/control-center-settings.test.js (3 tests) 4ms
+ ✓ tests/run/prompt-coordination.test.ts (3 tests) 5ms
+ ✓ tests/routing/plan-file.test.ts (4 tests) 9ms
+ ✓ tests/integration/coordination-wiring.test.ts (2 tests) 1943ms
+   ✓ the run path attaches its worker to the coordination bridge (2)
+     ✓ mints a per-attempt identity, passes it to the session and revokes it afterwards 1911ms
+ ✓ tests/server/ui-assets.test.ts (1 test) 31ms
+ ✓ tests/coordination/render-body.test.ts (4 tests) 2ms
+ ✓ tests/server/runtime-bindings.test.ts (1 test) 26ms
+ ✓ tests/run/head-review.test.ts (21 tests) 47146ms
+   ✓ department head reviews the checked combined candidate (21)
+     ✓ reviews both patches and verifier receipts through a real tool call, stops the session and preserves the checkout 2670ms
+     ✓ records substantive changes requested despite passing independent checks 2520ms
+     ✓ cannot approve from assistant prose or a successful exit without the review tool 2257ms
+     ✓ preserves a fatal runtime error even after a structured approval and clean turn exit 2604ms
+     ✓ rejects an otherwise valid approval for a different candidateRevision 2608ms
+     ✓ rejects an otherwise valid approval for a different diffHash 2653ms
+     ✓ invalidates an approval if the head changes either part of its review candidate 3052ms
+     ✓ stops a live head, records interruption and allows a later bounded replacement 3024ms
+     ✓ does not deliver approval without observed process-tree termination 2122ms
+     ✓ starts no head when independent verifier evidence is missing 1706ms
+     ✓ starts no head when independent verifier evidence is stale 1640ms
+     ✓ starts no head when independent verifier evidence is failed 1788ms
+     ✓ blocks resume beside missing_process_receipt and starts no replacement 1465ms
+     ✓ blocks resume beside live_process and starts no replacement 1760ms
+     ✓ blocks resume beside unknown_process and starts no replacement 1604ms
+     ✓ keeps a late-opening session blocked until its owned process stop is durably recorded 1945ms
+     ✓ records a known pre-start rejection without an owned session and permits a later retry 2767ms
+     ✓ keeps a generic startup failure blocked when no process cleanup evidence exists 1944ms
+     ✓ uses a post-start failure’s process_tree_terminated receipt to decide whether a replacement may start 2820ms
+     ✓ uses a post-start failure’s requested receipt to decide whether a replacement may start 2231ms
+     ✓ uses a post-start failure’s unknown receipt to decide whether a replacement may start 1964ms
+ ✓ tests/integration/coordination-delivery.test.ts (1 test) 3735ms
+   ✓ a planned run and a message that never arrives (1)
+     ✓ expires it, records it, prints it and carries it into the run's unresolved facts 3734ms
+ ✓ tests/run/live/events.test.ts (2 tests) 4438ms
+   ✓ the events the live view depends on (2)
+     ✓ states every task's terminal outcome, rather than leaving it to be inferred 3316ms
+     ✓ names the criteria before the first check runs, so the checks strip is not blank for most of the run 1121ms
+ ✓ tests/adapters/conformance/conformance.test.ts (41 tests | 2 skipped) 2242ms
+ ✓ tests/cli/watch.test.ts (5 tests) 10438ms
+   ✓ workforce watch (4)
+     ✓ attaches to a run while a mutating coordinator holds the state root, and takes no lock 3018ms
+     ✓ shows only the named lane under --task, and names it by the plan key a human wrote 3367ms
+     ✓ emits one JSON object per event row under --json, in sequence order, with nothing else on stdout 2260ms
+     ✓ refuses an unknown run id as invalid input, not as an execution failure 1791ms
+ ✓ tests/run/live/replay.test.ts (5 tests) 7684ms
+   ✓ teardown replay (5)
+     ✓ says by name when a lane outran the transcript, instead of quietly ending shorter 7659ms
+ ✓ tests/run/direct.test.ts (50 tests) 57083ms
+   ✓ the direct path produces a verified candidate (FR019, FR020, FR041, FR049) (17)
+     ✓ accepts the "fix the bug" scenario with verifier-executed evidence and preserves the checkout 2167ms
+     ✓ fails the "claim done without editing" scenario and never marks it accepted (FR050) 1656ms
+     ✓ records an unexpected runtime exit on the attempt and refuses acceptance 1586ms
+     ✓ stops an unresponsive runtime instead of waiting for it forever (FR039) 2654ms
+     ✓ enforces the configured run deadline rather than only reporting it (FR014) 1852ms
+     ✓ stops the worker, preserves the work and reports an interruption on abort (FR039) 1661ms
+     ✓ runs the Python fixture through detected checks and accepts the fix 2035ms
+     ✓ shows the resulting diff and summarizes unnormalized runtime output instead of printing every frame 1802ms
+     ✓ refuses acceptance when the candidate rewrites the tests its own criterion executes 1738ms
+     ✓ refuses acceptance when the candidate hides the acceptance suite from the verifier's copy 2614ms
+     ✓ does not read a suite that executed zero tests as a passing check 1726ms
+     ✓ tells the worker which files are acceptance fixtures instead of only catching it afterwards 1696ms
+     ✓ does not accept a run whose worker wrote outside its granted paths (AT12) 1679ms
+     ✓ does not accept a candidate produced by a turn whose runtime died, even with a passing check 1658ms
+     ✓ does not accept a run that changed nothing, even when every configured check passes 1622ms
+     ✓ stops the run honestly when exclusive ownership of the state root can no longer be proved 1777ms
+     ✓ refuses to start when no acceptance checks can be resolved 799ms
+   ✓ a writing profile needs a write boundary (plan sections 6, 8 and 9; FR005, FR042) (3)
+     ✓ refuses to dispatch a writing profile to a runtime that enforces no write boundary 525ms
+     ✓ opens a read-only profile on the same runtime without a boundary it does not need 1556ms
+     ✓ records the missing boundary in the manifest when a human explicitly accepts one 1615ms
+   ✓ the containment note describes the boundary this run actually had (FR042, FR049, FR050) (1)
+     ✓ names the check placement and the state-root guard without claiming confinement 1765ms
+   ✓ what the runtime says about its own turn is read as a claim, not as a result (FR003, FR004, FR042, FR050) (4)
+     ✓ refuses a candidate whose evidence carries a session id the coordinator never minted 1510ms
+     ✓ does not record a terminal record that reports failure as a completed turn 1751ms
+     ✓ classifies a recorded authentication failure from the runtime's own tag, so a fallback is reachable (AT04) 1476ms
+     ✓ does not present an empty escape list as a checked negative on a runtime with no write boundary 1674ms
+   ✓ the manifest records what the runtime said ran, not only what was asked for (FR006, FR059) (3)
+     ✓ records the model and effort the runtime reported beside the ones requested 1825ms
+     ✓ records the runtime default when nothing was requested, which the requested field cannot express 1532ms
+     ✓ says the effective values are unreported rather than assuming the requested ones took effect 1875ms
+   ✓ acceptance check resolution (3)
+     ✓ prefers --check flags, then .workforce/checks.json at the base, then detection 786ms
+     ✓ reads the checks from the base revision, so a worker cannot rewrite acceptance 362ms
+     ✓ rejects an invalid .workforce/checks.json instead of silently ignoring it 492ms
+   ✓ the prompt keeps the user wording and states the rules (1)
+     ✓ sends the original request verbatim plus repository context 1343ms
+   ✓ tasks are listed under their run (1)
+     ✓ records exactly one task with the request objective 1034ms
+   ✓ the run records the write boundary it observed, not the one its adapter claims (AT12) (3)
+     ✓ records that the boundary did NOT hold when the run's own evidence lists an escape 1067ms
+     ✓ still records that the boundary held when nothing the run observed contradicts it 962ms
+     ✓ records an escape on a runtime that never claimed a boundary as one too (AT12) 904ms
+   ✓ the run asks whether the runtime can work before it creates anything (4)
+     ✓ lets an explicitly accepted unconfined run past that gate, and records why it was needed 880ms
+     ✓ does not refuse a run whose readiness could not be established, and says so 871ms
+
+ Test Files  126 passed | 2 skipped (128)
+      Tests  1400 passed | 32 skipped (1432)
+   Start at  23:11:12
+   Duration  57.81s (tests 96%, import 3%, transform 1%)
+

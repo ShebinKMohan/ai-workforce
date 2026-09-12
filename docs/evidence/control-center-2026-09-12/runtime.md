@@ -96,3 +96,5 @@ This verifies one real local Codex classification → planning → worker → ve
 The three checks cover one function and require no installed npm dependencies. This candidate did not install dependencies or run the full application test suite. It starts from committed base `3144b19`; the worker record confirms current dirty UI/backend changes were excluded. The source checkout still pointed to that base commit when evidence was collected. The main checkout's broader automated checks and browser UI checks are separate evidence.
 
 Collection used read-only APIs and existing manifests/receipts. It created only these evidence files, excluded session authorization material and raw runtime transcripts, and did not apply the candidate.
+
+After this task, normal project defaults were configured and the complete committed implementation passed dependency installation, build, typecheck and 1,400 tests through the actual isolated verifier. See the [later project verification](project-default-validation.json) and [combined evidence index](README.md); that separate check does not change the scope or receipts of this model-driven task.

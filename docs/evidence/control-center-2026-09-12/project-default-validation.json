@@ -1,0 +1,79 @@
+{
+  "proofVersion": 1,
+  "revision": "320e847b56ab902f9c9dd5d305ca31105117b669",
+  "observedAt": "2026-09-12T17:42:43.086Z",
+  "recipe": "node --input-type=module -e 'import{spawnSync}from\"node:child_process\";for(const args of[[\"ci\",\"--ignore-scripts\",\"--include=dev\",\"--include=optional\",\"--no-audit\",\"--no-fund\"],[\"run\",\"build\"],[\"run\",\"typecheck\"],[\"test\"]]){const r=spawnSync(\"npm\",args,{stdio:\"inherit\",shell:false});if(r.error||r.status!==0)process.exit(r.status||1)}'",
+  "recipeCharacters": 336,
+  "outcome": "passed",
+  "exitCode": 0,
+  "durationMs": 61956,
+  "copyStrategy": "git_archive",
+  "evidenceProvenance": "verifier_executed",
+  "stages": {
+    "install": "passed",
+    "build": "passed",
+    "typecheck": "passed",
+    "test": "passed"
+  },
+  "testSummary": {
+    "files": {
+      "failed": 0,
+      "passed": 126,
+      "skipped": 2,
+      "total": 128
+    },
+    "tests": {
+      "failed": 0,
+      "passed": 1400,
+      "skipped": 32,
+      "total": 1432
+    },
+    "durationSeconds": 57.81
+  },
+  "diagnosis": "The unchanged project default passed from a fresh git archive with locked dependencies installed locally in the verification copy. The source repair handles a long verifier TMPDIR using a short private coordination socket directory; deterministic Claude replay readiness no longer depends on a real user account. No environment path shortening or credential inheritance workaround was used.",
+  "initialFailure": "project-default-validation-initial.json",
+  "integrity": {
+    "mutated": false,
+    "mutatedFiles": [],
+    "scope": "complete",
+    "fileCount": 905,
+    "addedFilesReported": 200
+  },
+  "stateRootGuard": {
+    "stateRoot": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-V59nlU/state",
+    "checked": true,
+    "violations": [],
+    "observations": [],
+    "before": "d9125e82295fb7a0c9d522992d59ab1a595fc70b8979d735d3dccdc223839ef8",
+    "after": "d9125e82295fb7a0c9d522992d59ab1a595fc70b8979d735d3dccdc223839ef8",
+    "scope": "complete",
+    "note": "the coordinator state root was unchanged, apart from bytes inside runs/ and workspaces/ and the database and lock files that the coordinator itself writes during a run"
+  },
+  "containment": {
+    "copyRoot": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-V59nlU/verification/workforce-verification-LQG8Di/01-check-1/candidate",
+    "home": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-V59nlU/verification/workforce-verification-LQG8Di/01-check-1/home-2iYhYV",
+    "tmp": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-V59nlU/verification/workforce-verification-LQG8Di/01-check-1/tmp-sH2DJC",
+    "cwd": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-V59nlU/verification/workforce-verification-LQG8Di/01-check-1/candidate",
+    "stateRoot": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-V59nlU/state",
+    "outsideStateRoot": true,
+    "verificationRootOrigin": "requested",
+    "evidenceRoot": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-V59nlU/state/runs/01a096b5-6fd7-73fe-95e1-c9eb2b68c57d/verification/01-check-1/logs"
+  },
+  "logs": {
+    "stdout": {
+      "path": "project-default-validation.stdout.log",
+      "sha256": "04a149a4bb1c1000044b76e84c5923f65ab7e0f9dea9e19b07a15784b0a93a5e"
+    },
+    "stderr": {
+      "path": "project-default-validation.stderr.log",
+      "sha256": "2c3e597b5ccf7b2d7debcb640a0172edd9a8605d3ec1c758868c1c90660f2067"
+    },
+    "receipt": "project-default-validation.receipt.json"
+  },
+  "limits": [
+    "This is a verifier execution against the exact committed candidate, not a paid runtime task.",
+    "32 opt-in real-runtime tests were skipped; this suite does not independently prove live provider behavior.",
+    "Checks run with current-user privileges and unrestricted network; fresh HOME/TMPDIR and fingerprint guards provide isolation and detection, not an OS sandbox.",
+    "No main checkout source or live workspace state was edited by this validation."
+  ]
+}
