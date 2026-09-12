@@ -8,6 +8,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
@@ -17,7 +18,7 @@ import {
   BRIDGE_TOKEN_ENV,
   bridgeEntryPath,
 } from './bridge.js';
-import { CoordinationServer, type CoordinationNotice, type HeadReviewResultHandler, type PlanProposalHandler, type ReceiverRegistry, type WorkerIdentity } from './server.js';
+import { CoordinationServer, MAX_COORDINATION_SOCKET_PATH_BYTES, type CoordinationNotice, type HeadReviewResultHandler, type PlanProposalHandler, type ReceiverRegistry, type WorkerIdentity } from './server.js';
 import {
   acknowledge as acknowledgeMessage,
   deliverableFor as deliverableForTask,
@@ -35,19 +36,26 @@ export * from './delegation.js';
 export * from './messages.js';
 export * from './server.js';
 
-/** macOS caps `sun_path` at 104 bytes; stay well under it. */
-const MAX_SOCKET_PATH_BYTES = 100;
-
 /**
  * Socket path for a run: inside the run directory when it fits, otherwise a
- * short path in the system temp directory (a long state root must not make
- * coordination impossible).
+ * short endpoint in a fresh private temporary directory. Both the state
+ * path and TMPDIR can exceed the Unix socket limit during verification.
+ * The server exclusively creates and later removes the fallback parent.
  */
 export function coordinationSocketPath(stateRoot: string, runId: string): string {
   const preferred = path.join(path.resolve(stateRoot), 'runs', runId, 'coordination.sock');
-  if (Buffer.byteLength(preferred, 'utf8') <= MAX_SOCKET_PATH_BYTES) return preferred;
-  const shortId = runId.replace(/[^A-Za-z0-9]/g, '').slice(0, 8);
-  return path.join(os.tmpdir(), `wf-${shortId}-${randomBytes(4).toString('hex')}.sock`);
+  if (Buffer.byteLength(preferred, 'utf8') <= MAX_COORDINATION_SOCKET_PATH_BYTES) return preferred;
+  // TMPDIR may itself be a deeply nested, sanitized verification directory.
+  // Measure the complete UTF-8 endpoint, including its private parent; never
+  // assume that an environment-selected temporary root is short enough.
+  const directory = `wf-${randomBytes(12).toString('hex')}`;
+  for (const candidateRoot of [os.tmpdir(), '/tmp']) {
+    let root: string;
+    try { root = realpathSync(candidateRoot); } catch { continue; }
+    const candidate = path.join(root, directory, 'c.sock');
+    if (Buffer.byteLength(candidate, 'utf8') <= MAX_COORDINATION_SOCKET_PATH_BYTES) return candidate;
+  }
+  throw new Error('No available temporary root can fit a private coordination socket within the platform path limit.');
 }
 
 export interface StdioServerConfig {
@@ -156,6 +164,7 @@ export async function createCoordinationBridge(options: CoordinationBridgeOption
   };
   const server = await CoordinationServer.start({
     socketPath,
+    ...(options.socketPath === undefined && socketPath !== path.join(path.resolve(options.stateRoot), 'runs', options.runId, 'coordination.sock') ? { createPrivateSocketDirectory: true } : {}),
     db: options.db,
     runId: options.runId,
     receivers,

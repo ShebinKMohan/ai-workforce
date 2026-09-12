@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadAgentConfigFile } from '../../src/core/config.js';
-import { ClaudeCodeAdapter, FakeAdapter, FAKE_RUNTIME_VERSION, FAKE_SCENARIO_ENV, type RuntimeAdapter, type RuntimeCapabilities, type RuntimeEvent } from '../../src/adapters/index.js';
+import { ClaudeCodeAdapter, FakeAdapter, FAKE_RUNTIME_VERSION, FAKE_SCENARIO_ENV, TESTED_CLAUDE_VERSION, type RuntimeAdapter, type RuntimeCapabilities, type RuntimeEvent } from '../../src/adapters/index.js';
 import {
   checksFromFlags,
   observeWriteBoundary,
@@ -53,6 +53,28 @@ import {
 } from '../workspaces/support.js';
 
 const execFileAsync = promisify(execFile);
+
+/** Replay sessions require no account. Keep readiness local to the same
+ * fixture instead of probing the user's installed Claude CLI before replay.
+ * Session execution, evidence parsing and containment capabilities remain the
+ * real adapter's behavior; only the fixture's readiness is deterministic. */
+class ClaudeReplayAdapter extends ClaudeCodeAdapter {
+  override async probe(executablePath: string): Promise<Awaited<ReturnType<ClaudeCodeAdapter['probe']>>> {
+    return {
+      adapter: this.id,
+      executablePath,
+      installed: true,
+      version: TESTED_CLAUDE_VERSION,
+      adapterSupported: true,
+      controllable: true,
+      authentication: 'not_required',
+      ready: 'verified_ready',
+      probeKind: 'passive',
+      diagnostics: ['deterministic Claude replay fixture; no installed CLI or account is used'],
+      observedAt: new Date().toISOString(),
+    };
+  }
+}
 
 afterEach(() => cleanupAll());
 
@@ -599,7 +621,7 @@ describe('a writing profile needs a write boundary (plan sections 6, 8 and 9; FR
         // The real Claude Code adapter, driven by its deterministic replay
         // binary: the whole adapter runs, no model turn is started.
         adapterFactory: (_runtime, context) =>
-          new ClaudeCodeAdapter({
+          new ClaudeReplayAdapter({
             executablePath: process.execPath,
             extraArgs: [CLAUDE_REPLAY],
             logsDir: context.logsDir,
@@ -738,7 +760,7 @@ describe('what the runtime says about its own turn is read as a claim, not as a 
         db: store.db,
         stream: { line: () => {}, event: () => {} },
         adapterFactory: (_runtime, context) =>
-          new ClaudeCodeAdapter({
+          new ClaudeReplayAdapter({
             executablePath: process.execPath,
             extraArgs: [CLAUDE_REPLAY],
             logsDir: context.logsDir,

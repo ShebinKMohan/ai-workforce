@@ -1,8 +1,8 @@
 /**
  * Coordinator side of the coordination transport (FR033, FR035, FR036).
  *
- * A unix socket under the state root, outside every worker's writable
- * workspace. Each worker session is issued a pre-shared token when its bridge
+ * A Unix socket under the state root or a private short temporary directory,
+ * outside every worker's writable workspace. Each worker session is issued a pre-shared token when its bridge
  * is configured; the coordinator maps that token to the sender identity
  * (runId, taskId, attemptId) it recorded when it created the attempt.
  *
@@ -13,7 +13,7 @@
  * a budget, or an acceptance.
  */
 import { randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmdirSync, rmSync, statSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -580,8 +580,13 @@ function formatIssues(error: z.ZodError): string {
 // Socket server
 // ---------------------------------------------------------------------------
 
+/** macOS sun_path is 104 bytes including the terminator; reserve room. */
+export const MAX_COORDINATION_SOCKET_PATH_BYTES = 100;
+
 export interface CoordinationServerOptions {
   readonly socketPath: string;
+  /** Exclusively create and own a fallback directory, never an existing parent. */
+  readonly createPrivateSocketDirectory?: boolean;
   readonly db: DatabaseSync;
   readonly runId: string;
   readonly maxMessagesPerAttempt?: number;
@@ -603,6 +608,8 @@ export class CoordinationServer {
   readonly #reviewHandlers = new Map<string, HeadReviewResultHandler>();
   readonly #options: CoordinationServerOptions;
   #closed = false;
+  #boundSocket = false;
+  #ownedDirectory: { path: string; dev: number; ino: number } | null = null;
 
   private constructor(options: CoordinationServerOptions) {
     this.socketPath = options.socketPath;
@@ -617,8 +624,8 @@ export class CoordinationServer {
 
   static async start(options: CoordinationServerOptions): Promise<CoordinationServer> {
     const server = new CoordinationServer(options);
-    await server.#listen();
-    return server;
+    try { await server.#listen(); return server; }
+    catch (error) { await server.close(); throw error; }
   }
 
   /**
@@ -675,15 +682,32 @@ export class CoordinationServer {
       this.#server.close(() => resolve());
     });
     try {
-      rmSync(this.socketPath, { force: true });
+      if (this.#boundSocket) rmSync(this.socketPath, { force: true });
     } catch {
       // Best effort: a missing socket file is the desired end state anyway.
+    }
+    const owned = this.#ownedDirectory;
+    if (owned) {
+      try {
+        const current = lstatSync(owned.path);
+        if (current.isDirectory() && current.dev === owned.dev && current.ino === owned.ino) rmdirSync(owned.path);
+      } catch {
+        // Remove only the empty directory this instance created. Unexpected
+        // contents or a replacement are preserved, never recursively deleted.
+      }
+      this.#ownedDirectory = null;
     }
   }
 
   #listen(): Promise<void> {
+    if (Buffer.byteLength(this.socketPath, 'utf8') > MAX_COORDINATION_SOCKET_PATH_BYTES) throw new CoordinationError('socket_path_too_long', 'The coordination socket path exceeds the platform limit.');
     const dir = path.dirname(this.socketPath);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    if (this.#options.createPrivateSocketDirectory) {
+      mkdirSync(dir, { mode: 0o700 }); // Exclusive: EEXIST is a refusal, never reuse.
+      const created = lstatSync(dir);
+      this.#ownedDirectory = { path: dir, dev: created.dev, ino: created.ino };
+      if (!created.isDirectory() || (process.getuid && created.uid !== process.getuid()) || (created.mode & 0o077) !== 0) throw new CoordinationError('socket_directory_not_private', 'The coordination socket directory is not privately owned by this process user.');
+    } else mkdirSync(dir, { recursive: true, mode: 0o700 });
     if (existsSync(this.socketPath)) {
       // A leftover socket from a dead coordinator; the coordinator lock guarantees we are the only writer.
       try {
@@ -696,11 +720,13 @@ export class CoordinationServer {
       const onError = (error: Error): void => reject(error);
       this.#server.once('error', onError);
       this.#server.listen(this.socketPath, () => {
+        this.#boundSocket = true;
         this.#server.removeListener('error', onError);
         try {
           chmodSync(this.socketPath, 0o600);
-        } catch {
-          // Not fatal: the socket already lives in a 0700 state root.
+        } catch (error) {
+          reject(error);
+          return;
         }
         resolve();
       });

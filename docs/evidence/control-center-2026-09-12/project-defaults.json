@@ -1,0 +1,23 @@
+{
+  "revision": 17,
+  "project": {
+    "id": "ai-employee",
+    "name": "AI Employee",
+    "repoPath": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee",
+    "checks": [
+      "node --input-type=module -e 'import{spawnSync}from\"node:child_process\";for(const args of[[\"ci\",\"--ignore-scripts\",\"--include=dev\",\"--include=optional\",\"--no-audit\",\"--no-fund\"],[\"run\",\"build\"],[\"run\",\"typecheck\"],[\"test\"]]){const r=spawnSync(\"npm\",args,{stdio:\"inherit\",shell:false});if(r.error||r.status!==0)process.exit(r.status||1)}'"
+    ],
+    "archived": false
+  },
+  "workerIds": [
+    "shebin",
+    "ami",
+    "jvhjh",
+    "nbuhgj"
+  ],
+  "controlCenter": {
+    "runtime": "codex-local",
+    "model": "gpt-5.5",
+    "effort": "low"
+  }
+}

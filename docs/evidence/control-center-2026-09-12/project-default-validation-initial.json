@@ -1,0 +1,100 @@
+{
+  "proofVersion": 1,
+  "revision": "c47aa176266960d73214c219cb84f80fb0da5ad4",
+  "observedAt": "2026-09-12T17:35:29.221Z",
+  "recipe": "node --input-type=module -e 'import{spawnSync}from\"node:child_process\";for(const args of[[\"ci\",\"--ignore-scripts\",\"--include=dev\",\"--include=optional\",\"--no-audit\",\"--no-fund\"],[\"run\",\"build\"],[\"run\",\"typecheck\"],[\"test\"]]){const r=spawnSync(\"npm\",args,{stdio:\"inherit\",shell:false});if(r.error||r.status!==0)process.exit(r.status||1)}'",
+  "recipeCharacters": 336,
+  "outcome": "failed",
+  "exitCode": 1,
+  "durationMs": 140884,
+  "copyStrategy": "git_archive",
+  "evidenceProvenance": "verifier_executed",
+  "stages": {
+    "install": "passed",
+    "build": "passed",
+    "typecheck": "passed",
+    "test": "failed"
+  },
+  "testSummary": {
+    "files": {
+      "failed": 13,
+      "passed": 112,
+      "skipped": 2,
+      "total": 127
+    },
+    "tests": {
+      "failed": 93,
+      "passed": 1303,
+      "skipped": 32,
+      "total": 1428
+    }
+  },
+  "diagnosis": "86 failed tests are consistent with coordination bridge startup failure from the verifier's long isolated TMPDIR exceeding macOS Unix socket pathname limits; this includes downstream missing-plan/message assertions. Seven independent deterministic Claude replay tests still probe the real installed Claude CLI, whose authentication is unavailable in the fresh verifier HOME. Dependency installation, build and typecheck passed; this default has not passed full validation.",
+  "integrity": {
+    "mutated": false,
+    "mutatedFiles": [],
+    "scope": "complete",
+    "fileCount": 899,
+    "addedFilesReported": 200
+  },
+  "stateRootGuard": {
+    "stateRoot": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/state",
+    "checked": true,
+    "violations": [],
+    "observations": [],
+    "before": "540a113716a5c09d548991239e50c99e07f57a90bf9b387cf60b1808c570c621",
+    "after": "540a113716a5c09d548991239e50c99e07f57a90bf9b387cf60b1808c570c621",
+    "scope": "complete",
+    "note": "the coordinator state root was unchanged, apart from bytes inside runs/ and workspaces/ and the database and lock files that the coordinator itself writes during a run"
+  },
+  "containment": {
+    "copyRoot": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/candidate",
+    "home": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/home-EUtfz6",
+    "tmp": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV",
+    "cwd": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/candidate",
+    "stateRoot": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/state",
+    "outsideStateRoot": true,
+    "verificationRootOrigin": "requested",
+    "evidenceRoot": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/state/runs/01a096ac-f3ed-701b-85be-d777d15b71a3/verification/01-check-1/logs"
+  },
+  "logs": {
+    "stdout": {
+      "path": "project-default-validation-initial.stdout.log",
+      "sha256": "38a1aabf4eb7ae71b98df5ec512cced2794e935af5ff4401e9b77d21983af068"
+    },
+    "stderr": {
+      "path": "project-default-validation-initial.stderr.log",
+      "sha256": "5aa957639bfca5b3cbd85973af005f863bf384170c44c5d73a0acc75d68c945d"
+    },
+    "receipt": "project-default-validation-initial.receipt.json"
+  },
+  "limits": [
+    "This is a failed verifier execution, not an accepted runtime task.",
+    "Checks run with the current user privileges and unrestricted network; fresh HOME/TMPDIR and fingerprint guards provide isolation and detection, not an OS sandbox.",
+    "No main checkout source or live workspace state was edited by this validation."
+  ],
+  "failureClasses": [
+    {
+      "testCount": 86,
+      "cause": "long_unix_socket_path",
+      "primary": "listen EINVAL in coordination bridge setup",
+      "followOn": "Undefined bridge teardown and absent coordination/planning/review events",
+      "source": "src/coordination/index.ts:47"
+    },
+    {
+      "testCount": 7,
+      "cause": "nonhermetic_replay_readiness",
+      "testFile": "tests/run/direct.test.ts",
+      "lines": [
+        626,
+        639,
+        646,
+        761,
+        777,
+        797,
+        813
+      ],
+      "primary": "runtime_not_logged_in from real Claude CLI despite injected deterministic replay adapter"
+    }
+  ]
+}

@@ -1,0 +1,1658 @@
+npm notice
+npm notice New major version of npm available! 11.19.0 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 93 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > advertises exactly the six coordination tools
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-428dfeff.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > advertises exactly the six coordination tools
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > AT08: prose and imitation JSON produce no operation; only a real tools/call does
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > collapses duplicate submissions with the same idempotency key into one message
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > AT08: a transport retry of one request id is one message, not two
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > AT08: an identical submission with no idempotency key is one message
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > stamps the sender from the session token, so a worker cannot forge another identity
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > refuses a connection whose token was never issued, and one that was revoked
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > lets only the recipient acknowledge a message
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > records a result report as a claim and never as an acceptance
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > rejects an artifact path that escapes the workspace
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > produces launch configuration for both runtimes
+TypeError: Cannot read properties of undefined (reading 'close')
+ ❯ tests/coordination/bridge.test.ts:36:18
+     34|   afterEach(async () => {
+     35|     for (const worker of workers.splice(0)) await worker.close();
+     36|     await bridge.close();
+       |                  ^
+     37|     state.cleanup();
+     38|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > AT08: prose and imitation JSON produce no operation; only a real tools/call does
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-b7c7757c.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > collapses duplicate submissions with the same idempotency key into one message
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-5f8a2af5.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > AT08: a transport retry of one request id is one message, not two
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-72faeebc.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > AT08: an identical submission with no idempotency key is one message
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-77bb72e7.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > stamps the sender from the session token, so a worker cannot forge another identity
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-a33e96a7.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > refuses a connection whose token was never issued, and one that was revoked
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-92d28488.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > lets only the recipient acknowledge a message
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-9399a1e0.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > records a result report as a claim and never as an acceptance
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-533d9fde.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > rejects an artifact path that escapes the workspace
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-d7448c0a.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/134]⎯
+
+ FAIL  tests/coordination/bridge.test.ts > coordination bridge (MCP over stdio) > produces launch configuration for both runtimes
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-c58a3703.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/bridge.test.ts:31:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/134]⎯
+
+ FAIL  tests/coordination/delegation.test.ts > delegation admission control > rejects a request that would exceed maxDelegationDepth, with a reason
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-2d51e63f.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ openBridge tests/coordination/delegation.test.ts:23:26
+ ❯ tests/coordination/delegation.test.ts:68:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/134]⎯
+
+ FAIL  tests/coordination/delegation.test.ts > delegation admission control > rejects a request that would exceed maxTasksPerRun
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-ea942977.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ openBridge tests/coordination/delegation.test.ts:23:26
+ ❯ tests/coordination/delegation.test.ts:86:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/134]⎯
+
+ FAIL  tests/coordination/delegation.test.ts > delegation admission control > a peer message can never widen the budgets used for the decision
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-0dc32afe.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ openBridge tests/coordination/delegation.test.ts:23:26
+ ❯ tests/coordination/delegation.test.ts:99:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/134]⎯
+
+ FAIL  tests/coordination/delegation.test.ts > delegation admission control > queues an allowed request without creating a task or granting acceptance
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-b61b551e.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ openBridge tests/coordination/delegation.test.ts:23:26
+ ❯ tests/coordination/delegation.test.ts:114:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > refuses a message to a task that has already finished, and says why
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-a7edea7f.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/delivery-lifecycle.test.ts:47:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > refuses a message to a task that has already finished, and says why
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > keeps the refused message as evidence in a terminal state, never as "submitted"
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > makes the refusal visible: an event and a notice the operator can be shown
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > accepts a message for a live recipient and wakes that session at once
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > accepts a message for a task that has not started, because its prompt will carry it
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > tells the sender when nothing is holding the message, instead of implying delivery
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > a closed receiver stops the coordinator claiming the task can be reached
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > lets a sender read what became of its own messages
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > a message to the coordinator is never treated as undeliverable
+TypeError: Cannot read properties of undefined (reading 'close')
+ ❯ tests/coordination/delivery-lifecycle.test.ts:57:18
+     55|   afterEach(async () => {
+     56|     for (const worker of workers.splice(0)) await worker.close();
+     57|     await bridge.close();
+       |                  ^
+     58|     state.cleanup();
+     59|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > keeps the refused message as evidence in a terminal state, never as "submitted"
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-df097b22.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/delivery-lifecycle.test.ts:47:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > makes the refusal visible: an event and a notice the operator can be shown
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-26b01b02.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/delivery-lifecycle.test.ts:47:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > accepts a message for a live recipient and wakes that session at once
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-e0a9ac5b.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/delivery-lifecycle.test.ts:47:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > accepts a message for a task that has not started, because its prompt will carry it
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-813e7a92.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/delivery-lifecycle.test.ts:47:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > tells the sender when nothing is holding the message, instead of implying delivery
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-b80ce1a1.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/delivery-lifecycle.test.ts:47:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > a closed receiver stops the coordinator claiming the task can be reached
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-8839e2aa.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/delivery-lifecycle.test.ts:47:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > lets a sender read what became of its own messages
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-86c38f42.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/delivery-lifecycle.test.ts:47:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/134]⎯
+
+ FAIL  tests/coordination/delivery-lifecycle.test.ts > the life of a coordination message > a message to the coordinator is never treated as undeliverable
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-9b5f07c0.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/delivery-lifecycle.test.ts:47:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > offers only the review tool in an actual MCP subprocess and ignores prose and imitation JSON
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-6f4e5dd8.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > offers only the review tool in an actual MCP subprocess and ignores prose and imitation JSON
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > forwards a concrete review call once when the MCP client retries the same request id
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > refuses worker and planning tokens even when a client advertises a review role
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > refuses every worker operation and plan proposal with a review token
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > routes each review token only to its own callback and rejects revoked sessions
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects unsupported version before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty candidate before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects oversized candidate before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty diff hash before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects unknown verdict before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty summary before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects omitted findings before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects too many findings before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty finding summary before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty finding file before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects zero line before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects fractional line before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects forged identity before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects unknown nested field before invoking the review handler
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > preserves changes-requested findings and callback refusal without interpreting the verdict as acceptance
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > fails closed when a review identity has no callback and leaves planning behavior available
+TypeError: Cannot read properties of undefined (reading 'close')
+ ❯ tests/coordination/head-review-bridge.test.ts:75:18
+     73|
+     74|   afterEach(async () => {
+     75|     await bridge.close();
+       |                  ^
+     76|     state.cleanup();
+     77|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > forwards a concrete review call once when the MCP client retries the same request id
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-8829cb1f.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > refuses worker and planning tokens even when a client advertises a review role
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-cfc63ff7.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > refuses every worker operation and plan proposal with a review token
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-aac55478.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > routes each review token only to its own callback and rejects revoked sessions
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-932ff33c.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects unsupported version before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-2579bf18.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty candidate before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-f9fd3b4c.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects oversized candidate before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-2cd05f57.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty diff hash before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-451ed374.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects unknown verdict before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-c992eb87.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty summary before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-bb652b4f.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects omitted findings before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-5c0bb6d4.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects too many findings before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-6b37a422.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty finding summary before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-26e65353.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[41/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects empty finding file before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-16de182c.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[42/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects zero line before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-38cfe8b7.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[43/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects fractional line before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-5e35fcaf.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[44/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects forged identity before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-28fe6c61.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[45/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > rejects unknown nested field before invoking the review handler
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-b6cced2f.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[46/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > preserves changes-requested findings and callback refusal without interpreting the verdict as acceptance
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-8fe03d67.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[47/134]⎯
+
+ FAIL  tests/coordination/head-review-bridge.test.ts > department head review bridge authorization > fails closed when a review identity has no callback and leaves planning behavior available
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-2a4cc2b5.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/coordination/head-review-bridge.test.ts:71:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[48/134]⎯
+
+ FAIL  tests/integration/coordination-delivery.test.ts > a planned run and a message that never arrives > expires it, records it, prints it and carries it into the run's unresolved facts
+AssertionError: expected 'submitted' to be 'expired' // Object.is equality
+
+Expected: "expired"
+Received: "submitted"
+
+ ❯ tests/integration/coordination-delivery.test.ts:120:32
+    118|     //    to still be on its way.
+    119|     const row = store.db.prepare('SELECT delivery_state FROM messages …
+    120|     expect(row.delivery_state).toBe('expired');
+       |                                ^
+    121|
+    122|     // 2. The event log says it failed, and names both ends.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[49/134]⎯
+
+ FAIL  tests/integration/coordination-wiring.test.ts > the run path attaches its worker to the coordination bridge > mints a per-attempt identity, passes it to the session and revokes it afterwards
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/coordination-wiring.test.ts:52:42
+     50|
+     51|     // A bridge was started for the run and this attempt was attached …
+     52|     expect(result.coordination.attached).toBe(true);
+       |                                          ^
+     53|     expect(result.coordination.reason).toBeNull();
+     54|     expect(result.coordination.socketPath).not.toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[50/134]⎯
+
+ FAIL  tests/integration/coordination-wiring.test.ts > the run path attaches its worker to the coordination bridge > gives each runtime its own way of reaching the bridge, and nothing to a runtime that has none
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-bb70c749.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/integration/coordination-wiring.test.ts:89:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[51/134]⎯
+
+ FAIL  tests/integration/wiring.test.ts > the CLI routes between the direct and planned paths > keeps a single bounded request on the direct path
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/integration/wiring.test.ts:340:44
+    338|     expect(document.route.path).toBe('direct');
+    339|     expect(document.accepted).toBe(true);
+    340|     expect(document.coordination.attached).toBe(true);
+       |                                            ^
+    341|   }, 120_000);
+    342|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[52/134]⎯
+
+ FAIL  tests/run/coordination-boundaries.test.ts > a message that arrives as the turn ends > is not acknowledged by a session that is about to be stopped; it fails visibly instead
+AssertionError: expected [] to deeply equal [ 'turn_already_ended', …(1) ]
+
+- Expected
++ Received
+
+- [
+-   "turn_already_ended",
+-   "never_delivered",
+- ]
++ []
+
+ ❯ tests/run/coordination-boundaries.test.ts:94:58
+     92|     expect(result.coordination.messagesDelivered).toBe(0);
+     93|     // The attempt says the turn had already ended; the run says it ex…
+     94|     expect(failed.map((event) => event.payload['code'])).toEqual(['tur…
+       |                                                          ^
+     95|
+     96|     const row = store.db.prepare('SELECT delivery_state FROM messages …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[53/134]⎯
+
+ FAIL  tests/run/coordination-boundaries.test.ts > a message that arrives as the turn ends > is delivered into the live turn when it arrives while the worker is still working
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/run/coordination-boundaries.test.ts:179:23
+    177|       (event) => event.type === 'coordination.delivered' && event.payl…
+    178|     );
+    179|     expect(delivered).toHaveLength(1);
+       |                       ^
+    180|     expect(delivered[0]?.payload['state']).toBe('submitted_to_active_t…
+    181|     expect(result.coordination.messagesDelivered).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[54/134]⎯
+
+ FAIL  tests/run/direct.test.ts > a writing profile needs a write boundary (plan sections 6, 8 and 9; FR005, FR042) > refuses to dispatch a writing profile to a runtime that enforces no write boundary
+AssertionError: expected 'runtime_not_logged_in' to be 'write_boundary_unsupported' // Object.is equality
+
+Expected: "write_boundary_unsupported"
+Received: "runtime_not_logged_in"
+
+ ❯ tests/run/direct.test.ts:626:43
+    624|     expect(result).toBeNull();
+    625|     expect(error).toBeInstanceOf(RunSetupError);
+    626|     expect((error as RunSetupError).code).toBe('write_boundary_unsuppo…
+       |                                           ^
+    627|     expect((error as Error).message).toContain('write_containment "uns…
+    628|     expect((error as Error).message).toContain('--allow-unconfined-wri…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[55/134]⎯
+
+ FAIL  tests/run/direct.test.ts > a writing profile needs a write boundary (plan sections 6, 8 and 9; FR005, FR042) > opens a read-only profile on the same runtime without a boundary it does not need
+AssertionError: expected RunSetupError: agent "engineer" runs on c… { code: '…' } to be null
+
+- Expected:
+null
+
++ Received:
+RunSetupError {
+  "message": "agent \"engineer\" runs on claude-code (claude), and the runtime reports it is not logged in. installed Claude Code 2.1.236 differs from the tested version 2.1.260; capability statuses were established against the tested version; the initialize control round-trip failed: claude exited (code 1, signal null). Nothing this coordinator can do fixes that: log in interactively, then run this again. Refused before a workspace, a branch or a session was created, rather than after the provider rejects every retry.",
+  "code": "runtime_not_logged_in",
+  "name": "RunSetupError",
+}
+
+ ❯ tests/run/direct.test.ts:639:19
+    637|     // block it: the run proceeds and fails for its own reason (the wo…
+    638|     // scenario writes, but nothing accepts an unchanged candidate).
+    639|     expect(error).toBeNull();
+       |                   ^
+    640|     expect(result!.manifest.evidence['containment']).toMatchObject({ p…
+    641|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[56/134]⎯
+
+ FAIL  tests/run/direct.test.ts > a writing profile needs a write boundary (plan sections 6, 8 and 9; FR005, FR042) > records the missing boundary in the manifest when a human explicitly accepts one
+AssertionError: expected RunSetupError: agent "engineer" runs on c… { code: '…' } to be null
+
+- Expected:
+null
+
++ Received:
+RunSetupError {
+  "message": "agent \"engineer\" runs on claude-code (claude), and the runtime reports it is not logged in. installed Claude Code 2.1.236 differs from the tested version 2.1.260; capability statuses were established against the tested version; the initialize control round-trip failed: claude exited (code 1, signal null). Nothing this coordinator can do fixes that: log in interactively, then run this again. Refused before a workspace, a branch or a session was created, rather than after the provider rejects every retry.",
+  "code": "runtime_not_logged_in",
+  "name": "RunSetupError",
+}
+
+ ❯ tests/run/direct.test.ts:646:19
+    644|     const { result, error, lines } = await runClaude({ allowUnconfined…
+    645|
+    646|     expect(error).toBeNull();
+       |                   ^
+    647|     const manifest = result!.manifest;
+    648|     // The run works: the fix lands, the verifier executes the criteri…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[57/134]⎯
+
+ FAIL  tests/run/direct.test.ts > what the runtime says about its own turn is read as a claim, not as a result (FR003, FR004, FR042, FR050) > refuses a candidate whose evidence carries a session id the coordinator never minted
+RunSetupError: agent "engineer" runs on claude-code (claude), and the runtime reports it is not logged in. installed Claude Code 2.1.236 differs from the tested version 2.1.260; capability statuses were established against the tested version; the initialize control round-trip failed: claude exited (code 1, signal null). Nothing this coordinator can do fixes that: log in interactively, then run this again. Refused before a workspace, a branch or a session was created, rather than after the provider rejects every retry.
+ ❯ runDirect src/core/run-direct.ts:1259:11
+    1257|   if (preflight?.authentication === 'logged_out') {
+    1258|     dispatchSpan.end();
+    1259|     throw new RunSetupError(
+       |           ^
+    1260|       'runtime_not_logged_in',
+    1261|       `agent "${agentId}" runs on ${adapter.id} (${binding.runtime.exe…
+ ❯ runReplay tests/run/direct.test.ts:730:14
+ ❯ tests/run/direct.test.ts:761:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[58/134]⎯
+
+ FAIL  tests/run/direct.test.ts > what the runtime says about its own turn is read as a claim, not as a result (FR003, FR004, FR042, FR050) > does not record a terminal record that reports failure as a completed turn
+RunSetupError: agent "engineer" runs on claude-code (claude), and the runtime reports it is not logged in. installed Claude Code 2.1.236 differs from the tested version 2.1.260; capability statuses were established against the tested version; the initialize control round-trip failed: claude exited (code 1, signal null). Nothing this coordinator can do fixes that: log in interactively, then run this again. Refused before a workspace, a branch or a session was created, rather than after the provider rejects every retry.
+ ❯ runDirect src/core/run-direct.ts:1259:11
+    1257|   if (preflight?.authentication === 'logged_out') {
+    1258|     dispatchSpan.end();
+    1259|     throw new RunSetupError(
+       |           ^
+    1260|       'runtime_not_logged_in',
+    1261|       `agent "${agentId}" runs on ${adapter.id} (${binding.runtime.exe…
+ ❯ runReplay tests/run/direct.test.ts:730:14
+ ❯ tests/run/direct.test.ts:777:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[59/134]⎯
+
+ FAIL  tests/run/direct.test.ts > what the runtime says about its own turn is read as a claim, not as a result (FR003, FR004, FR042, FR050) > classifies a recorded authentication failure from the runtime's own tag, so a fallback is reachable (AT04)
+RunSetupError: agent "engineer" runs on claude-code (claude), and the runtime reports it is not logged in. installed Claude Code 2.1.236 differs from the tested version 2.1.260; capability statuses were established against the tested version; the initialize control round-trip failed: claude exited (code 1, signal null). Nothing this coordinator can do fixes that: log in interactively, then run this again. Refused before a workspace, a branch or a session was created, rather than after the provider rejects every retry.
+ ❯ runDirect src/core/run-direct.ts:1259:11
+    1257|   if (preflight?.authentication === 'logged_out') {
+    1258|     dispatchSpan.end();
+    1259|     throw new RunSetupError(
+       |           ^
+    1260|       'runtime_not_logged_in',
+    1261|       `agent "${agentId}" runs on ${adapter.id} (${binding.runtime.exe…
+ ❯ runReplay tests/run/direct.test.ts:730:14
+ ❯ tests/run/direct.test.ts:797:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[60/134]⎯
+
+ FAIL  tests/run/direct.test.ts > what the runtime says about its own turn is read as a claim, not as a result (FR003, FR004, FR042, FR050) > does not present an empty escape list as a checked negative on a runtime with no write boundary
+RunSetupError: agent "engineer" runs on claude-code (claude), and the runtime reports it is not logged in. installed Claude Code 2.1.236 differs from the tested version 2.1.260; capability statuses were established against the tested version; the initialize control round-trip failed: claude exited (code 1, signal null). Nothing this coordinator can do fixes that: log in interactively, then run this again. Refused before a workspace, a branch or a session was created, rather than after the provider rejects every retry.
+ ❯ runDirect src/core/run-direct.ts:1259:11
+    1257|   if (preflight?.authentication === 'logged_out') {
+    1258|     dispatchSpan.end();
+    1259|     throw new RunSetupError(
+       |           ^
+    1260|       'runtime_not_logged_in',
+    1261|       `agent "${agentId}" runs on ${adapter.id} (${binding.runtime.exe…
+ ❯ runReplay tests/run/direct.test.ts:730:14
+ ❯ tests/run/direct.test.ts:813:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[61/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > a request to a department: the head plans, its workers do the work > surfaces a rejected runtime model request and starts neither a second head nor a worker
+AssertionError: expected 'head_planning_unavailable' to be 'head_runtime_rejected' // Object.is equality
+
+Expected: "head_runtime_rejected"
+Received: "head_planning_unavailable"
+
+ ❯ tests/run/head-planning.test.ts:187:25
+    185|     }
+    186|     const { error } = await runDepartment(stateRoot, undefined, undefi…
+    187|     expect(error?.code).toBe('head_runtime_rejected');
+       |                         ^
+    188|     expect(error?.message).toContain(message);
+    189|     expect(error?.details.join('\n')).toContain('choose a supported mo…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[62/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > a request to a department: the head plans, its workers do the work > runs two assigned tasks at once in their own worktrees and accepts only the verified combined candidate
+AssertionError: expected CliError: head "atlas" has no way to deli… { …(3) } to be null
+
+- Expected:
+null
+
++ Received:
+CliError {
+  "message": "head \"atlas\" has no way to deliver a plan: the run's coordination bridge did not start, and a plan written as text creates nothing",
+  "exitCode": 4,
+  "code": "head_planning_unavailable",
+  "details": [
+    "no coordination bridge was started for this run (listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-70390fde.sock); its workers had no channel to the coordinator",
+    "run 01a096ad-101b-7025-b733-69830b9ec92d records it: /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/workforce-head-H8meZj/projects/app/runs/01a096ad-101b-7025-b733-69830b9ec92d",
+  ],
+  "name": "CliError",
+}
+
+ ❯ tests/run/head-planning.test.ts:214:19
+    212|
+    213|     const { result, error } = await runDepartment(stateRoot);
+    214|     expect(error).toBeNull();
+       |                   ^
+    215|     expect(result!.exitCode).toBe(EXIT_CODES.verifiedCandidate);
+    216|     expect(result!.data).toMatchObject({ accepted: true, outcome: 'acc…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[63/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > a request to a department: the head plans, its workers do the work > retains the combined candidate and semantic feedback when the head requests changes, without a success reply
+AssertionError: expected undefined to match object { accepted: false, …(4) }
+
+- Expected:
+{
+  "accepted": false,
+  "finalReply": null,
+  "headReview": {
+    "verdict": "changes_requested",
+  },
+  "outcome": "failed",
+  "runState": "failed",
+}
+
++ Received:
+undefined
+
+ ❯ tests/run/head-planning.test.ts:300:35
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[64/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > a request to a department: the head plans, its workers do the work > stops during review, preserves its required frozen gate, and resumes without repeating accepted worker tasks
+AssertionError: expected undefined to match object { accepted: false, …(4) }
+
+- Expected:
+{
+  "accepted": false,
+  "finalReply": null,
+  "headReview": {
+    "sessionStopped": true,
+    "verdict": "blocked",
+  },
+  "outcome": "interrupted",
+  "runState": "interrupted",
+}
+
++ Received:
+undefined
+
+ ❯ tests/run/head-planning.test.ts:315:35
+    313|     const controller = new AbortController();
+    314|     const response = await runDepartment(stateRoot, controller.signal,…
+    315|     expect(response.result?.data).toMatchObject({ accepted: false, out…
+       |                                   ^
+    316|     const runId = onlyRunId(stateRoot);
+    317|     const projectRoot = path.join(stateRoot, 'projects', 'app');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[65/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > a request to a department: the head plans, its workers do the work > rejects a plan that gives work to someone outside the roster, twice, and never creates a worker attempt
+AssertionError: expected 'head_planning_unavailable' to be 'plan_rejected' // Object.is equality
+
+Expected: "plan_rejected"
+Received: "head_planning_unavailable"
+
+ ❯ tests/run/head-planning.test.ts:344:25
+    342|     const { error } = await runDepartment(stateRoot);
+    343|     expect(error?.exitCode).toBe(EXIT_CODES.executionFailure);
+    344|     expect(error?.code).toBe('plan_rejected');
+       |                         ^
+    345|     expect(error?.message).toBe('department head "atlas" did not produ…
+    346|     expect(error?.details.join('\n')).toMatch(/\[unknown_assignee\] ta…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[66/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > a request to a department: the head plans, its workers do the work > creates nothing from a plan written as prose
+AssertionError: expected 'head_planning_unavailable' to be 'plan_rejected' // Object.is equality
+
+Expected: "plan_rejected"
+Received: "head_planning_unavailable"
+
+ ❯ tests/run/head-planning.test.ts:372:25
+    370|
+    371|     const { error } = await runDepartment(stateRoot);
+    372|     expect(error?.code).toBe('plan_rejected');
+       |                         ^
+    373|     expect(error?.details.join('\n')).toMatch(/\[no_plan_proposed\] \(…
+    374|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[67/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > a request to a department: the head plans, its workers do the work > gives an invalid plan exactly one retry with its issues, then fails with the reason and starts no worker
+AssertionError: expected 'head_planning_unavailable' to be 'plan_rejected' // Object.is equality
+
+Expected: "plan_rejected"
+Received: "head_planning_unavailable"
+
+ ❯ tests/run/head-planning.test.ts:402:25
+    400|
+    401|     const { error } = await runDepartment(stateRoot);
+    402|     expect(error?.code).toBe('plan_rejected');
+       |                         ^
+    403|     expect(error?.details.join('\n')).toMatch(/\[missing_acceptance_cr…
+    404|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[68/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > a request to a department: the head plans, its workers do the work > starts the workers when the retry fixes the plan
+AssertionError: expected CliError: head "atlas" has no way to deli… { …(3) } to be null
+
+- Expected:
+null
+
++ Received:
+CliError {
+  "message": "head \"atlas\" has no way to deliver a plan: the run's coordination bridge did not start, and a plan written as text creates nothing",
+  "exitCode": 4,
+  "code": "head_planning_unavailable",
+  "details": [
+    "no coordination bridge was started for this run (listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-1171842d.sock); its workers had no channel to the coordinator",
+    "run 01a096ad-24eb-721c-b5f5-057e4cc74f1c records it: /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/workforce-head-Dq7FuL/projects/app/runs/01a096ad-24eb-721c-b5f5-057e4cc74f1c",
+  ],
+  "name": "CliError",
+}
+
+ ❯ tests/run/head-planning.test.ts:442:19
+    440|
+    441|     const { result, error } = await runDepartment(stateRoot);
+    442|     expect(error).toBeNull();
+       |                   ^
+    443|     expect(result!.exitCode).toBe(EXIT_CODES.verifiedCandidate);
+    444|     expect(result!.data).toMatchObject({ accepted: true, plan: { attem…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[69/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > Stop and Resume of a planned department run > preserves a stopped head request and resumes planning once under its original roster and checks
+AssertionError: expected CliError: head "atlas" has no way to deli… { …(3) } to match object { exitCode: 130, code: 'interrupted' }
+(2 matching properties omitted from actual)
+
+- Expected
++ Received
+
+- {
+-   "code": "interrupted",
+-   "exitCode": 130,
++ CliError {
++   "code": "head_planning_unavailable",
++   "exitCode": 4,
+  }
+
+ ❯ tests/run/head-planning.test.ts:462:27
+    460|       if (chunk.includes('HEAD-PLANNING-WAIT')) controller.abort();
+    461|     });
+    462|     expect(stopped.error).toMatchObject({ exitCode: EXIT_CODES.interru…
+       |                           ^
+    463|     const runId = onlyRunId(stateRoot);
+    464|     const projectRoot = path.join(stateRoot, 'projects', 'app');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[70/134]⎯
+
+ FAIL  tests/run/head-planning.test.ts > Stop and Resume of a planned department run > ends interrupted, not failed, and resume finishes the same plan under the same assignees
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/run/head-planning.test.ts:589:27
+    587|
+    588|     const stopped = await runDepartment(stateRoot, controller.signal);
+    589|     expect(await stopper).toBe(true);
+       |                           ^
+    590|     expect(stopped.error).toBeNull();
+    591|     expect(stopped.result!.exitCode).toBe(EXIT_CODES.interrupted);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[71/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > reviews both patches and verifier receipts through a real tool call, stops the session and preserves the checkout
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-884db079.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[72/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > records substantive changes requested despite passing independent checks
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-52156511.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[73/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > cannot approve from assistant prose or a successful exit without the review tool
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-c2136249.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[74/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > preserves a fatal runtime error even after a structured approval and clean turn exit
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-7a9f5fe8.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[75/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > rejects an otherwise valid approval for a different candidateRevision
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-9c6780c1.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[76/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > rejects an otherwise valid approval for a different diffHash
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-80c6661f.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[77/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > invalidates an approval if the head changes either part of its review candidate
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-a2751710.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[78/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > stops a live head, records interruption and allows a later bounded replacement
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-44048dc2.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[79/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > does not deliver approval without observed process-tree termination
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-17132584.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[80/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > starts no head when independent verifier evidence is missing
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-fe2974d6.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[81/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > starts no head when independent verifier evidence is stale
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-332a69d4.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[82/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > starts no head when independent verifier evidence is failed
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-4f19a112.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[83/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > blocks resume beside missing_process_receipt and starts no replacement
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-6c0ea0c7.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[84/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > blocks resume beside live_process and starts no replacement
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-9c919475.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[85/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > blocks resume beside unknown_process and starts no replacement
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-2cf56676.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[86/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > keeps a late-opening session blocked until its owned process stop is durably recorded
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-1eab50e7.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[87/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > records a known pre-start rejection without an owned session and permits a later retry
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-d928e482.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[88/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > keeps a generic startup failure blocked when no process cleanup evidence exists
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-f51a0016.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[89/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > uses a post-start failure’s process_tree_terminated receipt to decide whether a replacement may start
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-2c8ebe6c.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[90/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > uses a post-start failure’s requested receipt to decide whether a replacement may start
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-28368937.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[91/134]⎯
+
+ FAIL  tests/run/head-review.test.ts > department head reviews the checked combined candidate > uses a post-start failure’s unknown receipt to decide whether a replacement may start
+Error: listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-0eaa8fad.sock
+ ❯ src/coordination/server.ts:698:20
+    696|       const onError = (error: Error): void => reject(error);
+    697|       this.#server.once('error', onError);
+    698|       this.#server.listen(this.socketPath, () => {
+       |                    ^
+    699|         this.#server.removeListener('error', onError);
+    700|         try {
+ ❯ CoordinationServer.#listen src/coordination/server.ts:695:12
+ ❯ CoordinationServer.start src/coordination/server.ts:620:18
+ ❯ createCoordinationBridge src/coordination/index.ts:157:43
+ ❯ tests/run/head-review.test.ts:59:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[92/134]⎯
+
+ FAIL  tests/workspace/run-project.test.ts > workforce run --project --department: the head decides > asks the department head by default: a head that answers in prose starts no worker, and the run records only the roster
+AssertionError: expected 'head_planning_unavailable' to be 'plan_rejected' // Object.is equality
+
+Expected: "plan_rejected"
+Received: "head_planning_unavailable"
+
+ ❯ tests/workspace/run-project.test.ts:181:24
+    179|     expect(result.code).toBe(EXIT_CODES.executionFailure);
+    180|     const error = jsonOf(result)['error'] as { code: string; message: …
+    181|     expect(error.code).toBe('plan_rejected');
+       |                        ^
+    182|     expect(error.message).toBe('department head "atlas" did not produc…
+    183|     expect(error.details.join('\n')).toMatch(/no_plan_proposed/);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[93/134]⎯
+
+ FAIL  tests/workspace/run-project.test.ts > workforce run --project --department: the head decides > runs the head's tasks through the roster worker in the project's own state root, to a verified candidate
+AssertionError: expected 130 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 130
+
+ ❯ tests/workspace/run-project.test.ts:237:29
+    235|     expect(outcome.error).toBeNull();
+    236|     const result = outcome.result!;
+    237|     expect(result.exitCode).toBe(EXIT_CODES.verifiedCandidate);
+       |                             ^
+    238|
+    239|     const projectRoot = path.join(stateRoot, 'projects', 'app');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[94/134]⎯
+
+ FAIL  tests/server/dogfood-integration.test.ts > assembled department request with the real CLI and verifier > returns a verified candidate only after planning, worker edits, independent checks and structured head review
+AssertionError: {"exitCode":4,"code":"head_planning_unavailable","message":"head \"head\" has no way to deliver a plan: the run's coordination bridge did not start, and a plan written as text creates nothing","details":["no coordination bridge was started for this run (listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-8954cbea.sock); its workers had no channel to the coordinator","run 01a096ad-9232-74b4-bcfa-96db7fe22d43 records it: /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/workforce-dogfood-uTqwP2/projects/app/runs/01a096ad-9232-74b4-bcfa-96db7fe22d43"]}: expected 4 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 4
+
+ ❯ tests/server/dogfood-integration.test.ts:130:58
+    128|   it('returns a verified candidate only after planning, worker edits, …
+    129|     const { ended, status, events } = await setup(false);
+    130|     expect(ended.exitCode, JSON.stringify(ended.result)).toBe(0);
+       |                                                          ^
+    131|     expect(status.run.state).toBe('ready_for_review');
+    132|     expect(status.tasks, JSON.stringify(ended.result)).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[95/134]⎯
+
+ FAIL  tests/server/dogfood-integration.test.ts > assembled department request with the real CLI and verifier > rejects a worker that claims every test passes without fixing the bug
+AssertionError: {"exitCode":4,"code":"head_planning_unavailable","message":"head \"head\" has no way to deliver a plan: the run's coordination bridge did not start, and a plan written as text creates nothing","details":["no coordination bridge was started for this run (listen EINVAL: invalid argument /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/wf-01a096ad-b8087680.sock); its workers had no channel to the coordinator","run 01a096ad-98c4-70ed-a92d-5c1c48dda923 records it: /private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-default-check-proof-vDI3dQ/verification/workforce-verification-BMgbTj/01-check-1/tmp-rwiSTV/workforce-dogfood-TSabEh/projects/app/runs/01a096ad-98c4-70ed-a92d-5c1c48dda923"]}: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/server/dogfood-integration.test.ts:153:56
+    151|     expect(ended.exitCode).toBe(4);
+    152|     expect(status.run.state).toBe('failed');
+    153|     expect(status.tasks, JSON.stringify(ended.result)).toHaveLength(1);
+       |                                                        ^
+    154|     expect(status.tasks[0].state).toBe('failed');
+    155|     expect(status.checks).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[96/134]⎯
+

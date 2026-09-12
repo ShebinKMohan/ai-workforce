@@ -40,6 +40,14 @@ A separate browser greeting (`01a0969c-a86b-7772-985e-5f69ec2fa37b`) returned in
 
 Desktop captures: [worker executing](workspace-running.png), [head reviewing](workspace-head-review.png), [final Control Center answer](workspace-final-reply.png), [task evidence and developer review](task-evidence.png).
 
+## Project defaults after the acceptance task
+
+The task-specific campusSlots checks were replaced through the project settings UI. Workspace revision **17** retains the same repository and four Engineering workers and now contains one general check command. [Saved configuration](project-defaults.json).
+
+That command uses `spawnSync` with `shell: false` to execute `npm ci --ignore-scripts --include=dev --include=optional --no-audit --no-fund`, `npm run build`, `npm run typecheck`, and `npm test` in sequence. Combining the stages matters: the verifier creates a separate frozen copy for each criterion, so separate installation and test criteria cannot share dependencies. Dependencies are installed inside that disposable copy; the user's checkout is not used as a dependency cache.
+
+The normal check is being validated through the actual verifier against the committed implementation. Its first execution exposed a macOS Unix socket path-length defect under the verifier's nested temporary directory and seven fake-Claude fixtures that depended on the host login; installation, build and typecheck passed, but the test suite failed. The source and coordinator-state integrity guards remained clean. The [failed proof](project-default-validation-initial.json) is retained separately from the successful live model task above. The bridge now chooses a private socket endpoint within the byte limit, and the fake-Claude fixtures use deterministic readiness while production authentication checks remain intact. Historical tasks retain their original saved check configuration.
+
 ## Practical limits
 
 - General language classification uses a model turn; the observed 8.95 seconds is not instant routing. Explicit saved project rules and simple greetings use a local fast path. Capacity selection is code and does not require a model round trip.
