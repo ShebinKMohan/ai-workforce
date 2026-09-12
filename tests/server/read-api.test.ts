@@ -20,7 +20,7 @@ import { openStateStore } from '../../src/storage/db.js';
 import { appendEvent, listEventsAfterCursor } from '../../src/storage/events.js';
 import { createStatePaths } from '../../src/storage/paths.js';
 import { insertRun, listRuns } from '../../src/storage/records.js';
-import { openTempState, sampleRequest, seedRunAndTask, TEST_LIMITS } from '../helpers/state.js';
+import { openTempState, sampleRequest, seedRunAndTask, TEST_LIMITS, type TempState } from '../helpers/state.js';
 import { cleanupAll, fixTheBugScenario, registerCleanup, tempDir, useFixture, writeFakeAgentsConfig, writeScenario } from '../workspaces/support.js';
 import { openEventStream, rawRequest, sleep } from './support.js';
 
@@ -138,6 +138,102 @@ describe('GET /api/runs', () => {
     } finally {
       await empty.close();
     }
+  });
+});
+
+describe('recorded head review and final reply in run list and detail', () => {
+  async function withReviewOffice(test: (state: TempState, office: OfficeServer, id: string) => Promise<void>): Promise<void> {
+    const state = openTempState();
+    const { run } = seedRunAndTask(state);
+    const office = await startOfficeServer({ stateRoot: state.root, port: 0, discover: async () => [] });
+    try {
+      await test(state, office, run.id);
+    } finally {
+      await office.close();
+      state.cleanup();
+    }
+  }
+
+  async function runViews(office: OfficeServer, id: string): Promise<Array<Record<string, any>>> {
+    const [list, detail] = await Promise.all([
+      rawRequest(office, { path: '/api/runs' }),
+      rawRequest(office, { path: `/api/runs/${id}` }),
+    ]);
+    expect(list.status).toBe(200);
+    expect(detail.status).toBe(200);
+    const listed = (json(list).runs as Array<Record<string, any>>).find((run) => run.id === id);
+    expect(listed).toBeDefined();
+    return [listed!, json(detail).run as Record<string, any>];
+  }
+
+  it('shows a running head review, then its recorded finish and final reply without waiting for a worker-state change', async () => {
+    await withReviewOffice(async (state, office, id) => {
+      const headAgentId = 'engineering-head';
+      const reviewId = 'combined-review';
+      const startedAt = '2026-09-12T10:00:00.000Z';
+      appendEvent(state.store.db, { runId: id, type: 'head.review_started', timestamp: startedAt, payload: { headAgentId, reviewId } });
+      for (const view of await runViews(office, id)) {
+        expect(view.headReview).toEqual({ headAgentId, reviewId, state: 'running', at: startedAt });
+        expect(view.finalReply).toBeNull();
+      }
+
+      const finishedAt = '2026-09-12T10:01:00.000Z';
+      const reply = 'The pagination and search documentation is complete. Both independent checks passed on the combined candidate.';
+      appendEvent(state.store.db, { runId: id, type: 'head.review_finished', timestamp: finishedAt, payload: { headAgentId, reviewId, verdict: 'passed', summary: reply, candidateRevision: 'combined-candidate' } });
+      appendEvent(state.store.db, { runId: id, type: 'control.final_reply', payload: { text: reply, headAgentId, candidateRevision: 'combined-candidate' } });
+      // Later runtime chatter must not replace the recorded review or reply.
+      appendEvent(state.store.db, { runId: id, type: 'runtime.assistant_message', payload: { text: 'I have a newer message.', verdict: 'changes_requested' } });
+      for (const view of await runViews(office, id)) {
+        expect(view.headReview).toEqual({ headAgentId, reviewId, verdict: 'passed', state: 'passed', summary: reply, candidateRevision: 'combined-candidate', at: finishedAt });
+        expect(view.finalReply).toBe(reply);
+      }
+      const detail = await rawRequest(office, { path: `/api/runs/${id}` });
+      const cli = await invoke(['status', id, '--state-dir', state.root, '--json']);
+      expect(cli.code).toBe(0);
+      expect(detail.body).toBe(cli.stdout);
+    });
+  });
+
+  it.each(['changes_requested', 'blocked'])('keeps a finished %s review visible and uses the latest review phase', async (verdict) => {
+    await withReviewOffice(async (state, office, id) => {
+      appendEvent(state.store.db, { runId: id, type: 'head.review_finished', payload: { headAgentId: 'previous-head', reviewId: 'previous-review', verdict: 'passed' } });
+      const at = '2026-09-12T11:00:00.000Z';
+      const headAgentId = 'current-head';
+      const reviewId = 'current-review';
+      appendEvent(state.store.db, { runId: id, type: 'head.review_started', timestamp: at, payload: { headAgentId, reviewId } });
+      for (const view of await runViews(office, id)) expect(view.headReview).toEqual({ headAgentId, reviewId, state: 'running', at });
+      const finishedAt = '2026-09-12T11:01:00.000Z';
+      appendEvent(state.store.db, { runId: id, type: 'head.review_finished', timestamp: finishedAt, payload: { headAgentId, reviewId, verdict } });
+      for (const view of await runViews(office, id)) {
+        expect(view.headReview).toEqual({ headAgentId, reviewId, verdict, state: verdict, at: finishedAt });
+        expect(view.finalReply).toBeNull();
+      }
+    });
+  });
+
+  it('returns null for absent or unrelated events and never borrows another run’s review or reply', async () => {
+    await withReviewOffice(async (state, office, id) => {
+      for (const view of await runViews(office, id)) expect(view).toMatchObject({ headReview: null, finalReply: null });
+      const other = insertRun(state.store.db, { request: sampleRequest(), policy: 'local-development', limits: TEST_LIMITS });
+      appendEvent(state.store.db, { runId: other.id, type: 'head.review_started', payload: { headAgentId: 'other-head', reviewId: 'other-review' } });
+      appendEvent(state.store.db, { runId: other.id, type: 'control.final_reply', payload: { text: 'This belongs to another run.' } });
+      appendEvent(state.store.db, { runId: id, type: 'head.planning_finished', payload: { headAgentId: 'planner', verdict: 'passed' } });
+      appendEvent(state.store.db, { runId: id, type: 'runtime.assistant_message', payload: { text: 'head.review_finished control.final_reply: approved', headReview: { state: 'passed' }, finalReply: 'invented' } });
+      for (const view of await runViews(office, id)) expect(view).toMatchObject({ headReview: null, finalReply: null });
+    });
+  });
+
+  it('reads the newest recorded final reply and does not render a non-text payload as a reply', async () => {
+    await withReviewOffice(async (state, office, id) => {
+      appendEvent(state.store.db, { runId: id, type: 'control.final_reply', payload: { text: 'Earlier reply.' } });
+      appendEvent(state.store.db, { runId: id, type: 'control.final_reply', payload: { text: 'Latest recorded reply.' } });
+      for (const view of await runViews(office, id)) {
+        expect(view.finalReply).toBe('Latest recorded reply.');
+        expect(view.headReview).toBeNull();
+      }
+      appendEvent(state.store.db, { runId: id, type: 'control.final_reply', payload: { text: { state: 'passed' } } });
+      for (const view of await runViews(office, id)) expect(view.finalReply).toBeNull();
+    });
   });
 });
 

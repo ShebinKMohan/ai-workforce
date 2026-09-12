@@ -17,6 +17,7 @@
  */
 import { clip, isStalledRun, isVerifiedTask, LIVE_RUN_STATES, taskPhase, checkView } from './truth.js';
 import { COLOR_HEX, PHASES, plainReason, plural, TASK_STATUS, toolName } from './words.js';
+import { runtimeReport } from './runtime-settings.js';
 
 const list = (value) => (Array.isArray(value) ? value : []);
 const firstLine = (text) => String(text ?? '').trim().split('\n', 1)[0] ?? '';
@@ -74,7 +75,9 @@ export function indexWorkspace(doc) {
     agentById: new Map(agents.map((agent) => [agent.id, agent])),
     checks: new Map(list(doc?.checks).map((fact) => [fact.projectId, fact])),
     reports,
-    reportByAdapter: new Map(reports.map((report) => [report.adapter, report])),
+    // Installation discovery and a configured binding are different facts.
+    // A later custom-path report must never replace generic tool discovery.
+    reportByAdapter: new Map(reports.filter((report) => !report.runtimeId).map((report) => [report.adapter, report])),
     toolsCheckedAt: doc?.runtimes?.checkedAt ?? null,
     toolsError: doc?.runtimes?.error ?? null,
     readiness: doc?.readiness ?? null,
@@ -117,26 +120,34 @@ export function adapterOf(ws, runtimeId) {
  * when discovery does not cover the tool (the test tool): not judged, never
  * claimed ready.
  */
-export function toolFact(ws, adapter) {
-  const report = ws.reportByAdapter.get(adapter);
+export function toolFact(ws, adapter, runtimeId = null) {
+  const binding = runtimeId ? ws.config?.runtimes?.[runtimeId] : null;
+  const report = runtimeId ? (binding ? runtimeReport(ws.reports, runtimeId, binding) : null) : ws.reportByAdapter.get(adapter);
   const name = toolName(adapter);
   if (!report) return { adapter, name, ready: null, word: 'not checked', version: null, loginHint: null, report: null };
   const base = { adapter, name, version: report.version ?? null, loginHint: report.loginHint ?? null, report };
   if (!report.installed) return { ...base, ready: false, word: 'not found' };
   if (report.auth === 'logged_out') return { ...base, ready: false, word: 'signed out' };
   if (!report.adapterSupported) return { ...base, ready: false, word: 'this version is not supported' };
+  if (report.controllable === false) return { ...base, ready: false, word: 'runtime controls unavailable' };
   if (report.auth === 'logged_in') return { ...base, ready: true, word: 'signed in' };
   return { ...base, ready: true, word: 'sign-in not confirmed' };
 }
 
-export const agentTool = (ws, agent) => toolFact(ws, adapterOf(ws, agent?.runtime));
+export const agentTool = (ws, agent) => toolFact(ws, adapterOf(ws, agent?.runtime), agent?.runtime);
 
 /** Whether a runtime's file boundary is verified, and so whether a task using it runs on its own (decision Q2). */
 export function runtimeBoundary(ws, runtimeId) {
-  const rule = ws.runtimeRules?.[runtimeId];
+  const binding = ws.config?.runtimes?.[runtimeId];
+  const savedRule = ws.runtimeRules?.[runtimeId];
+  const rule = savedRule && (!binding || !savedRule.executable || savedRule.executable === binding.executable) ? savedRule : null;
   const adapter = adapterOf(ws, runtimeId);
-  const containment = rule?.writeContainment ?? ws.reportByAdapter.get(adapter)?.writeContainment ?? (adapter === 'codex' ? 'verified' : 'unsupported');
-  return { adapter, containment, verified: containment === 'verified', runsOnItsOwn: rule?.runsOnItsOwn ?? containment !== 'verified' };
+  const report = binding ? runtimeReport(ws.reports, runtimeId, binding) : null;
+  const containment = rule?.writeContainment ?? report?.writeContainment ?? 'unknown';
+  const requiresWriteConsent = rule?.requiresWriteConsent ?? containment !== 'verified';
+  return { adapter, containment, verified: containment === 'verified' && !requiresWriteConsent, requiresWriteConsent,
+    installedVersion: rule?.installedVersion ?? report?.version ?? null, testedVersion: rule?.testedVersion ?? null,
+    runsOnItsOwn: rule?.runsOnItsOwn ?? containment !== 'verified' };
 }
 
 export function departmentWorkers(ws, departmentId) {
@@ -195,7 +206,7 @@ const STEP_ORDER = ['tools', 'project', 'department', 'send'];
 export function toolRows(ws) {
   if (ws.toolsError) return [{ tone: 'failed', line: `Could not check for coding tools: ${ws.toolsError}. Nothing was started.` }];
   if (ws.reports.length === 0) return [{ tone: 'attention', line: 'No coding tool was reported. Workforce works with Codex and Claude Code.' }];
-  return ws.reports.map((report) => {
+  return [...ws.reportByAdapter.values()].map((report) => {
     const fact = toolFact(ws, report.adapter);
     const title = `${fact.name}${fact.version ? ` ${fact.version}` : ''}`;
     let line = `${title} · ${fact.word}${fact.ready ? ' (as the tool reports)' : ''}`;
@@ -312,11 +323,19 @@ function workerList(ws, tasks, predicate) {
   return joinWords(names);
 }
 
+/** A successful conversational reply creates no development run or review obligation. */
+export function isDirectControlReply(item) {
+  return Boolean(item && !item.runId && item.state === 'ended' && item.route?.method === 'direct_reply'
+    && item.result?.code === 'control_reply' && (item.exitCode ?? item.result?.exitCode) === 0
+    && typeof item.controlReply === 'string' && item.controlReply.trim());
+}
+
 /** A task's status word and line, from its request item, its run summary and that project's lock. */
 export function taskStatus(ws, { item, run, resumes }) {
   const lock = run?.projectLock ?? null;
   const resume = list(resumes).find((entry) => ACTIVE_ITEM_STATES.has(entry.state)) ?? null;
   if (item && !run) {
+    if (isDirectControlReply(item)) return status('answered', 'Control Center replied without starting a development task.');
     if (item.state === 'queued') return status('waiting', plainReason(item.reason) ?? 'Waiting to start.');
     if (item.state === 'held') return status('held', 'It was still waiting when the page server stopped, so it was not started. Start it or discard it.');
     if (item.state === 'discarded') return status('discarded', 'Discarded before it started. Nothing ran.');
@@ -334,6 +353,11 @@ export function taskStatus(ws, { item, run, resumes }) {
     return status('stalled', 'Nothing is running this task. Resume it to continue.');
   }
   const tasks = list(run.taskViews);
+  const headReview = run.headReview;
+  const reviewHead = headReview?.headAgentId ? agentName(ws, headReview.headAgentId) : 'The department head';
+  if (LIVE_RUN_STATES.has(run.state) && item?.stopRequestedAt) return status('stopping', 'A stop was requested. Waiting for it to take effect.');
+  if (LIVE_RUN_STATES.has(run.state) && headReview?.state === 'running') return status('headReviewing', `${reviewHead} is reviewing the result and the recorded checks.`);
+  if (run.state === 'failed' && (headReview?.verdict === 'changes_requested' || headReview?.state === 'changes_requested')) return status('headReviewChanges', `${reviewHead} requested changes.${headReview.summary ? ` ${clip(headReview.summary, 220)}` : ''}`);
   if (LIVE_RUN_STATES.has(run.state)) {
     if (item?.stopRequestedAt) return status('stopping', 'A stop was requested. Waiting for it to take effect.');
     if (tasks.length === 0) {
@@ -369,8 +393,8 @@ export function taskStatus(ws, { item, run, resumes }) {
   return status('ended', null);
 }
 
-const IN_MOTION = new Set(['waiting', 'starting', 'planning', 'working', 'checking', 'stopping']);
-const FINISHED = new Set(['verified', 'unverified', 'failed', 'noPlan', 'notStarted', 'discarded', 'ended']);
+const IN_MOTION = new Set(['waiting', 'starting', 'planning', 'working', 'checking', 'stopping', 'headReviewing']);
+const FINISHED = new Set(['verified', 'unverified', 'failed', 'noPlan', 'notStarted', 'discarded', 'ended', 'answered', 'headReviewChanges']);
 
 export function taskHref(entry) {
   return entry.item ? `#/tasks/q/${encodeURIComponent(entry.item.id)}` : `#/tasks/${encodeURIComponent(entry.projectId)}/${encodeURIComponent(entry.runId)}`;
@@ -448,6 +472,8 @@ export function needsYouFor(ws, entry) {
       return { ...base, kind: 'review', hideable: true, line: `${title} is ready for your review. ${entry.status.line}`, actions: ['open'] };
     case 'unverified':
       return { ...base, kind: 'review', hideable: true, line: `${title} finished, but not every part rests on a passing check the verifier ran.`, actions: ['open'] };
+    case 'headReviewChanges':
+      return { ...base, kind: 'review', hideable: true, line: `${title}. ${entry.status.line}`, actions: ['open'] };
     case 'failed':
     case 'noPlan':
     case 'notStarted':
@@ -584,8 +610,16 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
   const planningStarted = ofType('head.planning_started').at(-1) ?? null;
   const planningEvents = planningStarted ? events.filter((event) => event.sequence >= planningStarted.sequence) : [];
   const planningFinished = planningEvents.filter((event) => event.type === 'head.planning_finished').at(-1) ?? null;
+  const latestReviewEvent = events.filter(event => event.type === 'head.review_started' || event.type === 'head.review_finished').at(-1) || null;
+  const recordedReview = latestReviewEvent ? { ...latestReviewEvent.payload, state: latestReviewEvent.type === 'head.review_started' ? 'running' : latestReviewEvent.payload?.verdict, at: latestReviewEvent.timestamp } : null;
+  const savedReview = run?.headReview || null;
+  const headReview = savedReview && (!latestReviewEvent || Date.parse(savedReview.at || '') >= Date.parse(latestReviewEvent.timestamp || '')) ? savedReview : recordedReview || savedReview;
+  const headReviewRunning = headReview?.state === 'running';
+  const headReviewState = headReview?.verdict || headReview?.state || null;
+  const finalReplyEvent = ofType('control.final_reply').at(-1);
+  const finalReply = typeof run?.finalReply === 'string' ? run.finalReply : typeof finalReplyEvent?.payload?.text === 'string' ? finalReplyEvent.payload.text : null;
   const departmentId = entry.departmentId ?? planningStarted?.payload?.departmentId ?? null;
-  const headId = planningStarted?.payload?.headAgentId ?? departmentHead(ws, departmentId)?.id ?? null;
+  const headId = headReview?.headAgentId ?? planningStarted?.payload?.headAgentId ?? departmentHead(ws, departmentId)?.id ?? null;
   const head = headId ? agentName(ws, headId) : 'The department head';
   const eventIds = (list) => list.map((event) => `event #${event.sequence}`);
 
@@ -769,6 +803,13 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
 
   // ---- phase 5: review ----------------------------------------------------------------
   const review = [];
+  if (headReview) {
+    const line = headReviewRunning ? `${head} is reviewing the finished result against your instructions and the independent checks.`
+      : headReviewState === 'passed' ? `${head} completed the department-head review: passed.`
+        : headReviewState === 'changes_requested' ? `${head} requested changes during department-head review${headReview.summary ? `: ${clip(headReview.summary, 240)}` : '.'}`
+          : `${head}'s department-head review could not finish${headReview.summary ? `: ${clip(headReview.summary, 240)}` : '.'}`;
+    review.push(Object.assign(stage('head-review', line, headReview.at, headReview, latestReviewEvent ? eventIds([latestReviewEvent]) : ['run headReview']), { tone: ['changes_requested', 'blocked'].includes(headReviewState) ? 'attention' : 'neutral' }));
+  }
   for (const notes of ofType('review.completed')) review.push(stage(`review-${notes.sequence}`, 'A reviewer left notes. Notes are advice; checks decide.', notes.timestamp, notes.payload, eventIds([notes])));
   const failedEvent = ofType('run.failed').filter((event) => event.taskId === null).pop() ?? null;
   const interruptedEvent = ofType('run.interrupted').filter((event) => event.taskId === null).pop() ?? null;
@@ -783,7 +824,8 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
     review.push(Object.assign(stage('result', `Did not finish${failedEvent?.payload?.reason ? `: ${clip(failedEvent.payload.reason, 200)}` : '.'}`, statusDoc?.run?.endedAt ?? failedEvent?.timestamp, { run: entry.runId, state: runState, ...(failedEvent?.payload ?? {}) }, failedEvent ? eventIds([failedEvent]) : []), { tone: 'failed' }));
   } else if (runState === 'interrupted') {
     const remaining = list(interruptedEvent?.payload?.interruptedTasks).map((key) => `"${partByKey.get(key)?.title ?? key}"`);
-    review.push(Object.assign(stage('result', `Stopped before it finished${remaining.length ? `; ${joinWords(remaining)} did not finish` : ''}. Nothing was put together. Resume it to finish the rest.`, statusDoc?.run?.endedAt ?? interruptedEvent?.timestamp, { run: entry.runId, state: runState, ...(interruptedEvent?.payload ?? {}) }, interruptedEvent ? eventIds([interruptedEvent]) : []), { tone: 'attention' }));
+    const stoppedLine = headReview ? 'Stopped during department-head review. The recorded work and checks are preserved. Resume to finish the review.' : `Stopped before it finished${remaining.length ? `; ${joinWords(remaining)} did not finish` : ''}. Nothing was put together. Resume it to finish the rest.`;
+    review.push(Object.assign(stage('result', stoppedLine, statusDoc?.run?.endedAt ?? interruptedEvent?.timestamp, { run: entry.runId, state: runState, ...(interruptedEvent?.payload ?? {}) }, interruptedEvent ? eventIds([interruptedEvent]) : []), { tone: 'attention' }));
   } else if (runState === 'cancelled') {
     review.push(stage('result', 'Cancelled.', statusDoc?.run?.endedAt, { run: entry.runId, state: runState }));
   }
@@ -792,17 +834,18 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
   const decideOpen = Boolean(planningStarted) && !planningFinished;
   const partOpen = (part) => !['accepted', 'failed', 'cancelled', 'superseded'].includes(part.state ?? '') && !part.checkStages.some((entryStage) => entryStage.id === 'part-result');
   const changeOpen = allParts.some((part) => partOpen(part) && !part.checkStages.length);
-  const checkOpen = allParts.some((part) => partOpen(part) && part.checkStages.length > 0) || (live && allParts.length > 0 && allParts.every((part) => !partOpen(part)) && runState !== 'ready_for_review');
+  const checkOpen = !headReview && (allParts.some((part) => partOpen(part) && part.checkStages.length > 0) || (live && allParts.length > 0 && allParts.every((part) => !partOpen(part)) && runState !== 'ready_for_review'));
   const sendOpen = Boolean(itemWaiting) || (item?.state === 'starting' && !created);
   const moving = (live || itemWaiting) && !terminal;
-  const flags = { send: sendOpen, decide: decideOpen && live, change: changeOpen && live, check: checkOpen && live, review: false };
+  const flags = { send: sendOpen, decide: decideOpen && live, change: changeOpen && live, check: checkOpen && live, review: headReviewRunning && live };
   const content = { send, decide, change, check, review };
 
   const phases = PHASES.map((phase) => {
     const groups = phase.key === 'change' || phase.key === 'check' ? content[phase.key] : content[phase.key].length > 0 ? [{ key: phase.key, title: null, subtitle: null, stages: content[phase.key], part: null }] : [];
     const stages = groups.flatMap((group) => group.stages);
     let state;
-    if (phase.key === 'decide' && runState === 'interrupted' && planningStarted && planningFinished?.payload?.outcome !== 'planned') state = 'stopped';
+    if (phase.key === 'review' && ['changes_requested', 'blocked'].includes(headReviewState)) state = 'stopped';
+    else if (phase.key === 'decide' && runState === 'interrupted' && planningStarted && planningFinished?.payload?.outcome !== 'planned') state = 'stopped';
     else if (flags[phase.key] && (stalled || (item?.state === 'held' && phase.key === 'send'))) state = stalled ? 'stopped' : 'now';
     else if (flags[phase.key] && moving) state = 'now';
     else if (stages.length > 0) state = 'done';
@@ -815,7 +858,7 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
         if (last && groupOpen && (phase.key !== 'change' || !group.part?.checkStages.length)) last.mark = state === 'stopped' ? 'stopped' : 'now';
       }
     }
-    return { ...phase, state, groups, summary: phaseSummary(phase.key, { state, stages, groups, head, allParts, runVerified, terminal, item, runState }) };
+    return { ...phase, ...(phase.key === 'review' && headReview ? { heading: 'Department-head review' } : {}), state, groups, summary: phaseSummary(phase.key, { state, stages, groups, head, allParts, runVerified, terminal, item, runState }) };
   });
 
   // ---- what each part is doing now -----------------------------------------------------------------
@@ -823,7 +866,11 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
   const needs = entry.needsYou;
   actors.push({ role: 'you', name: 'You', line: needs ? youLine(needs.kind) : 'Nothing needed from you.' });
   let headLine;
-  if (!planningStarted) headLine = itemWaiting ? 'Has not seen the task yet.' : terminal ? 'Did not plan this task.' : 'About to read the task.';
+  if (headReviewRunning) headLine = stalled || !live ? 'Stopped during department-head review.' : 'Reviewing the result and independent checks.';
+  else if (headReviewState === 'passed') headLine = 'Department-head review passed. Control Center can deliver the result.';
+  else if (headReviewState === 'changes_requested') headLine = 'Requested changes during department-head review.';
+  else if (headReviewState === 'blocked') headLine = 'Department-head review could not finish. Resume to try the review again.';
+  else if (!planningStarted) headLine = itemWaiting ? 'Has not seen the task yet.' : terminal ? 'Did not plan this task.' : 'About to read the task.';
   else if (!planningFinished) headLine = stalled ? 'Stopped while planning.' : live ? 'Planning.' : 'Stopped while planning.';
   else headLine = planningFinished.payload?.outcome === 'planned' ? `Finished planning: ${plural(allParts.length, 'part')}.` : planningFinished.payload?.outcome === 'interrupted' ? 'Stopped while planning.' : 'Did not produce a usable plan.';
   actors.push({ role: 'head', name: `${head}${headId ? ' (department head)' : ''}`, line: headLine });
@@ -840,6 +887,8 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
   const canStop = Boolean(item && ['starting', 'running'].includes(item.state) && !item.stopRequestedAt && !stalled && !terminal);
   const canResume = Boolean(entry.runId && (runState === 'interrupted' || stalled) && !activeResume);
   let taskStatusNow = entry.status;
+  if (headReviewRunning && live && !stalled && !item?.stopRequestedAt) taskStatusNow = status('headReviewing', `${head} is reviewing the result and the recorded checks.`);
+  if (headReviewState === 'changes_requested' && runState === 'failed') taskStatusNow = status('headReviewChanges', `${head} requested changes.${headReview.summary ? ` ${clip(headReview.summary, 220)}` : ''}`);
   if (entry.status.key === 'starting' && planningStarted && !planningFinished && !stalled) {
     // The queue has not looked at the process again yet, but the record already says the head is planning.
     taskStatusNow = { key: 'planning', word: TASK_STATUS.planning.word, tone: TASK_STATUS.planning.tone, line: `${head} is planning.` };
@@ -860,11 +909,14 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
     phases,
     actors,
     overlay,
-    parts: allParts.map((part) => ({ taskId: part.taskId, title: part.title, worker: part.worker, verified: part.verified, state: part.state })),
+    parts: allParts.map((part) => ({ taskId: part.taskId, key: part.key, agentId: part.agentId, title: part.title, worker: part.worker, verified: part.verified, state: part.state })),
     canStop,
     canResume,
     stopNote: !item && live && !stalled ? 'Started from a terminal: stop it there with Ctrl+C.' : null,
     activeResume,
+    headReview,
+    finalReply,
+    candidateReviewReady: runState === 'ready_for_review',
     phaseSignature: phases.map((phase) => `${phase.key}:${phase.state}`).join(','),
     record: { run: entry.runId, request: item?.id ?? null, state: runState, baseRevision: statusDoc?.run?.baseRevision ?? run?.baseRevision ?? null, repoPath: statusDoc?.run?.repoPath ?? null },
   };

@@ -83,6 +83,8 @@ export const TASK_STATUS = {
   planning: { word: 'Department head is planning', tone: 'active' },
   working: { word: 'Working', tone: 'active' },
   checking: { word: 'Being checked', tone: 'active' },
+  headReviewing: { word: 'Department head reviewing', tone: 'active' },
+  headReviewChanges: { word: 'Head requested changes', tone: 'attention' },
   verified: { word: 'Verified', tone: 'verified' },
   unverified: { word: 'Finished, not verified', tone: 'attention' },
   failed: { word: 'Did not finish', tone: 'failed' },
@@ -93,6 +95,7 @@ export const TASK_STATUS = {
   stopping: { word: 'Stopping', tone: 'pending' },
   discarded: { word: 'Discarded', tone: 'neutral' },
   ended: { word: 'Ended', tone: 'neutral' },
+  answered: { word: 'Answered', tone: 'neutral' },
 };
 
 export const TONE_ICON = {

@@ -66,6 +66,18 @@ describe('a built workspace', () => {
     expect(allDesks(model).some((desk) => desk.statusWord === 'Working')).toBe(false);
   });
 
+  it('shows the department head reviewing only while the recorded review and project process are live', () => {
+    const runs = clone(fixture('runs-live.json'));
+    const run = runs.runs.find((row) => row.state === 'running');
+    run.headReview = { state: 'running', headAgentId: 'atlas' };
+    expect(allDesks(floorModel(ws, runs, [])).find((desk) => desk.agentId === 'atlas').statusWord).toBe('Reviewing');
+    run.headReview.state = 'passed';
+    expect(allDesks(floorModel(ws, runs, [])).find((desk) => desk.agentId === 'atlas').statusWord).toBe('Available');
+    run.headReview.state = 'running';
+    run.projectLock.held = false;
+    expect(allDesks(floorModel(ws, runs, [])).find((desk) => desk.agentId === 'atlas').statusWord).not.toBe('Reviewing');
+  });
+
   it('never draws green: a verified, settled part reads Available', () => {
     const runs = fixture('runs.json');
     const model = floorModel(ws, runs, taskEntries(ws, runs, fixture('requests.json')));
@@ -73,6 +85,15 @@ describe('a built workspace', () => {
     expect(allDesks(model).find((desk) => desk.agentId === 'nova').statusWord).toBe('Available');
     for (const desk of allDesks(model)) expect(desk.tone).not.toBe('verified');
     expect(floorHtml(model)).not.toContain('tone-verified');
+  });
+
+  it('distinguishes a reserved idle worker from one running a task, and releases it when the request ends', () => {
+    const entry = { title: 'Finish the feature', projectId: 'checkout', status: { key: 'running' }, href: '#/tasks/q/reserved', item: { state: 'running', workerIds: ['nova'] } };
+    const reserved = allDesks(floorModel(ws, fixture('runs-empty.json'), [entry]));
+    expect(reserved.find((desk) => desk.agentId === 'nova')).toMatchObject({ statusWord: 'Reserved', tone: 'attention', href: entry.href });
+    expect(reserved.find((desk) => desk.agentId === 'mira').statusWord).toBe('Available');
+    entry.item.state = 'ended';
+    expect(allDesks(floorModel(ws, fixture('runs-empty.json'), [entry])).find((desk) => desk.agentId === 'nova').statusWord).toBe('Available');
   });
 
   it('says when a coding tool is not ready: "Available · Claude Code signed out"', () => {

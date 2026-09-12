@@ -17,9 +17,9 @@ import path from 'node:path';
 import { z } from 'zod';
 import { loadAgentConfigFile } from '../core/config.js';
 import { formatZodIssues } from '../core/contracts.js';
-import { CheckConfigurationError, resolveAcceptanceChecks } from '../core/run-direct.js';
+import { assessContainment, CheckConfigurationError, createAdapter, resolveAcceptanceChecks } from '../core/run-direct.js';
 import { isToolUsable, validateWorkspace, type WorkspaceConfig } from '../core/workspace-config.js';
-import type { RuntimeReadinessReport } from '../discovery/readiness.js';
+import { readinessReportForRuntime, type RuntimeReadinessReport } from '../discovery/readiness.js';
 import { runtimeDescriptor } from '../discovery/runtimes.js';
 import { isWithin } from '../storage/paths.js';
 import { WorkspaceError } from '../workspace/errors.js';
@@ -72,13 +72,20 @@ function runtimesView(readiness: PassiveReadiness): Record<string, unknown> {
     error: null,
     reports: readiness.reports.map((report) => ({
       adapter: report.adapter,
+      runtimeId: report.runtimeId ?? null,
+      configuredExecutable: report.configuredExecutable ?? null,
       displayName: report.displayName,
       installed: report.installed,
       adapterSupported: report.adapterSupported,
+      controllable: report.controllable,
       auth: report.auth,
       authDetail: report.authDetail,
       readiness: report.readiness,
       version: report.version,
+      executable: report.executable ?? null,
+      realPath: report.realPath ?? null,
+      checkedAt: report.checkedAt ?? readiness.checkedAt,
+      diagnostics: report.diagnostics ?? [],
       loginHint: runtimeDescriptor(report.adapter).loginHint,
       usable: isToolUsable(report),
       writeContainment: adapterWriteContainment(report.adapter),
@@ -87,11 +94,17 @@ function runtimesView(readiness: PassiveReadiness): Record<string, unknown> {
 }
 
 /** Each configured runtime's write containment, and whether a run using it must run on its own (decision Q2). */
-function runtimeRules(config: WorkspaceConfig): Record<string, unknown> {
+function runtimeRules(config: WorkspaceConfig, reports: ReadonlyArray<RuntimeReadinessReport> | null): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(config.runtimes).map(([id, runtime]) => {
       const status = adapterWriteContainment(runtime.adapter);
-      return [id, { adapter: runtime.adapter, executable: runtime.executable, writeContainment: status, runsOnItsOwn: status !== 'verified' }];
+      const report = readinessReportForRuntime(reports ?? [], id, runtime);
+      const containment = assessContainment(createAdapter({ id, ...runtime }), 'local-development', false, report?.version ?? null);
+      return [id, {
+        adapter: runtime.adapter, executable: runtime.executable, writeContainment: status, runsOnItsOwn: status !== 'verified' || containment.untestedVersion,
+        installedVersion: containment.installedVersion, testedVersion: containment.testedVersion,
+        requiresWriteConsent: containment.unconfinedWrites || containment.untestedVersion,
+      }];
     }),
   );
 }
@@ -229,7 +242,7 @@ export async function workspaceDocument(stateRoot: string, readiness: PassiveRea
     readiness: computed.readiness,
     checks: computed.checks,
     runtimes,
-    runtimeRules: runtimeRules(config),
+    runtimeRules: runtimeRules(config, reports),
     suggestedStarter: suggestStarter(config, reports),
     legacyAgents: legacyAgents(stateRoot),
   };

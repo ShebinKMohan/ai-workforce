@@ -31,7 +31,7 @@
  *   POST /api/projects/:id/runs/:runId/resume       {allowUnconfinedWrites?}: `workforce resume` through the queue
  *
  *   GET  /api/requests                              the queue: every item, what is live, the limit
- *   POST /api/requests                              {projectId, departmentId, task, allowUnconfinedWrites?}: start or queue
+ *   POST /api/requests                              {projectId, departmentId, task, clientRequestId?, allowUnconfinedWrites?}: start or queue; retained submission IDs deduplicate retries
  *   GET  /api/requests/:id                          one item
  *   POST /api/requests/:id/start|discard|stop       {}: start a held item, discard a waiting one, stop a live one
  *
@@ -48,7 +48,8 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { z } from 'zod';
 import { nowIso } from '../core/ids.js';
-import { discoverRuntimes, type RuntimeReadinessReport } from '../discovery/readiness.js';
+import { discoverWorkspaceRuntimes, type RuntimeReadinessReport } from '../discovery/readiness.js';
+import { sanitizedProbeEnv } from '../discovery/spawn.js';
 import { createStatePaths } from '../storage/paths.js';
 import { redactText } from '../telemetry/redaction.js';
 import { workspaceFilePath } from '../workspace/paths.js';
@@ -162,7 +163,6 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
   const version = packageVersion();
   const startedAt = nowIso();
   const streams = new Set<ServerResponse>();
-  const discover = options.discover ?? (() => discoverRuntimes());
   const launcher = createLauncher({
     paths,
     env,
@@ -171,12 +171,18 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
     ...(options.launchTimeoutMs !== undefined ? { timeoutMs: options.launchTimeoutMs } : {}),
   });
 
-  let readiness: { at: number; value: Promise<PassiveReadiness> } | null = null;
+  let readiness: { at: number; bindings: string; value: Promise<PassiveReadiness> } | null = null;
   const currentReadiness = (refresh: boolean): Promise<PassiveReadiness> => {
-    if (readiness === null || refresh || Date.now() - readiness.at > READINESS_TTL_MS) {
+    const runtimes = readWorkspace(root).loaded?.config.runtimes ?? {};
+    const bindings = JSON.stringify(runtimes);
+    if (readiness === null || refresh || readiness.bindings !== bindings || Date.now() - readiness.at > READINESS_TTL_MS) {
       readiness = {
         at: Date.now(),
-        value: discover().then(
+        bindings,
+        value: (options.discover?.() ?? discoverWorkspaceRuntimes(runtimes, {
+          pathValue: env['PATH'] ?? '', env: sanitizedProbeEnv(env),
+          ...(env['HOME'] !== undefined ? { homeDir: env['HOME'] } : {}),
+        })).then(
           (reports) => ({ checkedAt: nowIso(), reports }),
           (error: unknown) => ({ error: `passive runtime discovery failed: ${(error as Error).message}` }),
         ),

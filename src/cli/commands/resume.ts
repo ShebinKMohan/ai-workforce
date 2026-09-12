@@ -220,6 +220,8 @@ export async function commandResume(args: ResumeCommandArgs, options: ResumeComm
         plan: planData(plan),
         continued: true,
         status: continued.outcome,
+        headReview: continued.headReview ?? null,
+        finalReply: continued.finalReply ?? null,
         runState: continued.runState,
         tasks: continued.continued,
         preservedTaskIds: continued.preservedTaskIds,

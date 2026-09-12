@@ -18,6 +18,8 @@ import type { TaskDependency } from '../core/contracts.js';
 
 export interface ScheduleTask {
   readonly id: string;
+  /** A named worker can own at most one running task. Omit for an unassigned task. */
+  readonly agentId?: string;
   readonly dependencies?: ReadonlyArray<TaskDependency>;
   /** The task writes to the candidate workspace and needs a writer slot. Defaults to true. */
   readonly writer?: boolean;
@@ -74,6 +76,7 @@ export class Scheduler {
   readonly #order: string[] = [];
   readonly #limits: ScheduleLimits;
   readonly #publications = new Map<string, Map<string, number>>();
+  readonly #agentLeases = new Map<string, { readonly taskId: string }>();
   #blockers: Blocker[] = [];
 
   constructor(tasks: ReadonlyArray<ScheduleTask>, limits: ScheduleLimits) {
@@ -175,6 +178,38 @@ export class Scheduler {
     }).length;
   }
 
+  /** The task holding this worker's original assignment or fallback lease, if any. */
+  runningTaskForAgent(agentId: string): string | undefined {
+    return this.#agentLeases.get(agentId)?.taskId ?? this.#order.find((id) => {
+      const node = this.#nodes.get(id);
+      return node?.state === 'running' && node.task.agentId === agentId;
+    });
+  }
+
+  /**
+   * Reserve a fallback worker synchronously before starting its replacement
+   * attempt. The task retains its original assignment and existing turn/writer
+   * slots. A busy worker returns null; only a running task can acquire a lease.
+   * Release after the replacement stops, or settle/park the task to release all
+   * of its leases. Releasing an old lease never affects a newer acquisition.
+   */
+  tryAcquireAgent(taskId: string, agentId: string): (() => void) | null {
+    const node = this.#requireNode(taskId);
+    if (node.state !== 'running') throw new Error(`task "${taskId}" must be running to acquire worker "${agentId}"`);
+    if (this.runningTaskForAgent(agentId) !== undefined) return null;
+    const lease = { taskId };
+    this.#agentLeases.set(agentId, lease);
+    return () => {
+      if (this.#agentLeases.get(agentId) === lease) this.#agentLeases.delete(agentId);
+    };
+  }
+
+  #releaseAgentLeases(taskId: string): void {
+    for (const [agentId, lease] of this.#agentLeases) {
+      if (lease.taskId === taskId) this.#agentLeases.delete(agentId);
+    }
+  }
+
   /** True when every dependency of `id` is satisfied by an existing artifact version. */
   isReady(id: string): boolean {
     const node = this.#nodes.get(id);
@@ -193,8 +228,8 @@ export class Scheduler {
   }
 
   /**
-   * Start every task that is ready and fits the slot budget, in declaration
-   * order. Returns the ids started by this call.
+   * Start every task that is ready, has an available worker and fits the slot
+   * budget, in declaration order. Returns the ids started by this call.
    */
   dispatch(): string[] {
     const started: string[] = [];
@@ -203,6 +238,7 @@ export class Scheduler {
       if (node === undefined || node.state !== 'pending') continue;
       if (!this.isReady(id)) continue;
       if (this.activeTurns >= this.#limits.maxActiveTurns) break;
+      if (node.task.agentId !== undefined && this.runningTaskForAgent(node.task.agentId) !== undefined) continue;
       if (node.writer && this.activeWriters >= this.#limits.maxActiveWriters) continue;
       node.state = 'running';
       node.waitingOn = [];
@@ -234,6 +270,7 @@ export class Scheduler {
   /** Mark a task accepted and publish the artifacts its dependents named. */
   complete(id: string, publishes: ReadonlyArray<ArtifactPublication> = []): void {
     const node = this.#requireNode(id);
+    this.#releaseAgentLeases(id);
     node.state = 'accepted';
     node.waitingOn = [];
     const map = this.#publications.get(id) ?? new Map<string, number>();
@@ -247,6 +284,7 @@ export class Scheduler {
 
   fail(id: string, reason = 'the task failed'): void {
     const node = this.#requireNode(id);
+    this.#releaseAgentLeases(id);
     node.state = 'failed';
     node.waitingOn = [];
     const dependents = this.#order.filter((other) => this.#nodes.get(other)?.dependencies.some((d) => d.taskId === id) === true);
@@ -261,6 +299,7 @@ export class Scheduler {
    */
   park(id: string, waitingOn: ReadonlyArray<string>, reason = 'waiting on a peer'): void {
     const node = this.#requireNode(id);
+    this.#releaseAgentLeases(id);
     node.state = 'waiting';
     node.waitingOn = [...waitingOn];
     const cycle = this.#findWaitCycle();

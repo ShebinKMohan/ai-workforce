@@ -462,7 +462,7 @@ describe('recognising the bridge this session was provisioned with', () => {
   it('reads the server name out of the run\'s own configuration overrides', () => {
     const args = ['app-server', '--stdio', '-c', 'model="gpt-5.6-sol"', ...coordinationStyleArgs('workforce', entry)];
     // The head's planning tool rides the same entry point; the coordinator, not this list, decides which session may call it.
-    expect(provisionedBridgeFromArgs(args)).toEqual({ serverName: 'workforce', toolNames: [...BRIDGE_TOOL_NAMES, 'workforce_propose_plan'] });
+    expect(provisionedBridgeFromArgs(args)).toEqual({ serverName: 'workforce', toolNames: [...BRIDGE_TOOL_NAMES, 'workforce_propose_plan', 'workforce_review_result'] });
   });
 
   it('is not fooled by a server that merely calls itself the bridge', () => {

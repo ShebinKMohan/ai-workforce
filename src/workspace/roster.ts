@@ -29,7 +29,7 @@ export interface Roster {
   readonly project: WorkspaceProject;
   readonly department: WorkspaceDepartment;
   readonly head: WorkspaceAgent;
-  /** Never empty. In workspace file order. */
+  /** Never empty. In admission order when selected, otherwise workspace file order. */
   readonly workers: ReadonlyArray<WorkspaceAgent>;
   /** The workspace revision the roster was built from. */
   readonly workspaceRevision: number;
@@ -38,6 +38,8 @@ export interface Roster {
 export interface RosterSelector {
   readonly projectId: string;
   readonly departmentId: string;
+  /** Exact reserved worker pool from admission. Never silently expanded. */
+  readonly workerIds?: ReadonlyArray<string>;
 }
 
 function known(items: ReadonlyArray<{ id: string }>): string {
@@ -63,8 +65,8 @@ export function buildRoster(config: WorkspaceConfig, selector: RosterSelector): 
       `add one: workforce workspace agent add --department ${department.id} --role head --runtime codex --name <name>`,
     ]);
   }
-  const workers = eligibleWorkers(config, department.id, project.id);
-  if (workers.length === 0) {
+  const eligible = eligibleWorkers(config, department.id, project.id);
+  if (eligible.length === 0) {
     const members = config.agents.filter((agent) => agent.departmentId === department.id && agent.role === 'worker' && !agent.archived);
     throw invalid(
       'no_worker_on_project',
@@ -76,6 +78,21 @@ export function buildRoster(config: WorkspaceConfig, selector: RosterSelector): 
             `place one: workforce workspace assign <worker> ${project.id}`,
           ],
     );
+  }
+  let workers: ReadonlyArray<WorkspaceAgent> = eligible;
+  if (selector.workerIds !== undefined) {
+    const selected = selector.workerIds;
+    if (selected.length === 0 || new Set(selected).size !== selected.length) {
+      throw invalid('invalid_worker_selection', 'the admitted worker pool must contain at least one distinct worker; an empty or duplicate selection cannot expand to the whole department');
+    }
+    const byId = new Map(eligible.map((worker) => [worker.id, worker]));
+    const unavailable = selected.filter((id) => !byId.has(id));
+    if (unavailable.length > 0) {
+      throw invalid('worker_not_eligible', `the admitted workers are no longer eligible for department "${department.id}" on project "${project.id}": ${unavailable.map((id) => `"${id}"`).join(', ')}`, [
+        'The request must be admitted again with an available eligible worker pool; no replacement worker was selected.',
+      ]);
+    }
+    workers = selected.map((id) => byId.get(id)!);
   }
   return { project, department, head, workers, workspaceRevision: config.revision };
 }

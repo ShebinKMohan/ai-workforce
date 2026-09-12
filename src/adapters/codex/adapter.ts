@@ -525,14 +525,37 @@ export class CodexAdapter implements RuntimeAdapter {
       if (!parsed.success) throw new AdapterError(CODEX_ADAPTER, 'protocol_error', `${resumeThreadId === null ? 'thread/start' : 'thread/resume'} returned an unexpected shape: ${parsed.error.message}`);
       started = parsed.data;
     } catch (error) {
-      await rpc.stop();
-      if (error instanceof AdapterError) throw error;
-      if (error instanceof CodexRpcError) throw new AdapterError(CODEX_ADAPTER, 'thread_start_rejected', error.message);
-      if (error instanceof CodexTransportError) {
-        const stderr = rpc.stderrLines.slice(-3).join(' | ');
-        throw new AdapterError(CODEX_ADAPTER, `transport_${error.reason}`, `${error.message}${stderr ? ` (stderr: ${stderr})` : ''}`);
+      const startupSessionId = resumeThreadId ?? `pending-${identity.pid}`;
+      let startupStopReceipt: StopReceipt;
+      try {
+        const result = await rpc.stop();
+        const terminated = result.exited && !result.groupAlive;
+        startupStopReceipt = {
+          sessionId: startupSessionId,
+          state: terminated ? 'process_tree_terminated' : result.signalled === null ? 'unknown' : 'requested',
+          processId: identity.pid,
+          signal: result.signalled,
+          at: nowIso(),
+          ...(terminated ? {} : { detail: `app server startup cleanup did not confirm termination of process group ${identity.pid}` }),
+        };
+      } catch (stopError) {
+        startupStopReceipt = { sessionId: startupSessionId, state: 'unknown', processId: identity.pid, signal: null, at: nowIso(), detail: `app server startup cleanup failed: ${stopError instanceof Error ? stopError.message : String(stopError)}` };
       }
-      throw error;
+      let failure: AdapterError;
+      if (error instanceof AdapterError) {
+        const prefix = `${error.adapter}: `;
+        failure = new AdapterError(error.adapter, error.code, error.message.startsWith(prefix) ? error.message.slice(prefix.length) : error.message, startupStopReceipt);
+      } else if (error instanceof CodexRpcError) {
+        failure = new AdapterError(CODEX_ADAPTER, 'thread_start_rejected', error.message, startupStopReceipt);
+      } else if (error instanceof CodexTransportError) {
+        const stderr = rpc.stderrLines.slice(-3).join(' | ');
+        failure = new AdapterError(CODEX_ADAPTER, `transport_${error.reason}`, `${error.message}${stderr ? ` (stderr: ${stderr})` : ''}`, startupStopReceipt);
+      } else {
+        const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'startup_failed';
+        failure = new AdapterError(CODEX_ADAPTER, code, error instanceof Error ? error.message : String(error), startupStopReceipt);
+      }
+      failure.cause = error;
+      throw failure;
     }
 
     const sessionId = started.thread.id;

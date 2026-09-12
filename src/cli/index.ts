@@ -155,6 +155,8 @@ interface ParsedArgs {
   readonly open: boolean;
   readonly project?: string;
   readonly department?: string;
+  readonly workerIds?: ReadonlyArray<string>;
+  readonly workspaceRevision?: number;
   readonly expectRevision?: string;
   readonly name?: string;
   readonly note?: string;
@@ -202,6 +204,18 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
   }
   const [command, ...rest] = parsed.positionals;
   const values = parsed.values;
+  const reservationFlag = values.worker !== undefined ? '--worker' : values['workspace-revision'] !== undefined ? '--workspace-revision' : null;
+  if (reservationFlag !== null && (command !== 'run' || values.project === undefined || values.department === undefined)) {
+    throw new CliError(EXIT_CODES.invalidInput, 'project_selection_required', `${reservationFlag} applies only to "workforce run --project <id> --department <id>"`);
+  }
+  let workspaceRevision: number | undefined;
+  if (values['workspace-revision'] !== undefined) {
+    const value = values['workspace-revision'];
+    if (!/^(0|[1-9]\d*)$/.test(value) || !Number.isSafeInteger(Number(value))) {
+      throw new CliError(EXIT_CODES.invalidInput, 'invalid_workspace_revision', '--workspace-revision must be a non-negative safe integer');
+    }
+    workspaceRevision = Number(value);
+  }
   // `--port` and `--open` belong to `serve` alone. They sit in the one shared
   // option table because parseArgs takes a single table, but accepting them
   // silently on every other command would turn a mistyped flag into a no-op
@@ -233,6 +247,8 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     positionals: rest,
     ...(values.project !== undefined ? { project: values.project } : {}),
     ...(values.department !== undefined ? { department: values.department } : {}),
+    ...(values.worker !== undefined ? { workerIds: values.worker } : {}),
+    ...(workspaceRevision !== undefined ? { workspaceRevision } : {}),
     ...(values['expect-revision'] !== undefined ? { expectRevision: values['expect-revision'] } : {}),
     ...(values.name !== undefined ? { name: values.name } : {}),
     ...(values.note !== undefined ? { note: values.note } : {}),
@@ -292,6 +308,8 @@ const OPTIONS = {
   open: { type: 'boolean', default: false },
   project: { type: 'string' },
   department: { type: 'string' },
+  worker: { type: 'string', multiple: true },
+  'workspace-revision': { type: 'string' },
   'expect-revision': { type: 'string' },
   name: { type: 'string' },
   note: { type: 'string' },

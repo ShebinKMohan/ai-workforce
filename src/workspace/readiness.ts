@@ -37,8 +37,15 @@ export async function resolveProjectChecks(project: WorkspaceProject): Promise<P
 }
 
 /** Map passive discovery reports to the structural facts readiness reads. */
-export function toolFacts(reports: ReadonlyArray<{ adapter: string; installed: boolean; adapterSupported: boolean; auth: string }>): ToolFact[] {
-  return reports.map((report) => ({ adapter: report.adapter, installed: report.installed, adapterSupported: report.adapterSupported, auth: report.auth }));
+export function toolFacts(reports: ReadonlyArray<ToolFact>): ToolFact[] {
+  return reports.map((report) => ({
+    adapter: report.adapter, installed: report.installed, adapterSupported: report.adapterSupported, auth: report.auth,
+    ...(report.runtimeId !== undefined ? { runtimeId: report.runtimeId } : {}),
+    ...(report.configuredExecutable !== undefined ? { configuredExecutable: report.configuredExecutable } : {}),
+    ...(report.executable !== undefined ? { executable: report.executable } : {}),
+    ...(report.realPath !== undefined ? { realPath: report.realPath } : {}),
+    ...(report.controllable !== undefined ? { controllable: report.controllable } : {}),
+  }));
 }
 
 export interface ComputedReadiness {

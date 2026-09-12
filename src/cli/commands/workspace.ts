@@ -17,7 +17,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { AdapterIdSchema, PolicySchema } from '../../core/contracts.js';
 import type { ToolFact, WorkspaceConfig } from '../../core/workspace-config.js';
-import { discoverRuntimes } from '../../discovery/readiness.js';
+import { discoverWorkspaceRuntimes } from '../../discovery/readiness.js';
 import { resolveStateRoot } from '../../storage/paths.js';
 import { WorkspaceError } from '../../workspace/errors.js';
 import { applyWorkspaceOps, createdIds, parseWorkspaceOps, standardRuntimeId } from '../../workspace/operations.js';
@@ -171,7 +171,7 @@ const STEP_LABEL: Record<string, string> = {
 
 async function show(stateRoot: string, deps: WorkspaceCommandDeps): Promise<CommandResult> {
   const loaded = loadWorkspace(stateRoot);
-  const tools = deps.discover !== undefined ? await deps.discover() : toolFacts(await discoverRuntimes());
+  const tools = deps.discover !== undefined ? await deps.discover() : toolFacts(await discoverWorkspaceRuntimes(loaded.config.runtimes));
   const { readiness, checks } = await computeWorkspaceReadiness(loaded.config, { tools });
   const config = loaded.config;
   const lines: string[] = [

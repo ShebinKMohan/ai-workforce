@@ -38,6 +38,8 @@ import { LIMIT_FIELDS, renderSettings } from './pages/settings.js';
 import { formatTime } from './pages/common.js';
 import { renderNewTaskSheet, sheetDefaults } from './sheets/new-task.js';
 import { addProjectDefaults, renderAddProjectSheet } from './sheets/add-project.js';
+import { buildRuntimeSettingsOp } from './runtime-settings.js';
+import { buildControlCenterOp, controlCenterDefaults } from './control-center-settings.js';
 import { ERRORS } from './words.js';
 
 // ---- browser-only conveniences (never records) ------------------------------------
@@ -82,6 +84,9 @@ const state = {
     saving: false,
     task: null,
     projectForms: new Map(),
+    projectWorkerDrafts: new Map(),
+    runtimeDrafts: new Map(),
+    controlCenterDraft: null,
     confirm: null,
     actionError: null,
     notice: null,
@@ -155,11 +160,11 @@ function navHtml(ctx) {
     keyed('a', `nav:${id}`, `href="${href}"${section === id ? ' aria-current="page"' : ''}`, `<span>${esc(label)}${sub ? `<span class="nav-sub">${esc(sub)}</span>` : ''}</span>${count ? `<span class="nav-count">${esc(count)}</span>` : ''}`);
   const items = [link('home', '#/home', 'Home', state.loaded && setup.showChecklist && setup.stepNumber ? `Setup: step ${setup.stepNumber} of 4` : '')];
   if (state.loaded) {
-    items.push(link('office', '#/office', 'Office'));
+    items.push(link('office', '/', 'Workspace'));
     const moving = entries.filter((entry) => entry.inMotion).length;
-    if (entries.length) items.push(link('tasks', '#/tasks', 'Tasks', '', moving ? `${moving} in motion` : ''));
-    if (ws.liveProjects.length) items.push(link('projects', '#/projects', 'Projects', '', String(ws.liveProjects.length)));
-    if (ws.liveDepartments.length) items.push(link('departments', '#/departments', 'Departments', '', String(ws.liveDepartments.length)));
+    items.push(link('tasks', '#/tasks', 'Tasks', '', moving ? `${moving} running` : ''));
+    items.push(link('projects', '#/projects', 'Projects', '', String(ws.liveProjects.length)));
+    items.push(link('departments', '#/departments', 'Departments', '', String(ws.liveDepartments.length)));
   }
   items.push(keyed('div', 'nav:bottom', 'class="nav-bottom"', link('settings', '#/settings', 'Settings')));
   return items.join('');
@@ -256,7 +261,10 @@ function render({ force = false, focus = null } = {}) {
       { once: true },
     );
   }
-  if (state.route.name === 'task' && ctx.taskView?.detail) document.title = `${ctx.taskView.detail.title} · Workforce`;
+  if (state.route.name === 'task' && ctx.taskView?.detail) {
+    const title = String(ctx.taskView.detail.title);
+    document.title = `${title.length > 100 ? `${title.slice(0, 97)}…` : title} · Workforce`;
+  }
   page.classList.toggle('page-office', state.route.name === 'office');
   if (state.route.name === 'office') activateOffice(page);
   else destroyOffice();
@@ -584,7 +592,67 @@ const handlers = {
   },
   'refresh-tools': async (target) => {
     target.disabled = true;
-    await loadAll({ refreshTools: true });
+    try { await loadAll({ refreshTools: true }); }
+    finally { target.disabled = false; render({ force: true }); }
+  },
+  'save-runtime': async (target) => {
+    const key = target.dataset.runtime;
+    const ws = indexWorkspace(state.workspaceDoc);
+    const draft = state.ui.runtimeDrafts.get(key) || {};
+    const binding = ws.config?.runtimes?.[key];
+    state.ui.actionError = null;
+    state.ui.notice = null;
+    target.disabled = true;
+    try {
+      const id = key === 'new' ? draft.id : key;
+      if (key === 'new' && ws.config?.runtimes?.[id]) throw new Error('This runtime ID already exists. Edit its existing executable path or choose another ID.');
+      const op = buildRuntimeSettingsOp(ws.config, { id, adapter: key === 'new' ? draft.adapter || 'codex' : binding?.adapter || target.dataset.adapter, executable: draft.executable ?? binding?.executable ?? (target.dataset.adapter === 'codex' ? 'codex' : 'claude'), model: draft.model, effort: draft.effort });
+      await writeOps([op]);
+      state.ui.runtimeDrafts.delete(key);
+      await loadAll({ refreshTools: true });
+      state.ui.notice = { key: `runtime:${key}`, text: 'Runtime settings saved and executable rescanned. Model and effort are checked at task start. Existing runs keep their saved configuration.' };
+    } catch (error) {
+      state.ui.actionError = { key: `runtime:${key}`, error };
+      if (['workspace_revision_conflict', 'workspace_changed_on_disk'].includes(error.code)) await refreshWorkspace();
+    }
+    render({ force: true });
+  },
+  'save-control-center': async (target) => {
+    const ws = indexWorkspace(state.workspaceDoc);
+    const draft = state.ui.controlCenterDraft || controlCenterDefaults(ws.config);
+    state.ui.actionError = null;
+    state.ui.notice = null;
+    target.disabled = true;
+    try {
+      await writeOps([buildControlCenterOp(ws.config, draft)]);
+      state.ui.controlCenterDraft = null;
+      state.ui.notice = { key: 'control-center', text: 'Control Center settings saved for new requests.' };
+    } catch (error) {
+      state.ui.actionError = { key: 'control-center', error };
+      if (['workspace_revision_conflict', 'workspace_changed_on_disk'].includes(error.code)) await refreshWorkspace();
+    }
+    render({ force: true });
+  },
+  'save-project-workers': async (target) => {
+    const projectId = target.dataset.project;
+    const ws = indexWorkspace(state.workspaceDoc);
+    const workers = ws.liveAgents.filter((agent) => agent.role === 'worker');
+    const selected = state.ui.projectWorkerDrafts.get(projectId) || new Set(workers.filter((worker) => worker.projectIds.includes(projectId)).map((worker) => worker.id));
+    const ops = workers.flatMap((worker) => {
+      const assigned = worker.projectIds.includes(projectId);
+      return assigned === selected.has(worker.id) ? [] : [{ op: selected.has(worker.id) ? 'agent.assign' : 'agent.unassign', agentId: worker.id, projectId }];
+    });
+    state.ui.actionError = null;
+    target.disabled = true;
+    try {
+      if (ops.length) await writeOps(ops);
+      state.ui.projectWorkerDrafts.delete(projectId);
+      state.ui.notice = { key: `workers:${projectId}`, text: 'Worker access saved. New tasks use the updated roster.' };
+    } catch (error) {
+      state.ui.actionError = { key: `workers:${projectId}`, error };
+      if (['workspace_revision_conflict', 'workspace_changed_on_disk'].includes(error.code)) await refreshWorkspace();
+    }
+    render({ force: true });
   },
   'reload-all': () => loadAll(),
   'reload-page': () => location.reload(),
@@ -896,6 +964,24 @@ function onBind(event) {
     const form = state.ui.projectForms.get(element.dataset.project) ?? { newCheck: '', error: null };
     state.ui.projectForms.set(element.dataset.project, { ...form, newCheck: value });
     return;
+  } else if (bind === 'project-worker') {
+    const ws = indexWorkspace(state.workspaceDoc);
+    const projectId = element.dataset.project;
+    const selected = state.ui.projectWorkerDrafts.get(projectId) || new Set(ws.liveAgents.filter((agent) => agent.role === 'worker' && agent.projectIds.includes(projectId)).map((agent) => agent.id));
+    if (value) selected.add(element.dataset.agent); else selected.delete(element.dataset.agent);
+    state.ui.projectWorkerDrafts.set(projectId, selected);
+    return;
+  } else if (bind === 'runtime') {
+    const key = element.dataset.runtime;
+    state.ui.runtimeDrafts.set(key, { ...(state.ui.runtimeDrafts.get(key) || {}), [element.dataset.field]: value });
+    return;
+  } else if (bind === 'control-center' || bind === 'control-center-route') {
+    const draft = state.ui.controlCenterDraft || controlCenterDefaults(state.workspaceDoc?.workspace);
+    if (bind === 'control-center-route') draft.routes = { ...draft.routes, [element.dataset.project]: value };
+    else draft[element.dataset.field] = value;
+    state.ui.controlCenterDraft = draft;
+    if (element.dataset.field === 'runtime') render({ force: true });
+    return;
   } else if (bind === 'limit') {
     state.ui.limitsDraft = { ...(state.ui.limitsDraft ?? {}), [element.dataset.field]: value };
     return;
@@ -940,6 +1026,13 @@ function syncBoundFields() {
     else if (bind === 'project-check') {
       const form = state.ui.projectForms.get(element.dataset.project) ?? { newCheck: '', error: null };
       state.ui.projectForms.set(element.dataset.project, { ...form, newCheck: value });
+    } else if (bind === 'runtime') {
+      const key = element.dataset.runtime;
+      state.ui.runtimeDrafts.set(key, { ...(state.ui.runtimeDrafts.get(key) || {}), [element.dataset.field]: value });
+    } else if (bind === 'control-center') {
+      const draft = state.ui.controlCenterDraft || controlCenterDefaults(state.workspaceDoc?.workspace);
+      draft[element.dataset.field] = value;
+      state.ui.controlCenterDraft = draft;
     } else if (bind === 'limit') state.ui.limitsDraft = { ...(state.ui.limitsDraft ?? {}), [element.dataset.field]: value };
   }
 }
@@ -965,6 +1058,11 @@ document.addEventListener('click', (event) => {
   handler(target);
 });
 document.addEventListener('input', onBind);
+document.addEventListener('toggle', (event) => {
+  const key = event.target?.dataset?.stateKey;
+  if (!key || event.target.tagName !== 'DETAILS') return;
+  if (event.target.open) state.ui.expanded.add(key); else state.ui.expanded.delete(key);
+}, true);
 document.addEventListener('change', onBind);
 document.addEventListener('keydown', (event) => {
   const officeTab = event.target?.closest?.('[role="tab"][data-action="office-tab"]');

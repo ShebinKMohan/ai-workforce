@@ -397,9 +397,14 @@ export class FakeAdapter implements RuntimeAdapter {
 
     const started = await this.#waitFor(session, (event) => event.kind === 'session_started', this.#options.startupTimeoutMs);
     if (started === null) {
-      await this.#terminateGroup(session);
+      let startupStopReceipt: StopReceipt;
+      try {
+        startupStopReceipt = await this.#terminateGroup(session);
+      } catch (stopError) {
+        startupStopReceipt = { sessionId: pendingId, state: 'unknown', processId: identity.pid, signal: null, at: nowIso(), detail: `fake startup cleanup failed: ${stopError instanceof Error ? stopError.message : String(stopError)}` };
+      }
       const stderr = session.stderrLines.slice(-5).join(' | ');
-      throw new AdapterError('fake', 'startup_failed', `fake runtime did not report session_started within ${this.#options.startupTimeoutMs}ms${stderr ? ` (stderr: ${stderr})` : ''}`);
+      throw new AdapterError('fake', 'startup_failed', `fake runtime did not report session_started within ${this.#options.startupTimeoutMs}ms${stderr ? ` (stderr: ${stderr})` : ''}`, startupStopReceipt);
     }
     const reported = started.payload['sessionId'];
     // The fake runtime echoes the --model/--effort it was actually given, so

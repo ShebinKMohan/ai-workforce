@@ -11,6 +11,7 @@
  * `failed` in its output.
  */
 import path from 'node:path';
+import { headReviewView } from '../../storage/head-review-view.js';
 import { listArtifacts } from '../../storage/artifacts.js';
 import { openStateStore, StateNotFoundError } from '../../storage/db.js';
 import { lastEventSequence, listEvents } from '../../storage/events.js';
@@ -104,6 +105,7 @@ export function commandStatus(args: StatusCommandArgs): CommandResult {
       run: {
         id: run.id,
         state: run.state,
+        ...headReviewView(store.db, run.id),
         repoPath: run.repo_path,
         baseRevision: run.base_revision,
         policy: run.policy,

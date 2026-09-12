@@ -85,6 +85,7 @@ import { runWithFallback } from '../recovery/continue.js';
 import { describeFallback } from '../recovery/fallback.js';
 import { parkTaskForDispatch } from '../recovery/resume.js';
 import type { CheckReceipt, CheckSpec } from '../verification/checks.js';
+import { reviewWithHead, headReviewResumeBlocker, type HeadReviewPolicy, type HeadReviewOutcome } from '../routing/head-reviewer.js';
 
 export const PLANNED_MANIFEST_VERSION = 1 as const;
 
@@ -132,6 +133,8 @@ export interface RunPlannedInput {
   readonly coordinationEnabled?: boolean;
   /** Review requested by configuration rather than by the change's shape. */
   readonly reviewRequested?: boolean;
+  /** Workspace delivery additionally requires its frozen department head's semantic review. */
+  readonly headReview?: HeadReviewPolicy;
   /**
    * Execute the tasks inside a run that `createPlannedRun` already created
    * (a department head planned inside it). Without it the run is created here.
@@ -164,6 +167,8 @@ export interface RunPlannedResult {
   readonly combination: CombineResult | null;
   readonly reviewDecision: ReviewDecision | null;
   readonly review: ReviewOutcome | null;
+  readonly headReview?: HeadReviewOutcome | null;
+  readonly finalReply?: string | null;
   /** True only when the COMBINED candidate's own receipts satisfied every required criterion. */
   readonly accepted: boolean;
   readonly reason: string;
@@ -454,6 +459,7 @@ const PlanRecordSchema = z.object({
     .min(1),
   /** The `--check` values the run was started with (a project's configured checks); absent when they came from the repository. */
   checkFlags: z.array(z.string().min(1)).optional(),
+  headReview: z.object({ headAgentId: z.string().min(1), required: z.literal(true), deadlineMs: z.number().int().positive().max(300_000).optional() }).optional(),
 });
 export type PlanRecord = z.infer<typeof PlanRecordSchema>;
 
@@ -572,10 +578,11 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
         writer: task.writer ?? true,
       })),
       ...(input.checkFlags !== undefined && input.checkFlags.length > 0 ? { checkFlags: [...input.checkFlags] } : {}),
+      ...(input.headReview ? { headReview: input.headReview } : {}),
     };
     const raw = `${JSON.stringify(record, null, 2)}\n`;
     writeFileSync(planRecordPath(input.paths, runId), raw, { mode: 0o600 });
-    appendEvent(db, { runId, type: 'plan.registered', payload: { taskCount: tasks.length, sha256: sha256Hex(raw), keys: tasks.map((task) => task.key) } });
+    appendEvent(db, { runId, type: 'plan.registered', payload: { taskCount: tasks.length, sha256: sha256Hex(raw), keys: tasks.map((task) => task.key), ...(input.headReview ? { headReview: input.headReview } : {}) } });
   }
 
   for (const [key] of preAccepted) {
@@ -588,6 +595,7 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
     // ---- Scheduling ------------------------------------------------------
     const scheduleTasks: ScheduleTask[] = tasks.map((task) => ({
       id: task.key,
+      agentId: agentOf(task),
       ...(task.dependencies !== undefined && task.dependencies.length > 0
         ? { dependencies: task.dependencies.map((dependency) => ({ taskId: dependency, kind: 'completion' as const })) }
         : {}),
@@ -655,15 +663,20 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
      * name what it is waiting for is exactly the idle-looking output this
      * exists to remove, so nothing here reports a reason it cannot support.
      */
-    const describeBlocked = (): Array<{ key: string; waitingOn: string[]; reason: 'dependency' | 'turn_slot' | 'writer_slot' }> => {
+    const describeBlocked = (): Array<{ key: string; waitingOn: string[]; reason: 'dependency' | 'worker_busy' | 'turn_slot' | 'writer_slot' }> => {
       const snapshot = scheduler.snapshot();
-      const out: Array<{ key: string; waitingOn: string[]; reason: 'dependency' | 'turn_slot' | 'writer_slot' }> = [];
+      const out: Array<{ key: string; waitingOn: string[]; reason: 'dependency' | 'worker_busy' | 'turn_slot' | 'writer_slot' }> = [];
       for (const task of tasks) {
         const state = snapshot.states[task.key];
         if (state !== 'pending' && state !== 'waiting') continue;
         const unsatisfied = (task.dependencies ?? []).filter((dependency) => results.get(dependency)?.accepted !== true);
         if (unsatisfied.length > 0 || !scheduler.isReady(task.key)) {
           out.push({ key: task.key, waitingOn: [...unsatisfied], reason: 'dependency' });
+          continue;
+        }
+        const workerTask = scheduler.runningTaskForAgent(agentOf(task));
+        if (workerTask !== undefined) {
+          out.push({ key: task.key, waitingOn: [workerTask], reason: 'worker_busy' });
           continue;
         }
         const writer = task.writer ?? true;
@@ -698,6 +711,12 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
                   .filter((peer) => peer.key !== key)
                   .map((peer) => ({ key: peer.key, taskId: taskIds.get(peer.key)!, objective: peer.objective })),
                 stream: taskStream,
+                acquireFallbackAgent: (agentId) => {
+                  // The frozen project config also contains its head. Planning
+                  // and review identities never become replacement workers.
+                  if (agentId === input.config.defaults.plannerAgent || agentId === input.config.defaults.reviewerAgent) return null;
+                  return scheduler.tryAcquireAgent(key, agentId);
+                },
               }),
               error: null,
             };
@@ -770,6 +789,7 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
       }
     };
 
+    let lastBlocked = '[]';
     for (;;) {
       // Once the run is being stopped nothing new starts: a task dispatched
       // now would only be created to be interrupted.
@@ -784,6 +804,11 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
       // nothing more; a row that cannot say what it is waiting for is the
       // kind of idle-looking output this view exists to remove.
       const waiting = aborted() ? [] : describeBlocked();
+      const blockedFingerprint = JSON.stringify(waiting);
+      if (blockedFingerprint !== lastBlocked) {
+        appendEvent(db, { runId, type: 'schedule.blocked', payload: { blocked: waiting } });
+        lastBlocked = blockedFingerprint;
+      }
       if (waiting.length > 0) stream.event({ type: 'schedule.blocked', runId, blocked: waiting });
       // Nothing running and nothing newly ready: the plan has been executed as
       // far as it can be.
@@ -954,9 +979,9 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
     let review: ReviewOutcome | null = null;
     if (reviewDecision.warranted) {
       stream.line(`review warranted: ${reviewDecision.reason}`);
-      if (input.reviewer === undefined) {
+      if (input.reviewer === undefined && !input.headReview) {
         unresolved.push(`a review was warranted (${reviewDecision.reason}) but no reviewer was configured for this run; nothing was reviewed`);
-      } else {
+      } else if (input.reviewer !== undefined) {
         const first = approved[0]!;
         review = await requestReview({
           taskId: first.taskId,
@@ -983,8 +1008,44 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
       unresolved.push(`criterion "${criterion}" has no receipt bound to the combined revision ${combination.combinedRevision}`);
     }
 
-    const accepted = combination.acceptance.accepted;
+    // Independent checks remain mandatory. A real head review adds a delivery
+    // gate; its approval cannot manufacture or replace verifier evidence.
+    let headReview: HeadReviewOutcome | null = null;
+    if (input.headReview && combination.acceptance.accepted) {
+      headReview = await reviewWithHead({
+        policy: input.headReview, config: input.config, runId, repoPath: projectRoot,
+        baseRevision, combinedRevision: combination.combinedRevision,
+        requestText: input.requestText, tasks, checks: resolvedChecks.checks,
+        receipts: combination.receipts, paths: input.paths, db, bridge: run.bridge,
+        stream: forTask(stream, { runId, agentId: input.headReview.headAgentId, key: 'head-review' }),
+        ...(input.signal ? { signal: input.signal } : {}),
+        ...(input.adapterFactory ? { adapterFactory: input.adapterFactory } : {}),
+        ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
+        ...(input.ownership ? { ownership: input.ownership } : {}),
+      });
+      if (headReview.verdict !== 'passed') {
+        const reason = headReview.summary;
+        unresolved.push(`Department head review: ${reason}`);
+        // Infrastructure failure or Stop remains explicitly resumable; a
+        // semantic rejection retains its candidate and feedback for the user.
+        const stopped = headReview.verdict === 'blocked';
+        const runState = stopped ? 'interrupted' : 'failed';
+        transitionRun(db, runId, runState);
+        appendEvent(db, { runId, type: `run.${runState}`, payload: { reason, phase: 'head_review', headAgentId: headReview.headAgentId, verdict: headReview.verdict, candidateRevision: combination.combinedRevision } });
+        stream.line(`head review ${headReview.verdict}: ${reason}`);
+        return finish({ accepted: false, outcome: stopped ? 'interrupted' : 'failed', runState, reason, combination, reviewDecision, review, headReview });
+      }
+    }
+    const accepted = combination.acceptance.accepted && (!input.headReview || headReview?.verdict === 'passed');
+    if (aborted()) return interruptRun('The run was stopped after review and before delivery. The candidate and review evidence are preserved.', [], []);
     transitionRun(db, runId, accepted ? 'ready_for_review' : 'failed');
+    const finalReply = accepted && headReview ? headReview.summary : null;
+    if (finalReply) {
+      const payload = { text: finalReply, summary: finalReply, headAgentId: headReview!.headAgentId, verificationStatus: 'verified', source: 'department_head_review', candidateRevision: combination.combinedRevision, artifactId: headReview!.artifactId };
+      appendEvent(db, { runId, type: 'control.final_reply', payload });
+      stream.event({ type: 'control.final_reply', runId, ...payload });
+      stream.line(finalReply);
+    }
     stream.line(
       accepted
         ? `accepted: the combined candidate ${combination.combinedRevision.slice(0, 12)} passed every required criterion with verifier-executed evidence`
@@ -995,10 +1056,12 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
       accepted,
       outcome: accepted ? 'accepted' : 'failed',
       runState: accepted ? 'ready_for_review' : 'failed',
-      reason: accepted ? withReview.note : combination.acceptance.reason,
+      reason: accepted ? finalReply ?? withReview.note : combination.acceptance.reason,
       combination,
       reviewDecision,
       review,
+      headReview,
+      finalReply,
     });
   } finally {
     await run.closeBridge();
@@ -1020,6 +1083,8 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
     combination: CombineResult | null;
     reviewDecision: ReviewDecision | null;
     review: ReviewOutcome | null;
+    headReview?: HeadReviewOutcome | null;
+    finalReply?: string | null;
   }): RunPlannedResult {
     const taskResults = tasks.map(
       (task) =>
@@ -1066,6 +1131,8 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
               },
       review: outcome.review,
       reviewDecision: outcome.reviewDecision,
+      headReview: outcome.headReview ?? null,
+      finalReply: outcome.finalReply ?? null,
       unresolved,
     });
     stream.line(`evidence and manifest: ${runDir}`);
@@ -1079,6 +1146,8 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
       combination: outcome.combination,
       reviewDecision: outcome.reviewDecision,
       review: outcome.review,
+      headReview: outcome.headReview ?? null,
+      finalReply: outcome.finalReply ?? null,
       accepted: outcome.accepted,
       reason: outcome.reason,
       manifestPath,
@@ -1114,6 +1183,14 @@ export async function continuePlannedRun(input: ContinuePlannedRunInput): Promis
   const record = readPlanRecord(paths, runId);
   if (record === null) throw new RunSetupError('no_plan_record', `run ${runId} recorded no plan (${planRecordPath(paths, runId)}), so there is no plan to continue`);
   const row = getRun(db, runId);
+  const registered = db.prepare("SELECT payload_json FROM events WHERE run_id = ? AND type = 'plan.registered' ORDER BY sequence DESC LIMIT 1").get(runId) as { payload_json: string } | undefined;
+  const recordedPolicy = registered ? (JSON.parse(registered.payload_json) as { headReview?: HeadReviewPolicy }).headReview : undefined;
+  if (recordedPolicy && (!record.headReview || record.headReview.headAgentId !== recordedPolicy.headAgentId || record.headReview.required !== true)) throw new RunSetupError('head_review_policy_missing', 'The required head review policy is missing or changed in the saved plan. Restore its recorded policy before resuming.');
+  const headReview = record.headReview ? { headAgentId: record.headReview.headAgentId, required: true as const, ...(record.headReview.deadlineMs !== undefined ? { deadlineMs: record.headReview.deadlineMs } : {}) } : undefined;
+  if (headReview) {
+    const blocker = headReviewResumeBlocker(db, runId);
+    if (blocker) throw new RunSetupError('head_review_stop_unconfirmed', blocker);
+  }
 
   const inspection = await inspectProject(input.repoPath);
   if (!inspection.isGitRepo || inspection.repositoryRoot === null) {
@@ -1165,7 +1242,7 @@ export async function continuePlannedRun(input: ContinuePlannedRunInput): Promis
   stream.line(`continuing planned run ${runId}: ${preAccepted.size} accepted task(s) kept, ${record.tasks.length - preAccepted.size} to run`);
 
   return executePlan({
-    input: { ...input, ...(checkFlags !== undefined ? { checkFlags } : {}) },
+    input: { ...input, ...(checkFlags !== undefined ? { checkFlags } : {}), ...(headReview ? { headReview } : {}) },
     run,
     tasks: record.tasks.map((task) => ({
       key: task.key,
@@ -1276,6 +1353,7 @@ interface TaskRunInput {
   /** Every other task of this run, so this worker can address one by id. */
   readonly peers: ReadonlyArray<{ key: string; taskId: string; objective: string }>;
   readonly stream: RunStream;
+  readonly acquireFallbackAgent: (agentId: string) => (() => void) | null;
 }
 
 /**
@@ -1340,7 +1418,7 @@ async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResu
       ...(input.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
       ...(input.runDeadlineMs !== undefined ? { runDeadlineMs: input.runDeadlineMs } : {}),
       ...(input.keepCheckCopies !== undefined ? { keepCheckCopies: input.keepCheckCopies } : {}),
-    });
+    }, { acquireFallbackAgent: context.acquireFallbackAgent });
     const result = continued.result;
     for (const attempt of continued.attempts) attempts.push(attempt);
     if (continued.fallback !== null) {

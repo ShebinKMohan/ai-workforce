@@ -22,8 +22,11 @@ export type HeadPlanningRecord = z.infer<typeof PlanningRecordSchema>;
 /** Only this request's roster and project survive, never unrelated project context. */
 export function recordHeadPlanning(input: HeadPlanningInput, runId: string): void {
   const { roster } = input;
+  const departmentWorkspace = { ...input.workspace };
+  // Routing is already decided; its global references are outside this frozen roster.
+  delete departmentWorkspace.controlCenter;
   const workspace = WorkspaceConfigSchema.parse({
-    ...input.workspace,
+    ...departmentWorkspace,
     runtimes: input.snapshot.config.runtimes,
     projects: [roster.project],
     departments: [roster.department],

@@ -12,10 +12,13 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultFakeRuntimeScript, FAKE_SCENARIO_ENV } from '../../src/adapters/index.js';
+import { defaultFakeRuntimeScript, FAKE_SCENARIO_ENV, FakeAdapter, type RuntimeEvent, type TurnHandle, type SessionInput, type SessionHandle } from '../../src/adapters/index.js';
+import type { AdapterFactory } from '../../src/core/run-direct.js';
 import { commandResume } from '../../src/cli/commands/resume.js';
 import { commandRun } from '../../src/cli/commands/run.js';
 import { CliError, EXIT_CODES, Reporter, type CommandResult } from '../../src/cli/output.js';
+import { HEAD_REVIEW_TOOL } from '../../src/routing/head-reviewer.js';
+import { sha256Hex } from '../../src/core/snapshot.js';
 import { HEAD_PLAN_TOOL, HEAD_RETRY_HEADING } from '../../src/routing/head-planner.js';
 import { isProcessAlive, isProcessGroupAlive, observeProcessIdentity } from '../../src/core/process.js';
 import { openStateStore } from '../../src/storage/db.js';
@@ -109,13 +112,31 @@ function setupWorkspace(stateRoot: string, repoPath: string): void {
   );
 }
 
-async function runDepartment(stateRoot: string, signal?: AbortSignal, onOutput?: (chunk: string) => void): Promise<{ result: CommandResult | null; error: CliError | null; stdout: string }> {
+/** Compute the actual frozen candidate identity at the test adapter boundary. */
+class ReviewAwareFakeAdapter extends FakeAdapter {
+  constructor(readonly reviewMode: 'approve' | 'reject' | 'pause' = 'approve') { super(); }
+  override async openSession(input: SessionInput): Promise<SessionHandle> {
+    if (!input.systemInstructions.includes('For this turn, review the completed candidate as department head.')) return super.openSession(input);
+    const revision = await git(['rev-parse', 'HEAD'], { cwd: input.cwd });
+    const base = await git(['rev-list', '--max-parents=0', 'HEAD'], { cwd: input.cwd });
+    const patch = await git(['diff', '--binary', '--no-ext-diff', `${base.stdout.trim()}..${revision.stdout.trim()}`], { cwd: input.cwd });
+    expect(revision.ok && base.ok && patch.ok).toBe(true);
+    const scenario = writeScenario({ scenarioVersion: 1, steps: [
+      ...(this.reviewMode === 'pause' ? [{ action: 'message', text: 'REVIEW-IN-PROGRESS' }, { action: 'sleep', ms: 60_000 }] : []),
+      { action: 'call_tool', tool: HEAD_REVIEW_TOOL, arguments: { reviewVersion: 1, candidateRevision: revision.stdout.trim(), diffHash: sha256Hex(Buffer.from(patch.stdout, 'utf8')), verdict: this.reviewMode === 'reject' ? 'changes_requested' : 'approve', summary: this.reviewMode === 'reject' ? 'The documentation omits concrete endpoint usage. Add a request and response example before delivery.' : 'Added the requested team documentation. The independent project checks passed on the combined candidate, and I reviewed both the changes and the original request. The candidate is ready for your review.', findings: this.reviewMode === 'reject' ? [{ summary: 'Add a concrete endpoint usage example.', file: 'docs/beta.md' }] : [] } },
+      { action: 'claim_done', message: 'Department head review recorded.' },
+    ] } as FakeScenario);
+    return super.openSession({ ...input, env: { ...input.env, [FAKE_SCENARIO_ENV]: scenario } });
+  }
+}
+
+async function runDepartment(stateRoot: string, signal?: AbortSignal, onOutput?: (chunk: string) => void, adapterFactory?: AdapterFactory): Promise<{ result: CommandResult | null; error: CliError | null; stdout: string }> {
   let stdout = '';
   const streams = { stdout: sink((chunk) => { stdout += chunk; onOutput?.(chunk); }), stderr: sink(() => undefined) };
   try {
     const result = await commandRun(
       { project: 'app', department: 'eng', task: REQUEST, stateDir: stateRoot, allowUnconfinedWrites: true, json: false },
-      { reporter: new Reporter(false, streams), streams, ...(signal !== undefined ? { signal } : {}) },
+      { reporter: new Reporter(false, streams), streams, ...(signal !== undefined ? { signal } : {}), adapterFactory: adapterFactory ?? (() => new ReviewAwareFakeAdapter()) },
     );
     return { result, error: null, stdout };
   } catch (error) {
@@ -144,10 +165,48 @@ function ofType(events: ReadonlyArray<EventRecord>, type: string): EventRecord[]
 }
 
 describe('a request to a department: the head plans, its workers do the work', () => {
+  it('surfaces a rejected runtime model request and starts neither a second head nor a worker', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-head-model-rejected-');
+    setupWorkspace(stateRoot, fixture.path);
+    useScenario(departmentScenario({ head: [{ action: 'claim_done', message: 'The provider never started inference.' }] }));
+    const message = "The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.";
+    const errorDetail = JSON.stringify({ type: 'error', status: 400, error: { type: 'invalid_request_error', message } });
+    class RejectedHead extends FakeAdapter {
+      override async *events(turn: TurnHandle): AsyncIterable<RuntimeEvent> {
+        for await (const event of super.events(turn)) {
+          if (event.kind === 'assistant_message') {
+            yield { ...event, kind: 'error', payload: { fatal: false, message: errorDetail, errorClass: 'unknown', willRetry: false } };
+          } else if (event.kind === 'turn_completed') {
+            yield { ...event, payload: { status: 'failed', error: errorDetail, errorClass: 'unknown' } };
+          } else yield event;
+        }
+      }
+    }
+    const { error } = await runDepartment(stateRoot, undefined, undefined, () => new RejectedHead());
+    expect(error?.code).toBe('head_runtime_rejected');
+    expect(error?.message).toContain(message);
+    expect(error?.details.join('\n')).toContain('choose a supported model and effort');
+    const events = readProject(stateRoot, (db) => listEvents(db, onlyRunId(stateRoot)));
+    expect(ofType(events, 'head.session_opened')).toHaveLength(1);
+    expect(ofType(events, 'head.session_stopped')).toHaveLength(1);
+    expect(ofType(events, 'head.planning_finished')[0]?.payload).toMatchObject({ outcome: 'head_runtime_rejected', attempts: 1 });
+    expect(ofType(events, 'head.assigned')).toEqual([]);
+    expect(ofType(events, 'task.registered')).toEqual([]);
+    expect(ofType(events, 'plan.rejected')).toEqual([]);
+  }, 120_000);
+
   it('runs two assigned tasks at once in their own worktrees and accepts only the verified combined candidate', async () => {
     const fixture = await useFixture('ts-bug');
     const stateRoot = tempDir('workforce-head-');
     setupWorkspace(stateRoot, fixture.path);
+    // Global Control Center routes and its separate runtime must not leak into
+    // the department-only snapshot used to resume this request.
+    updateWorkspace(stateRoot, (current) => build([
+      { op: 'runtime.set', id: 'control-only', adapter: 'fake', executable: defaultFakeRuntimeScript() },
+      { op: 'project.add', repoPath: path.join(fixture.path, 'other-project'), id: 'other', name: 'Other project', checks: ['node --version'] },
+      { op: 'control-center.set', runtime: 'control-only', projectRoutes: [{ projectId: 'app', departmentId: 'eng' }, { projectId: 'other', departmentId: 'design' }] },
+    ], current));
     useScenario(departmentScenario({ head: [{ action: 'message', text: 'Reading the project.' }, propose([ALPHA, BETA]), { action: 'claim_done', message: 'Plan proposed.' }] }));
     const before = await fingerprintCheckout(fixture.path);
 
@@ -166,6 +225,9 @@ describe('a request to a department: the head plans, its workers do the work', (
       events: listEvents(db, runId),
       artifacts: db.prepare('SELECT id, relative_path FROM artifacts WHERE run_id = ?').all(runId) as Array<{ id: string; relative_path: string }>,
     }));
+
+    const frozenPlanning = JSON.parse(readFileSync(path.join(stateRoot, 'projects', 'app', 'runs', runId, 'artifacts', 'head', 'planning-input.json'), 'utf8')) as { workspace: Record<string, unknown> };
+    expect(frozenPlanning.workspace).not.toHaveProperty('controlCenter');
 
     // The head's decision, stage by stage, in order.
     const order = ['head.planning_started', 'head.session_opened', 'plan.proposed', 'plan.validated', 'head.assigned', 'task.registered'].map(
@@ -216,7 +278,58 @@ describe('a request to a department: the head plans, its workers do the work', (
     expect(files).toContain('docs/alpha.md');
     expect(files).toContain('docs/beta.md');
 
+    const reviewed = ofType(events, 'head.review_finished');
+    expect(reviewed).toHaveLength(1);
+    expect(reviewed[0]!.payload).toMatchObject({ headAgentId: 'atlas', verdict: 'passed', candidateRevision: manifest.combination.combinedRevision, sessionStopped: true });
+    expect(ofType(events, 'integration.combined')[0]!.sequence).toBeLessThan(ofType(events, 'head.review_started')[0]!.sequence);
+    expect(reviewed[0]!.sequence).toBeLessThan(ofType(events, 'control.final_reply')[0]!.sequence);
+    expect(result!.data['finalReply']).toContain('Added the requested team documentation');
+    const reviewDiffArtifact = artifacts.find((row) => row.relative_path.includes('/reviews/') && row.relative_path.endsWith('candidate.patch'))!;
+    const reviewDiff = readFileSync(path.join(stateRoot, 'projects', 'app', 'runs', runId, 'artifacts', reviewDiffArtifact.relative_path), 'utf8');
+    expect(reviewDiff).toContain('docs/alpha.md');
+    expect(reviewDiff).toContain('docs/beta.md');
     expect(await fingerprintCheckout(fixture.path)).toEqual(before);
+  }, 180_000);
+
+  it('retains the combined candidate and semantic feedback when the head requests changes, without a success reply', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-review-rejected-');
+    setupWorkspace(stateRoot, fixture.path);
+    useScenario(departmentScenario({ head: [propose([ALPHA, BETA]), { action: 'claim_done', message: 'Plan proposed.' }] }));
+    const response = await runDepartment(stateRoot, undefined, undefined, () => new ReviewAwareFakeAdapter('reject'));
+    expect(response.result?.data).toMatchObject({ accepted: false, outcome: 'failed', runState: 'failed', finalReply: null, headReview: { verdict: 'changes_requested' } });
+    const facts = readProject(stateRoot, (db) => ({ events: listEvents(db, onlyRunId(stateRoot)), tasks: db.prepare('SELECT state FROM tasks').all(), attempts: db.prepare('SELECT id FROM attempts').all() }));
+    expect(facts.tasks).toEqual([{ state: 'accepted' }, { state: 'accepted' }]);
+    expect(facts.attempts).toHaveLength(2);
+    expect(ofType(facts.events, 'head.review_finished')[0]!.payload['summary']).toContain('endpoint usage');
+    expect(ofType(facts.events, 'control.final_reply')).toEqual([]);
+  }, 180_000);
+
+  it('stops during review, preserves its required frozen gate, and resumes without repeating accepted worker tasks', async () => {
+    const fixture = await useFixture('ts-bug');
+    const stateRoot = tempDir('workforce-review-resume-');
+    setupWorkspace(stateRoot, fixture.path);
+    useScenario(departmentScenario({ head: [propose([ALPHA]), { action: 'claim_done', message: 'Plan proposed.' }] }));
+    const controller = new AbortController();
+    const response = await runDepartment(stateRoot, controller.signal, (chunk) => { if (chunk.includes('REVIEW-IN-PROGRESS')) controller.abort(); }, () => new ReviewAwareFakeAdapter('pause'));
+    expect(response.result?.data).toMatchObject({ accepted: false, outcome: 'interrupted', runState: 'interrupted', finalReply: null, headReview: { verdict: 'blocked', sessionStopped: true } });
+    const runId = onlyRunId(stateRoot);
+    const projectRoot = path.join(stateRoot, 'projects', 'app');
+    const planPath = path.join(projectRoot, 'runs', runId, 'plan.json');
+    const saved = readFileSync(planPath, 'utf8');
+    const record = JSON.parse(saved) as Record<string, unknown>;
+    expect(record['headReview']).toEqual({ headAgentId: 'atlas', required: true });
+    delete record['headReview'];
+    writeFileSync(planPath, JSON.stringify(record));
+    await expect(commandResume({ positionals: [runId], stateDir: projectRoot, allowUnconfinedWrites: true, json: false }, { continuation: { adapterFactory: () => new ReviewAwareFakeAdapter() } })).rejects.toThrow(/head review policy/);
+    writeFileSync(planPath, saved);
+    const resumed = await commandResume({ positionals: [runId], stateDir: projectRoot, allowUnconfinedWrites: true, json: false }, { continuation: { adapterFactory: () => new ReviewAwareFakeAdapter() } });
+    expect(resumed.data).toMatchObject({ status: 'accepted', runState: 'ready_for_review', headReview: { verdict: 'passed' } });
+    const facts = readProject(stateRoot, (db) => ({ events: listEvents(db, runId), attempts: db.prepare('SELECT id FROM attempts').all() }));
+    expect(facts.attempts).toHaveLength(1);
+    expect(ofType(facts.events, 'integration.combined')).toHaveLength(2);
+    expect(ofType(facts.events, 'head.review_finished').map((event) => event.payload['verdict'])).toEqual(['blocked', 'passed']);
+    expect(ofType(facts.events, 'control.final_reply')).toHaveLength(1);
   }, 180_000);
 
   it('rejects a plan that gives work to someone outside the roster, twice, and never creates a worker attempt', async () => {
@@ -306,7 +419,7 @@ describe('a request to a department: the head plans, its workers do the work', (
       { attempt: 2, willRetry: false, codes: ['missing_acceptance_criteria'] },
     ]);
     // The retry was a second planning session, and its prompt carried the first rejection.
-    const headTurns = ofType(facts.events, 'runtime.turn_started').filter((event) => event.taskId === null);
+    const headTurns = ofType(facts.events, 'runtime.turn_started').filter((event) => event.taskId === null && !String(event.payload['prompt'] ?? '').includes(HEAD_REVIEW_TOOL));
     expect(headTurns).toHaveLength(2);
     expect(String(headTurns[1]!.payload['prompt'])).toContain(HEAD_RETRY_HEADING);
     expect(String(headTurns[1]!.payload['prompt'])).toContain('[dependency_cycle]');
@@ -370,7 +483,7 @@ describe('Stop and Resume of a planned department run', () => {
       { op: 'project.edit', id: 'app', checks: ['node -e "process.exit(1)"'] },
     ], current));
     useScenario(departmentScenario({ head: [propose([ALPHA]), { action: 'claim_done', message: 'Plan proposed.' }] }));
-    const resumed = await commandResume({ positionals: [runId], stateDir: projectRoot, allowUnconfinedWrites: true, json: false });
+    const resumed = await commandResume({ positionals: [runId], stateDir: projectRoot, allowUnconfinedWrites: true, json: false }, { continuation: { adapterFactory: () => new ReviewAwareFakeAdapter() } });
     expect(resumed.exitCode).toBe(EXIT_CODES.verifiedCandidate);
     expect(resumed.data).toMatchObject({ runId, status: 'accepted', runState: 'ready_for_review' });
     expect(onlyRunId(stateRoot)).toBe(runId);
@@ -505,7 +618,7 @@ describe('Stop and Resume of a planned department run', () => {
 
     // Resume, with beta now able to finish.
     useScenario(departmentScenario({ head, beta: writes('docs/beta.md') }));
-    const resumed = await commandResume({ positionals: [runId], stateDir: projectRoot, allowUnconfinedWrites: true, json: false });
+    const resumed = await commandResume({ positionals: [runId], stateDir: projectRoot, allowUnconfinedWrites: true, json: false }, { continuation: { adapterFactory: () => new ReviewAwareFakeAdapter() } });
     expect(resumed.exitCode).toBe(EXIT_CODES.verifiedCandidate);
     expect(resumed.data).toMatchObject({ status: 'accepted', runState: 'ready_for_review', preservedTaskIds: [alphaId] });
     expect(resumed.data['tasks']).toMatchObject([{ taskId: betaId, accepted: true, generation: 2 }]);

@@ -1,321 +1,487 @@
+import { api } from '../../workspace/src/api.js';
+import { indexWorkspace, taskDetailModel, isDirectControlReply } from '../../workspace/src/model.js';
+import { checkView, describeEvent } from '../../workspace/src/truth.js';
+import { chatRoute, controlCenterRoute, controlFlowModel, conversationEntries, readChatState } from './chat-model.js';
+import { renderRecordedOutput, renderRecordedMarkdown } from './recorded-output.js';
+import { usageSummary } from './usage-model.js';
+
 const icon = (name, size = 18) => {
   const paths = {
     center: '<rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="15" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="15" width="6" height="6" rx="1.5"/><rect x="15" y="15" width="6" height="6" rx="1.5"/><path d="M9 6h6M6 9v6m12-6v6M9 18h6"/>',
     arrow: '<path d="m7 17 10-10M7 7h10v10"/>',
-    send: '<path d="m12 19 0-14m-5 5 5-5 5 5"/>',
+    send: '<path d="M12 19V5m-5 5 5-5 5 5"/>',
     chevron: '<path d="m9 5 7 7-7 7"/>',
-    close: '<path d="m6 6 12 12M6 18 18 6"/>',
     check: '<path d="m5 12 4 4L19 6"/>',
-    link: '<path d="m10 13 4-4m-6 7-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0m2 2 1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/>',
-    sparkle: '<path d="m12 3 2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2Z"/>',
     focus: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><circle cx="12" cy="12" r="3"/>',
+    terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m6 0h4"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
   };
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.center}</svg>`;
 };
+const esc = (value = '') => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+const initials = (name = '') => name.split(/\s+/).slice(0, 2).map(part => part[0] || '').join('');
+const time = at => { const date = new Date(at); return Number.isFinite(date.getTime()) ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''; };
+const uid = () => globalThis.crypto?.randomUUID?.() || `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const STATUS_TONE = { verified: 'verified', failed: 'failed', noPlan: 'failed', notStarted: 'failed', interrupted: 'attention', stalled: 'attention', held: 'attention', unverified: 'attention', running: 'active', planning: 'active', checking: 'active', starting: 'active' };
 
-const esc = (value = '') => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const taskText = (task) => typeof task === 'string' ? task : task?.title || task?.name || 'Ready for the next task';
-const initials = (name = '') => name.split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('');
-
-
-/** Original office panel. Profiles and canvas callbacks are preserved; task truth comes from workspace records. */
-export function createSidebar({ element, departments = [], employees = [], runtimes = [], coordinator = {}, onFocus = () => {}, onCommunication = () => {}, onEditAgent = () => {}, onManageAgents = () => {}, onAddAgent = () => {}, onAddDepartment = () => {}, onAssignTask = null, onOpenTask = () => {} }) {
+/** A durable task conversation over the existing coordinator API, with no simulated replies. */
+export function createSidebar({ element, departments = [], employees = [], runtimes = [], coordinator = {}, onFocus = () => {}, onEditAgent = () => {}, onRemoveAgent = null, onManageAgents = () => {}, onAddAgent = () => {}, onAddDepartment = () => {}, onAddProject = () => { location.href = '/workspace/#/projects'; }, onManageRuntimes = () => { location.href = '/workspace/#/settings'; }, onAssignTask = null, onOpenTask = () => {} }) {
   let selection = { type: 'office' };
   let activeTab = 'chat';
+  let taskFilter = 'all';
   let expandedTask = null;
   let expandedRuntime = null;
-  let taskFilter = 'all';
-  let draft = '';
-  let messages = [];
-  let activities = [];
-  let destroyed = false;
   let liveData = { tasks: [], projects: [], reports: [], error: null };
+  let tasks = [];
+  let destroyed = false;
   let sending = false;
   let submitError = '';
+  let actionError = '';
+  let runtimeChecking = false;
+  let consent = false;
+  let pendingAction = null;
+  let storageKey = '';
+  let state = { version: 1, contexts: {}, messages: [] };
+  let draft = '';
+  let routePreferences = {};
+  let submission = null;
+  let consentSubmissions = {};
+  let detailPending = false;
+  let composerReady = false;
+  let composerRouteSignature = '';
+  const details = new Map();
+  const viewportStates = new Map();
+  let renderedViewport = '';
+  let revealFrame = null;
+  let expectedScrollTop = null;
+  const employeeById = id => employees.find(item => item.id === id);
+  const departmentById = id => departments.find(item => item.id === id);
+  const runtimeById = id => runtimes.find(item => item.id === id);
+  const workspaceDocument = () => liveData.workspaceDocument || liveData.workspaceDoc;
+  const selectedDepartment = () => selection.type === 'department' ? selection.id : selection.type === 'employee' ? employeeById(selection.id)?.departmentId : null;
+  const contextKey = () => 'control';
+  const contextName = () => selection.type === 'employee' ? employeeById(selection.id)?.name || 'Agent' : selection.type === 'department' ? departmentById(selection.id)?.name || 'Department' : 'Control center';
+  const route = () => controlCenterRoute(workspaceDocument(), routePreferences.projectId);
+  const scopedTasks = () => tasks.filter(task => !isDirectControlReply(task.entry?.item));
+  const roleLabel = agent => agent.workspaceRole === 'head' || /head|lead/i.test(agent.role || '') ? 'Department head' : 'Worker';
+  const taskKey = task => `${task.projectId}:${task.runId}`;
+  const taskById = id => tasks.find(task => task.id === id || task.requestId === id);
 
-  const departmentById = (id) => departments.find((item) => item.id === id);
-  const employeeById = (id) => employees.find((item) => item.id === id);
-  const runtimeById = (id) => runtimes.find((item) => item.id === id);
-  const coordinatorName = () => coordinator.name || 'Office coordinator';
-  const roleLabel = (employee) => /head|lead/i.test(employee.workspaceRole || employee.role || '') ? 'Department head' : 'Worker';
-  const configurationFor = (employee = {}) => {
-    const mapping = runtimeById(employee.runtimeId);
-    return {
-      model: employee.model || mapping?.model || 'Tool default model',
-      provider: employee.provider === 'custom' ? employee.customProvider : ({openai:'OpenAI',anthropic:'Anthropic',google:'Google',ollama:'Ollama / local'}[employee.provider || mapping?.provider] || 'Provider unassigned'),
-      runtime: {'codex-cli':'Codex CLI','claude-code':'Claude Code',ollama:'Ollama',api:'Direct model API'}[employee.runtime || mapping?.runtime] || mapping?.name || 'Runtime unassigned',
-      instructions: employee.instructions || '',
-      status: mapping?.connectionLabel || 'Sign-in not checked',
-    };
-  };
-  const selectedEmployees = () => selection.type === 'employee' ? employees.filter((employee) => employee.id === selection.id) : selection.type === 'department' ? employees.filter((employee) => employee.departmentId === selection.id) : employees;
-  const contextName = () => selection.type === 'employee' ? employeeById(selection.id)?.name || 'Employee' : selection.type === 'department' ? departmentById(selection.id)?.name || 'Department' : 'Whole office';
-  const hasTask = (employee) => Boolean(typeof employee.task === 'string' ? employee.task.trim() : employee.task?.title || employee.task?.name);
-  const tasks = [];
-  const normaliseTask = (record) => {
-    const key = typeof record.status === 'string' ? record.status : record.status?.key;
-    const status = ['verified', 'accepted'].includes(key) ? 'review' : ['interrupted', 'failed', 'needs-repair', 'head-failed'].includes(key) ? 'failed' : record.inMotion ? 'running' : ['running', 'queued', 'review', 'done', 'failed'].includes(key) ? key : 'queued';
-    return { ...record, id: String(record.id || record.key || record.runId || record.requestId), title: record.title || record.taskText || record.request?.taskText || 'Recorded task', status, statusLabel: record.statusLabel || record.status?.word || ({ review: 'Verified · ready for review', running: 'In progress', queued: 'Waiting to start', done: 'Finished', failed: 'Needs attention' }[status]), summary: record.summary || record.status?.line || '', employeeId: record.employeeId || record.workerId };
-  };
-
-  function contextOptions() {
-    return `<option value="office">Whole office</option>${departments.map((department) => `<optgroup label="${esc(department.name)}"><option value="department:${esc(department.id)}">${esc(department.name)}</option>${employees.filter((employee) => employee.departmentId === department.id).map((employee) => `<option value="employee:${esc(employee.id)}">${esc(employee.name)} · ${esc(roleLabel(employee))}</option>`).join('')}</optgroup>`).join('')}`;
+  function persist() {
+    if (!storageKey) return;
+    state.contexts[contextKey()] = { draft, ...routePreferences, submission, consentSubmissions };
+    try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* Storage can be disabled; coordinator records remain authoritative. */ }
+  }
+  function restoreContext() {
+    const saved = state.contexts[contextKey()] || {};
+    draft = typeof saved.draft === 'string' ? saved.draft : '';
+    routePreferences = { projectId: saved.projectId || '', departmentId: saved.departmentId || '' };
+    submission = saved.submission || null;
+    consentSubmissions = saved.consentSubmissions && typeof saved.consentSubmissions === 'object' ? saved.consentSubmissions : {};
+    submitError = '';
+    consent = false;
+    composerRouteSignature = '';
+  }
+  function loadPersistence() {
+    const path = workspaceDocument()?.path;
+    if (!path) return;
+    const key = `workforce:chat:v1:${path}`;
+    if (key === storageKey) return;
+    storageKey = key;
+    try { state = readChatState(localStorage, key); } catch { state = { version: 1, contexts: {}, messages: [] }; }
+    restoreContext();
   }
 
   element.classList.add('office-sidebar');
   element.setAttribute('aria-label', 'Control center');
-  element.innerHTML = `
-    <header class="sidebar-heading">
-      <div class="sidebar-heading-top"><span class="coordinator-kicker"><i></i> OFFICE COORDINATOR</span><span class="sidebar-demo-label">LOCAL WORKSPACE</span></div>
-      <div class="sidebar-title-row"><h1>Control center<span>.</span></h1><span class="coordinator-mark">${icon('center', 22)}</span></div>
-      <p><span class="sidebar-coordinator-name">${esc(coordinatorName())}</span> · your office coordinator.</p>
-      <div class="sidebar-agent-actions" style="flex-wrap:wrap"><button type="button" class="sidebar-roster-button" data-manage-agents>${icon('center', 14)}Agents <span class="sidebar-agent-count">${employees.length}</span></button><button type="button" class="sidebar-add-agent" data-add-agent><span aria-hidden="true">+</span> Add agent</button><button type="button" class="sidebar-add-agent" data-add-department><span aria-hidden="true">+</span> Add department</button></div>
-    </header>
-    <div class="sidebar-context-row">
-      <span class="context-icon">${icon('focus', 15)}</span>
-      <label class="sr-only" for="office-context-select">Conversation and canvas context</label>
-      <select id="office-context-select" class="sidebar-context-select">
-        ${contextOptions()}
-      </select>
-      <button class="sidebar-icon-button context-focus" title="Focus selected area on canvas" aria-label="Focus selected area on canvas">${icon('arrow', 16)}</button>
-    </div>
-    <div class="sidebar-tabs" role="tablist" aria-label="Control center views">
-      <button class="sidebar-tab is-active" type="button" role="tab" id="office-tab-chat" aria-controls="office-panel" aria-selected="true" data-tab="chat">Chat</button>
-      <button class="sidebar-tab" type="button" role="tab" id="office-tab-tasks" aria-controls="office-panel" aria-selected="false" tabindex="-1" data-tab="tasks">Tasks <span class="tab-task-count">${tasks.filter((task) => task.status === 'review').length}</span></button>
-      <button class="sidebar-tab" type="button" role="tab" id="office-tab-connections" aria-controls="office-panel" aria-selected="false" tabindex="-1" data-tab="connections">Connections</button>
-    </div>
-    <section class="sidebar-scroll" id="office-panel" role="tabpanel" aria-labelledby="office-tab-chat" tabindex="0"></section>
-    <div class="sidebar-composer-wrap"></div>
-    <div class="sidebar-demo-note">Live task records · independent checks</div>`;
-
+  element.innerHTML = `<header class="sidebar-heading"><div class="sidebar-title-row"><span class="coordinator-mark">${icon('terminal', 18)}</span><div><h1>Control center</h1><p>Local runtime workspace</p></div><button type="button" class="sidebar-icon-button" data-manage-agents title="Manage agents" aria-label="Manage agents">${icon('center', 17)}</button></div></header>
+    <div class="sidebar-context-row"><span class="context-icon">${icon('focus', 14)}</span><label class="sr-only" for="office-context-select">Inspect an agent or team</label><select id="office-context-select" class="sidebar-context-select"></select><button class="sidebar-icon-button context-focus" aria-label="Focus selected area on canvas" title="Focus selected area on canvas">${icon('arrow', 14)}</button></div>
+    <div class="sidebar-tabs" role="tablist" aria-label="Control center views"><button class="sidebar-tab is-active" type="button" role="tab" id="office-tab-chat" aria-controls="office-panel" aria-selected="true" data-tab="chat">Chat</button><button class="sidebar-tab" type="button" role="tab" id="office-tab-tasks" aria-controls="office-panel" aria-selected="false" tabindex="-1" data-tab="tasks">Activity <span class="tab-task-count">0</span></button><button class="sidebar-tab" type="button" role="tab" id="office-tab-connections" aria-controls="office-panel" aria-selected="false" tabindex="-1" data-tab="connections">Runtimes</button></div>
+    <section class="sidebar-scroll" id="office-panel" role="tabpanel" aria-labelledby="office-tab-chat" tabindex="0"></section><div class="chat-jump-wrap" hidden><button type="button" class="chat-jump-latest" data-jump-latest><span>Jump to latest</span><span aria-hidden="true">↓</span></button></div><div class="sidebar-composer-wrap"></div><div class="sidebar-demo-note"><span class="sidebar-sync-dot"></span><span data-sync-note>Connecting to local coordinator</span></div>`;
   const scroll = element.querySelector('.sidebar-scroll');
   const composerWrap = element.querySelector('.sidebar-composer-wrap');
   const contextSelect = element.querySelector('.sidebar-context-select');
-
-  function renderConfiguration(employee, isCoordinator = false) {
-    if (isCoordinator) return `<div class="person-configuration"><span class="sidebar-small-label">SYSTEM SCHEDULER</span><strong>Plans are handled by department heads.</strong><p>The Control center routes your requests and records the results. Create a department to configure its head, workers, models, and instructions.</p></div><button type="button" class="person-edit" data-add-department>Add department${icon('arrow', 13)}</button>`;
-    const config = configurationFor(employee);
-    return `<div class="person-configuration"><span class="sidebar-small-label">${employee.isCustom ? 'SAVED CONFIGURATION' : 'AGENT CONFIGURATION'}</span><strong>${esc(config.model)}</strong><p>${esc(config.provider)} · ${esc(config.runtime)}</p><span class="person-config-status">${esc(config.status)}</span></div>
-      ${config.instructions ? `<details class="person-instructions"><summary>Instructions <span>${esc(config.instructions.slice(0, 84))}${config.instructions.length > 84 ? '…' : ''}</span></summary><p>${esc(config.instructions)}</p></details>` : '<p class="person-instructions-empty">No instructions added yet.</p>'}
-      <button type="button" class="person-edit" data-edit-agent="${esc(employee.id || 'control')}">${isCoordinator ? 'Configure coordinator' : 'Edit agent'}${icon('arrow', 13)}</button>`;
+  const jumpWrap = element.querySelector('.chat-jump-wrap');
+  const viewportKey = () => `control|${activeTab}`;
+  const viewportVisible = () => scroll.clientHeight > 0 && scroll.getClientRects().length > 0;
+  function viewportState() {
+    const key = viewportKey();
+    if (!viewportStates.has(key)) viewportStates.set(key, { top: 0, following: activeTab === 'chat', unseen: false });
+    return viewportStates.get(key);
   }
+  function updateJumpControl() {
+    const view = viewportState();
+    jumpWrap.hidden = activeTab !== 'chat' || view.following || scroll.scrollHeight <= scroll.clientHeight + 70;
+    const button = jumpWrap.querySelector('button');
+    button.classList.toggle('has-new-activity', view.unseen);
+    button.firstElementChild.textContent = view.unseen ? 'New activity · Jump to latest' : 'Jump to latest';
+  }
+  function applyViewport() {
+    if (destroyed || !viewportVisible()) return;
+    const view = viewportState();
+    scroll.scrollTop = activeTab === 'chat' && view.following ? scroll.scrollHeight : view.top;
+    expectedScrollTop = scroll.scrollTop;
+    view.top = scroll.scrollTop;
+    updateJumpControl();
+  }
+  function rememberViewport() {
+    if (!viewportVisible() || renderedViewport !== viewportKey()) return;
+    const view = viewportState();
+    view.top = scroll.scrollTop;
+  }
+  function jumpToLatest() {
+    const view = viewportState();
+    view.following = true;
+    view.unseen = false;
+    applyViewport();
+  }
+  /** Call after revealing a previously hidden mobile panel; hidden geometry is never a scroll preference. */
+  function reveal() {
+    if (destroyed) return;
+    if (revealFrame !== null) cancelAnimationFrame(revealFrame);
+    revealFrame = requestAnimationFrame(() => { revealFrame = null; applyViewport(); });
+  }
+  scroll.addEventListener('scroll', () => {
+    if (!viewportVisible() || renderedViewport !== viewportKey()) return;
+    if (expectedScrollTop !== null && Math.abs(scroll.scrollTop - expectedScrollTop) < 1) { expectedScrollTop = null; return; }
+    expectedScrollTop = null;
+    const view = viewportState();
+    view.top = scroll.scrollTop;
+    if (activeTab === 'chat') {
+      view.following = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 70;
+      if (view.following) view.unseen = false;
+    }
+    updateJumpControl();
+  }, { passive: true });
+  const resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { applyViewport(); }) : null;
+  resizeObserver?.observe(scroll);
 
   function renderSelection() {
     if (selection.type === 'employee') {
       const employee = employeeById(selection.id);
       if (!employee) return '';
-      const department = departmentById(employee.departmentId);
-      return `<section class="selected-employee">
-        <div class="selected-person-top"><span class="employee-monogram" style="--department-color:${esc(department?.color || '#628273')}">${esc(initials(employee.name))}</span><div><h2>${esc(employee.name)}</h2><p>${esc(roleLabel(employee))} · ${esc(department?.name || '')}</p></div><button class="sidebar-icon-button" data-focus="employee" data-id="${esc(employee.id)}" aria-label="Focus ${esc(employee.name)} on canvas">${icon('focus', 16)}</button></div>
-        <p class="person-task"><span>${!hasTask(employee) ? 'ASSIGNMENT' : employee.status === 'idle' ? 'LAST ASSIGNMENT' : employee.status === 'review' ? 'AWAITING REVIEW' : 'WORKING ON'}</span>${esc(hasTask(employee) ? taskText(employee.task) : 'No task assigned')}${employee.statusLabel ? `<br><small>${esc(employee.statusLabel)}</small>` : ''}</p>
-        ${renderConfiguration(employee)}
-      </section>`;
+      const runtime = runtimeById(employee.runtimeId);
+      return `<details class="context-details" data-disclosure="profile:${esc(employee.id)}"><summary><span class="employee-monogram">${esc(initials(employee.name))}</span><span><strong>${esc(employee.name)}</strong><small>${esc(roleLabel(employee))} · ${esc(departmentById(employee.departmentId)?.name)}</small></span><span class="context-details-label">Agent details</span></summary><div class="context-details-body"><dl class="compact-facts"><div><dt>Runtime</dt><dd>${esc(runtime?.name || employee.runtime || 'Unassigned')}</dd></div><div><dt>Model</dt><dd>${esc(employee.model || runtime?.model || 'Runtime default')}</dd></div><div><dt>Status</dt><dd>${esc(employee.statusLabel || 'No active task')}</dd></div></dl><p class="person-instructions">${esc(employee.instructions || 'No instructions configured.')}</p><div class="inline-actions"><button type="button" data-edit-agent="${esc(employee.id)}">Edit agent</button>${onRemoveAgent ? `<button class="text-danger" type="button" data-remove-agent="${esc(employee.id)}">Remove agent</button>` : ''}</div></div></details>`;
     }
     if (selection.type === 'department') {
-      const department = departmentById(selection.id);
-      if (!department) return '';
-      return `<section class="selected-department"><div><i style="background:${esc(department.color || '#628273')}"></i><h2>${esc(department.name)}</h2></div><p>${selectedEmployees().filter(employee => roleLabel(employee) === 'Department head').length} department head · ${selectedEmployees().filter(employee => roleLabel(employee) === 'Worker').length} workers</p><div class="runtime-employees">${selectedEmployees().slice().sort((a, b) => (roleLabel(a) === 'Department head' ? -1 : 1) - (roleLabel(b) === 'Department head' ? -1 : 1)).map(employee => `<button type="button" data-focus="employee" data-id="${esc(employee.id)}"><span>${esc(initials(employee.name))}</span>${esc(employee.name)} · ${esc(roleLabel(employee))}${icon('arrow', 12)}</button>`).join('')}</div><button type="button" class="person-edit" data-add-agent="${esc(department.id)}">Add agent to team<span aria-hidden="true">+</span></button>${selectedEmployees().some(employee => employee.isCustom) ? `<button type="button" class="person-edit" data-focus-extra="${esc(department.id)}">View the whole department${icon('arrow', 13)}</button>` : ''}</section>`;
+      const members = employees.filter(agent => agent.departmentId === selection.id);
+      return `<details class="context-details" data-disclosure="team:${esc(selection.id)}"><summary><span class="employee-monogram">${icon('center', 16)}</span><span><strong>${esc(contextName())}</strong><small>${members.filter(agent => roleLabel(agent) === 'Department head').length} head · ${members.filter(agent => roleLabel(agent) === 'Worker').length} workers</small></span><span class="context-details-label">Team details</span></summary><div class="context-details-body"><div class="runtime-employees">${members.map(agent => `<button type="button" data-focus="employee" data-id="${esc(agent.id)}"><span>${esc(initials(agent.name))}</span>${esc(agent.name)}<small>${esc(roleLabel(agent))}</small></button>`).join('')}</div><div class="inline-actions"><button type="button" data-add-agent="${esc(selection.id)}">Add agent</button><button type="button" data-manage-agents>Manage team</button></div></div></details>`;
     }
-    if (selection.type !== 'control') return `<div class="coordinator-quick-settings"><span>${esc(coordinatorName())} coordinates your team</span><button type="button" class="person-edit" data-edit-agent="control">Settings ${icon('arrow', 13)}</button></div>`;
-    return `<section class="selected-coordinator"><div class="selected-person-top"><span class="employee-monogram">${esc(initials(coordinatorName()))}</span><div><h2>${esc(coordinatorName())}</h2><p>${esc(coordinator.role || 'Office coordinator')} · Control center</p></div></div>${renderConfiguration(coordinator, true)}</section>`;
+    return '';
+  }
+
+  function taskDetail(task) {
+    if (!task?.entry) return null;
+    const cached = details.get(taskKey(task));
+    try { return taskDetailModel({ ws: indexWorkspace(workspaceDocument()), entry: task.entry, status: cached?.status || null, events: cached?.events || [] }); } catch { return null; }
+  }
+  function renderTaskProgress(task, activityView = false) {
+    const detail = taskDetail(task);
+    const cached = details.get(taskKey(task));
+    const events = cached?.events || [];
+    const flow = controlFlowModel(task, detail, events, cached?.status);
+    const item = flow.request;
+    if (flow.directReply) return `<article class="control-center-reply control-direct-reply" data-reply-status="answered"><div class="chat-message-meta">${icon('center',14)}Control Center <span>Answered · ${esc(time(item.endedAt))}</span></div><div class="recorded-markdown">${renderRecordedMarkdown(item.controlReply)}</div></article>`;
+    const assigned = flow.parts;
+    const usage = usageSummary({ events, status: cached?.status, request: item, now: Date.now() });
+    const elapsedSeconds = usage.elapsedMs == null ? null : Math.max(0, Math.floor(usage.elapsedMs / 1000));
+    const elapsed = elapsedSeconds == null ? 'Time not reported' : elapsedSeconds < 60 ? `${elapsedSeconds}s elapsed` : `${Math.floor(elapsedSeconds / 60)}m ${elapsedSeconds % 60}s elapsed`;
+    const tokenCount = value => value == null ? '—' : value.toLocaleString();
+    const usageText = usage.tokenStatus === 'measured' ? `Run tokens · ${tokenCount(usage.inputTokens)} in / ${tokenCount(usage.outputTokens)} out${usage.tokenScope === 'partial' ? ' · partial' : ''}` : 'Run tokens not reported';
+    const costText = usage.costStatus === 'measured' && usage.costUsd != null ? `$${usage.costUsd.toFixed(4)}${usage.costScope === 'partial' ? ' · partial cost' : ''}` : 'Cost not reported';
+    const headId = flow.headAgentId || events.find(event => event.type === 'head.planning_started')?.payload?.headAgentId;
+    const headName = employeeById(headId)?.name || (headId ? headId : null);
+    const teamId = flow.route?.departmentId || item.departmentId;
+    const teamName = departmentById(teamId)?.name || teamId;
+    const runtimeMessages = events.filter(event => event.type === 'runtime.assistant_message' && event.payload?.text).slice(-5);
+    const latestEvents = events.filter(event => event.type !== 'runtime.raw' && event.type !== 'runtime.assistant_message' && event.type !== 'runtime.usage').slice(-7);
+    const checks = cached?.status?.checks || [];
+    const actions = [];
+    if (detail?.canStop) actions.push(`<button type="button" data-task-action="stop" data-id="${esc(task.id)}" ${pendingAction ? 'disabled' : ''}>Stop task</button>`);
+    if (detail?.canResume) actions.push(`<button type="button" data-task-action="resume" data-id="${esc(task.id)}" ${pendingAction ? 'disabled' : ''}>Resume</button>`);
+    if (item.state === 'held') actions.push(`<button type="button" data-task-action="start" data-id="${esc(task.id)}" ${pendingAction ? 'disabled' : ''}>Start held task</button>`);
+    if (['held', 'queued'].includes(item.state)) actions.push(`<button type="button" data-task-action="discard" data-id="${esc(task.id)}" ${pendingAction ? 'disabled' : ''}>Discard</button>`);
+    if (flow.consentNeeded && item.state === 'failed_to_start') actions.push(`<button type="button" data-task-action="routing-consent" data-id="${esc(task.id)}" ${pendingAction ? 'disabled' : ''}>Review runtime permission</button>`);
+    const actors = `${flow.reservedWorkerIds.length ? `<div class="chat-capacity"><span>${flow.reservedWorkerIds.length} worker${flow.reservedWorkerIds.length === 1 ? '' : 's'} reserved</span><span>${flow.runningWorkerCount} running</span></div>` : ''}<div class="chat-actors">${headName ? `<div><strong>${esc(headName)} <small>Department head</small></strong><span>${flow.reviewing ? 'Reviewing the completed candidate and checks.' : flow.review ? esc(flow.review.verdict === 'passed' ? 'Review passed.' : 'Review requires attention.') : esc(detail?.actors?.find(actor => actor.role === 'head')?.line || 'Assigned by Control Center.')}</span></div>` : ''}${assigned.map(part => `<div><strong>${esc(part.worker)} <small>Assigned worker</small></strong><span>${esc(part.title)} · ${esc(({worker_busy:'Waiting for worker',dependency:'Waiting for dependency',turn_slot:'Waiting for runtime slot',writer_slot:'Waiting for write slot'})[part.waitReason] || ({pending:'Awaiting dispatch',ready:'Awaiting dispatch',running:'Running',validating:'Independent checks',accepted:'Accepted',failed:'Needs attention',cancelled:'Stopped'})[part.state] || part.state || 'Assigned')}</span></div>`).join('')}${!assigned.length && headName && !flow.routeBlocked ? '<p>No worker has been assigned yet.</p>' : ''}</div>`;
+    const progress = `<div class="chat-execution"><div class="chat-progress-heading"><span class="status-indicator status-${flow.tone}">${flow.tone === 'verified' ? icon('check',12) : '<i></i>'}${esc(flow.label)}</span>${flow.totalTasks ? `<small title="Accepted worker tasks, not an estimate of remaining time">Completed tasks · ${flow.completedTasks}/${flow.totalTasks}</small>` : ''}</div><ol class="chat-phases" aria-label="Recorded execution phases">${flow.phases.map(phase => `<li class="phase-${phase.state}"><i></i><span>${phase.label}</span></li>`).join('')}</ol>${flow.totalTasks ? `<progress class="chat-completion" max="${flow.totalTasks}" value="${flow.completedTasks}" aria-label="Completed worker tasks">${flow.completedTasks}/${flow.totalTasks}</progress>` : ''}<p class="chat-status-line">${esc(flow.routePending ? flow.routeReason || 'Control Center is selecting the department for this request.' : flow.routeBlocked ? item.reason || flow.routeReason || 'A routing decision is needed.' : detail?.overlay?.line || (flow.reviewing ? 'The department head is reviewing the candidate against the request and recorded checks.' : detail?.status?.line) || task.summary || 'Waiting for the next recorded step.')}</p>${teamName ? `<div class="chat-route-decision"><span>Control Center</span><span>→</span><strong>${esc(teamName)}</strong>${flow.route?.elapsedMs != null ? `<small>${(flow.route.elapsedMs/1000).toFixed(1)}s to route</small>` : ''}</div>` : ''}${actors}${flow.legacyCheckResult ? '<p class="chat-status-line">This earlier task has verified checks. No department-head review or Control Center final reply was recorded.</p>' : ''}</div>`;
+    const diagnostics = `${runtimeMessages.length ? `<details class="chat-record" data-disclosure="runtime-output:${esc(task.id)}"><summary>Agent activity <span>${runtimeMessages.length} recent replies</span></summary><div class="chat-runtime-messages">${runtimeMessages.map(event => `<article><div class="chat-message-meta">${esc(employeeById(cached?.status?.tasks?.find(row => row.id === event.taskId)?.ownerAgentId)?.name || headName || 'Runtime')} <span>Recorded output · ${esc(time(event.timestamp))}</span></div>${renderRecordedOutput(event.payload.text).replace('class="recorded-original"', `class="recorded-original" data-disclosure="output:${esc(task.id)}:${event.sequence}"`)}</article>`).join('')}</div></details>` : ''}${checks.length ? `<details class="chat-record" data-disclosure="checks:${esc(task.id)}"><summary>Independent checks <span>${checks.length}</span></summary><ul>${checks.map(row => { const view = checkView(row, cached.status, task.entry?.run); const label = view.compromised ? 'Does not count — criteria changed' : view.evidenceUnavailable ? 'Evidence unavailable' : view.verifier && row.outcome === 'passed' ? 'Passed · verifier' : row.outcome === 'failed' ? 'Failed' : 'Reported · unverified'; return `<li class="${view.tone === 'verified' ? 'check-verified' : ''}"><strong>${esc(label)}</strong><code>${esc(row.command)}</code></li>`; }).join('')}</ul></details>` : ''}${latestEvents.length ? `<details class="chat-record" data-disclosure="events:${esc(task.id)}"><summary>Event log <span>${events.length}</span></summary><ul>${latestEvents.map(event => `<li><small>#${event.sequence} · ${esc(time(event.timestamp))}</small>${esc(describeEvent(event))}</li>`).join('')}</ul></details>` : ''}`;
+    const reply = flow.reply ? `<article class="control-center-reply"><div class="chat-message-meta">${icon('center',14)}Control Center <span>${flow.reply.headAgentId ? `Reviewed by ${esc(employeeById(flow.reply.headAgentId)?.name || flow.reply.headAgentId)}` : 'Recorded coordinator response'}</span></div>${renderRecordedOutput(flow.reply.text).replace('class="recorded-original"', `class="recorded-original" data-disclosure="final-output:${esc(task.id)}"`)}</article>` : '';
+    return `<section class="chat-progress" aria-label="Control Center task progress"><div class="control-receipt">${icon('check',12)}<span>Received by Control Center</span><time>${esc(time(item.receivedAt || task.at))}</time></div>${progress}${activityView ? diagnostics : `<details class="chat-record" data-disclosure="execution:${esc(task.id)}"><summary>Execution details <span>${events.length} events</span></summary>${diagnostics || '<p class="chat-status-line">No runtime events recorded yet.</p>'}</details>`}${cached?.error ? `<p class="sidebar-error" role="status">Could not refresh the task: ${esc(cached.error)}. Showing the last received records.</p>` : ''}${item.stopRequestedAt && !detail?.canResume ? '<p class="chat-status-line">Stop requested. Waiting for the runtime to settle.</p>' : ''}<div class="inline-actions">${actions.join('')}<button type="button" data-open-task="${esc(task.id)}">Open evidence ${icon('arrow',12)}</button></div>${pendingAction === `resume-consent:${task.id}` || pendingAction === `routing-consent:${task.id}` ? `<div class="chat-action-consent"><p>${esc(pendingAction.startsWith('routing-consent:') ? item.result?.message || item.reason || 'This runtime requires explicit write permission for its installed version.' : 'This task uses a runtime without a verified OS file boundary and will run alone.')}</p><label><input type="checkbox" data-resume-consent="${esc(task.id)}"> Allow this runtime to write without the verified boundary</label><div class="inline-actions"><button type="button" data-task-action="${pendingAction.startsWith('routing-consent:') ? 'routing-confirm' : 'resume-confirm'}" data-id="${esc(task.id)}" disabled>${pendingAction.startsWith('routing-consent:') ? 'Allow and retry' : 'Confirm resume'}</button><button type="button" data-task-action="cancel-consent" data-id="${esc(task.id)}">Cancel</button></div></div>` : ''}${reply}<footer class="chat-usage" title="${esc('Recorded run usage; a separate routing session is not included. '+usage.detail)}"><span>${esc(elapsed)}</span><span>${esc(usageText)}</span><span>${esc(costText)}</span></footer></section>`;
   }
 
   function renderChat() {
-    const visibleMessages = messages.slice(-30);
-    scroll.innerHTML = `${renderSelection()}
-      <div class="chat-conversation" role="log" aria-label="Coordinator conversation" aria-live="polite">
-        <div class="coordinator-intro"><div class="chat-avatar">${icon('center', 18)}</div><div><div class="chat-author">${esc(coordinatorName())} <span>COORDINATOR</span></div><p>${departments.length ? 'Good work starts with a clear view.' : 'Your office starts here.'}</p><p class="chat-intro-detail">${departments.length ? 'Pick a team on the canvas, then describe the work. Review the project and checks before sending it to the department head.' : 'The Control center is ready. Create your first department and its head, then add workers as your team grows.'}</p></div></div>
-        ${visibleMessages.map((message) => `<article class="chat-message ${message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}"><div class="chat-message-meta">${message.role === 'user' ? 'You' : esc(coordinatorName())}${message.role === 'user' && message.context !== 'Whole office' ? `<span>${esc(message.context)}</span>` : ''}</div><p>${esc(message.text)}</p></article>`).join('')}
-      </div>
-      ${submitError ? `<p class="person-instructions-empty" role="alert">${esc(submitError)}</p>` : ''}${liveData.error ? `<p class="person-instructions-empty" role="alert">${esc(liveData.error)}</p>` : ''}${visibleMessages.length ? '' : `<div class="chat-suggestions"><span class="sidebar-small-label">A PLACE TO START</span>${!departments.length ? `<button type="button" data-add-department><span>Create your first department</span>${icon('arrow', 15)}</button>` : ''}<button data-show-tab="tasks"><span>See team activity</span>${icon('arrow', 15)}</button><button data-show-tab="tasks"><span>Show tasks to review</span>${icon('arrow', 15)}</button><button data-show-tab="connections"><span>How is the team connected?</span>${icon('arrow', 15)}</button></div>`}
-      ${!visibleMessages.length ? `<div class="chat-office-note"><div class="mini-avatar-stack">${employees.slice(0, 4).map((employee) => `<span>${esc(initials(employee.name))}</span>`).join('')}</div><p>${employees.length} specialists. ${departments.filter(d=>d.configured).length} departments.<br><span>One place to bring everything together.</span></p></div>` : ''}`;
-    composerWrap.hidden = departments.length === 0;
-    composerWrap.innerHTML = `<form class="sidebar-composer" aria-label="Message office coordinator"><label class="sr-only" for="coordinator-message">Message the control center</label><textarea id="coordinator-message" rows="2" maxlength="1800" placeholder="Message the control center…">${esc(draft)}</textarea><div class="composer-bottom"><span class="composer-scope">${icon('center', 13)}<span>${esc(contextName())}</span></span><button class="composer-send" type="submit" aria-label="Review task before sending" ${draft.trim() && !sending ? '' : 'disabled'}>${icon('send', 18)}</button></div></form><div class="composer-help"><span>Enter to review <span aria-hidden="true">↵</span></span><span>Shift + Enter for a new line</span></div>`;
+    const entries = conversationEntries(state.messages, tasks);
+    return `${renderSelection()}${liveData.error ? `<p class="sidebar-error" role="status">${esc(liveData.error)}. Showing the last received records.</p>` : ''}<div class="chat-conversation" role="log" aria-label="Task conversation">${entries.length ? entries.map(message => `<article class="chat-turn" data-request-id="${esc(message.requestId || message.id)}"><div class="chat-message chat-message-user"><div class="chat-message-meta">You <span>${esc(time(message.at))}</span></div><p>${esc(message.text)}</p><div class="chat-route-label">${esc(liveData.projects?.find(project => project.id === message.projectId)?.name || message.projectId || '')}<span>→</span>Control Center</div></div>${message.task ? renderTaskProgress(message.task) : '<p class="chat-status-line">Received by Control Center. Reading the routing decision…</p>'}</article>`).join('') : `<div class="chat-empty"><span class="chat-empty-icon">${icon('terminal', 25)}</span><h2>What are we building?</h2><p>Describe the outcome. Control Center routes the request, your team carries it out, and the department head reviews the result.</p><div class="chat-flow"><span>Control Center</span><span>→</span><span>Team</span><span>→</span><span>Reviewed result</span></div><div class="chat-empty-actions">${!liveData.projects?.length ? `<button type="button" data-add-project>${icon('plus', 14)}Add project</button>` : ''}${!departments.length ? `<button type="button" data-add-department>${icon('plus', 14)}Create department</button>` : `<button type="button" data-show-tab="tasks">View activity ${icon('arrow', 13)}</button>`}<button type="button" data-show-tab="connections">Manage runtimes ${icon('terminal', 13)}</button></div></div>`}</div>`;
+  }
+
+  function mountComposer() {
+    if (composerReady) return;
+    composerWrap.innerHTML = `<div class="composer-readiness" role="status"></div><form class="sidebar-composer" aria-label="Message Control Center"><div class="composer-routing"><label><span>Project context</span><select name="project" id="chat-project" aria-label="Task project"></select></label><span class="composer-control-target">${icon('center',13)}Control Center</span></div><label class="sr-only" for="coordinator-message">Message Control Center</label><textarea id="coordinator-message" name="task" rows="3" maxlength="20000" placeholder="Describe a task, bug or feature…"></textarea><div class="composer-boundary" hidden><label><input type="checkbox" name="consent"> <span>Allow runtime writes without a verified OS file boundary. This task will run alone.</span></label></div><div class="composer-bottom"><span class="composer-scope"></span><button class="composer-send" type="submit" aria-label="Send to Control Center">${icon('send', 17)}</button></div></form><p class="composer-error" role="alert" hidden></p><div class="composer-help"><span>Enter to send · Shift + Enter for a new line</span><span title="Each message creates a new task. Existing tasks continue.">New task</span></div>`;
+    composerReady = true;
     const textarea = composerWrap.querySelector('textarea');
     textarea.addEventListener('input', () => {
       draft = textarea.value;
-      composerWrap.querySelector('.composer-send').disabled = !draft.trim() || sending;
+      submission = null;
+      persist();
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 132)}px`;
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 150)}px`;
+      updateComposerButton();
     });
-    textarea.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submitMessage(textarea.value); }
+    textarea.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); submitMessage(); }
     });
-    composerWrap.querySelector('form').addEventListener('submit', (event) => { event.preventDefault(); submitMessage(textarea.value); });
+    composerWrap.querySelector('form').addEventListener('submit', event => { event.preventDefault(); submitMessage(); });
+    composerWrap.querySelector('[name=project]').addEventListener('change', event => {
+      routePreferences.projectId = event.target.value;
+      consent = false; submission = null; persist(); renderComposer();
+    });
+    composerWrap.querySelector('[name=consent]').addEventListener('change', event => { consent = event.target.checked; updateComposerButton(); });
+  }
+  function updateComposerButton() {
+    const current = route();
+    const button = composerWrap.querySelector('.composer-send');
+    button.disabled = sending || !draft.trim() || !current.sendable;
+    button.classList.toggle('is-sending', sending);
+    button.setAttribute('aria-label', sending ? 'Sending task' : 'Send to Control Center');
+  }
+  function renderComposer() {
+    mountComposer();
+    composerWrap.hidden = activeTab !== 'chat';
+    if (activeTab !== 'chat') return;
+    const current = route();
+    routePreferences = { projectId: current.projectId };
+    const project = composerWrap.querySelector('[name=project]');
+    const signature = JSON.stringify(current.projects.map(p => [p.id, p.name]));
+    if (signature !== composerRouteSignature) {
+      project.innerHTML = current.projects.length ? current.projects.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('') : '<option value="">Add a project</option>';
+      composerRouteSignature = signature;
+    }
+    project.value = current.projectId;
+    project.disabled = sending || !current.projects.length;
+    const textarea = composerWrap.querySelector('textarea');
+    if (textarea.value !== draft) textarea.value = draft;
+    textarea.disabled = sending;
+    composerWrap.querySelector('.composer-boundary').hidden = true;
+    composerWrap.querySelector('[name=consent]').checked = consent;
+    composerWrap.querySelector('[name=consent]').disabled = sending;
+    const readiness = composerWrap.querySelector('.composer-readiness');
+    readiness.hidden = current.sendable;
+    const needsWorkers = current.candidates.length === 0;
+    readiness.innerHTML = `${current.blockers.map(line => `<p>${esc(line)}</p>`).join('')}<div class="inline-actions">${!current.projects.length ? '<button type="button" data-add-project>Add project</button>' : !departments.length ? '<button type="button" data-add-department>Create department</button>' : needsWorkers ? '<button type="button" data-manage-agents>Assign workers to project</button>' : '<button type="button" data-add-project>Project settings</button><button type="button" data-manage-runtimes>Runtime settings</button>'}</div>`;
+    composerWrap.querySelector('.composer-scope').innerHTML = current.sendable ? `<span class="route-ready-dot"></span><span>Automatic routing<small>Committed HEAD · isolated candidate</small></span>` : '<span>Connect a project and team to get started</span>';
+    const error = composerWrap.querySelector('.composer-error');
+    error.hidden = !submitError; error.textContent = submitError;
+    updateComposerButton();
   }
 
-  async function submitMessage(raw) {
-    const value = String(raw || '').trim().slice(0, 1800);
-    if (!value || sending) return;
-    if (!onAssignTask) { submitError = 'Task intake is still loading. Please try again.'; render(); return; }
-    sending = true;
-    submitError = '';
-    composerWrap.querySelector('.composer-send')?.setAttribute('disabled', '');
+  async function submitMessage() {
+    if (sending || !draft.trim()) return;
+    const current = route();
+    if (!current.sendable) { renderComposer(); return; }
+    if (!onAssignTask) { submitError = 'Task intake is not available yet. Your draft is saved.'; renderComposer(); return; }
+    const text = draft.trim();
+    const fingerprint = JSON.stringify([text, current.projectId]);
+    if (submission?.fingerprint !== fingerprint) submission = { fingerprint, id: uid() };
+    const clientRequestId = submission.id;
+    const sentContext = contextKey();
+    sending = true; submitError = ''; persist(); renderComposer();
     try {
-      const result = await onAssignTask({ text: value, selection: { ...selection }, departmentId: selection.type === 'department' ? selection.id : selection.type === 'employee' ? employeeById(selection.id)?.departmentId : null, employeeId: selection.type === 'employee' ? selection.id : null });
-      if (result?.cancelled || !result) return;
-      draft = '';
-      messages.push({ role: 'user', text: value, context: contextName() });
-      if (result.message) messages.push({ role: 'assistant', text: result.message, context: contextName() });
-      if (result.task && !tasks.some((task) => task.id === String(result.task.id))) tasks.unshift(normaliseTask(result.task));
-      messages = messages.slice(-30);
-    } catch (error) { submitError = error?.message || 'The task could not be sent. Your draft is still here.'; }
-    finally { sending = false; render(); scroll.scrollTop = scroll.scrollHeight; composerWrap.querySelector('textarea')?.focus(); }
+      const result = await onAssignTask({ text, projectId: current.projectId, clientRequestId });
+      if (!result?.task?.id) throw new Error('The coordinator did not return a request receipt. Your draft is saved; retry uses the same request identity.');
+      state.messages.push({ id: clientRequestId, requestId: result.task.id, text, projectId: current.projectId, departmentId: result.task.departmentId || null, at: result.task.receivedAt || new Date().toISOString() });
+      state.messages = state.messages.slice(-100);
+      if (sentContext === contextKey()) { draft = ''; submission = null; consent = false; }
+      else state.contexts[sentContext] = { ...state.contexts[sentContext], draft: '', submission: null };
+      persist();
+    } catch (error) { submitError = `${error?.message || 'The task could not be sent.'} Your draft is saved.`; }
+    finally { sending = false; render(); jumpToLatest(); composerWrap.querySelector('textarea')?.focus({ preventScroll: true }); }
   }
 
-  function renderTasks() {
-    const selected = selection.type === 'employee' ? employeeById(selection.id) : null;
-    const departmentId = selection.type === 'department' ? selection.id : selected?.departmentId;
-    const scopedTasks = tasks.filter((task) => selected ? (task.employeeIds || [task.employeeId]).includes(selected.id) : !departmentId || task.departmentId === departmentId);
-    const filteredTasks = scopedTasks.filter((task) => taskFilter === 'all' || task.status === taskFilter);
-    scroll.innerHTML = `${renderSelection()}<div class="panel-section-heading"><div><h2>Team workspace</h2><p>Small steps. Visible progress.</p></div><span class="sample-pill">LIVE RECORDS</span></div>
-      <div class="task-filter-row" aria-label="Filter tasks">${[['all', 'All'], ['review', 'Review'], ['running', 'Running'], ['failed', 'Needs you']].map(([id, label]) => `<button class="task-filter ${taskFilter === id ? 'is-active' : ''}" data-task-filter="${id}" aria-pressed="${taskFilter === id}">${label}<span>${id === 'all' ? scopedTasks.length : scopedTasks.filter((task) => task.status === id).length}</span></button>`).join('')}</div>
-      ${liveData.error ? `<p role="alert">${esc(liveData.error)}</p>` : ''}<div class="sidebar-task-list">${filteredTasks.map((task) => {
-        const employee = employeeById(task.employeeId);
-        const department = departmentById(task.departmentId);
-        const expanded = expandedTask === task.id;
-        return `<article class="sidebar-task ${expanded ? 'is-expanded' : ''}"><button class="task-summary" data-task="${esc(task.id)}" aria-expanded="${expanded}" aria-controls="details-${esc(task.id)}"><span class="task-state-dot task-state-${esc(task.status)}">${task.status === 'review' ? icon('check', 10) : ''}</span><span class="task-summary-content"><span class="task-title">${esc(task.title)}</span><span class="task-byline">${esc(department?.name || task.projectName || '')}${employee ? ` <span>·</span> ${esc(employee.name)}` : ''}</span><span class="task-status-label task-status-${esc(task.status)}">${esc(task.statusLabel)}</span></span><span class="task-chevron">${icon('chevron', 14)}</span></button>
-          ${expanded ? `<div class="task-details" id="details-${esc(task.id)}"><span class="sidebar-small-label">RECORDED RESULT</span><p>${esc(task.summary || 'Open the task to follow its department head, worker, checks and candidate changes.')}</p><div class="task-detail-actions"><button class="task-approve" data-open-task="${esc(task.id)}">${icon('arrow', 14)}Open task and evidence</button>${employee ? `<button class="task-revise" data-focus="employee" data-id="${esc(employee.id)}">${icon('focus', 14)}Find employee</button>` : ''}</div></div>` : ''}</article>`;
-      }).join('') || '<div class="sidebar-empty"><span>All clear.</span><p>No recorded tasks in this view.</p></div>'}</div>`;
-    composerWrap.hidden = true;
+  function renderActivity() {
+    const scoped = scopedTasks();
+    const filtered = scoped.filter(task => taskFilter === 'all' || taskFilter === 'running' && task.inMotion || taskFilter === 'review' && task.verified || taskFilter === 'attention' && task.needsYou);
+    return `${renderSelection()}<div class="panel-section-heading"><div><h2>Task activity</h2><p>Live records from your local coordinator.</p></div></div><div class="task-filter-row" aria-label="Filter tasks">${[['all','All'],['running','Active'],['review','Verified'],['attention','Needs you']].map(([key,label]) => `<button type="button" class="task-filter ${taskFilter === key ? 'is-active' : ''}" data-task-filter="${key}" aria-pressed="${taskFilter === key}">${label}</button>`).join('')}</div><div class="sidebar-task-list">${filtered.map(task => `<article class="sidebar-task"><button type="button" class="task-summary" data-task="${esc(task.id)}" aria-expanded="${expandedTask === task.id}"><span class="task-state-dot status-${task.verified ? 'verified' : task.inMotion ? 'active' : task.needsYou ? 'attention' : 'neutral'}"></span><span class="task-summary-content"><strong>${esc(task.title)}</strong><span>${esc(departmentById(task.departmentId)?.name || '')} · ${esc(task.statusLabel)}</span></span><span class="task-chevron">${icon('chevron',14)}</span></button>${expandedTask === task.id ? renderTaskProgress(task, true) : ''}</article>`).join('') || '<div class="sidebar-empty"><h3>No tasks here yet</h3><p>Send a task in Chat to follow its progress.</p></div>'}</div>`;
   }
 
-  function renderConnections() {
-    const scopedIds = new Set(selectedEmployees().map((employee) => employee.runtimeId));
-    const scopedRuntimes = selection.type === 'department' || selection.type === 'employee' ? runtimes.filter((runtime) => scopedIds.has(runtime.id)) : runtimes;
-    scroll.innerHTML = `${renderSelection()}<div class="panel-section-heading"><div><h2>Behind the office</h2><p>Models, providers, and runtimes.</p></div>${icon('link', 20)}</div>
-      <div class="connection-overview"><span class="connection-overview-mark">${icon('center', 20)}</span><div><strong>${esc(coordinatorName())} · Control center</strong><p>Routes your request to the right specialist</p></div><span class="connection-overview-line"></span><span class="connection-overview-count">${scopedRuntimes.length}<small>CONFIGS</small></span></div>
-      <p class="connection-explainer">${scopedRuntimes.length} configured runtimes. Installation and sign-in reports are passive; each task records its actual execution.</p>
-      <div class="connection-list">${scopedRuntimes.length ? scopedRuntimes.map((runtime) => {
-        const connectedEmployees = employees.filter((employee) => employee.runtimeId === runtime.id);
-        const includesCoordinator = coordinator.runtimeId === runtime.id;
-        const connectedDepartments = departments.filter((department) => connectedEmployees.some((employee) => employee.departmentId === department.id));
-        const expanded = expandedRuntime === runtime.id;
-        return `<article class="runtime-item ${expanded ? 'is-expanded' : ''}"><button class="runtime-summary" data-runtime="${esc(runtime.id)}" aria-expanded="${expanded}" aria-controls="runtime-details-${esc(runtime.id)}"><span class="runtime-monogram">${esc(initials(runtime.name).slice(0, 2))}</span><span class="runtime-main"><strong>${esc(runtime.name)}</strong><span>${esc(runtime.model || runtime.kind || 'Model configuration')}</span></span><span class="runtime-demo">${esc(runtime.connectionLabel || 'Configured')}</span><span class="task-chevron">${icon('chevron', 14)}</span></button><div class="runtime-assignment-preview">${includesCoordinator ? `<button data-focus="control" data-id="control">${esc(coordinatorName())}</button>` : ''}${connectedDepartments.map((department) => `<button data-focus="department" data-id="${esc(department.id)}"><i style="background:${esc(department.color || '#628273')}"></i>${esc(department.name)}</button>`).join('') || (includesCoordinator ? '' : '<span>No employees assigned</span>')}</div>
-          ${expanded ? `<div class="runtime-details" id="runtime-details-${esc(runtime.id)}"><dl><div><dt>Model</dt><dd>${esc(runtime.model || 'Not specified')}</dd></div><div><dt>Provider</dt><dd>${esc(runtime.provider || 'Not specified')}</dd></div><div><dt>Runtime</dt><dd>${esc(runtime.runtime || runtime.kind || runtime.name)}</dd></div><div><dt>Connection</dt><dd>${esc(runtime.connectionLabel || 'Configured · sign-in not checked')}</dd></div></dl>${runtime.description ? `<p>${esc(runtime.description)}</p>` : ''}<span class="sidebar-small-label">ASSIGNED AGENTS · ${connectedEmployees.length + (includesCoordinator ? 1 : 0)}</span><div class="runtime-employees">${includesCoordinator ? `<button data-focus="control" data-id="control"><span>${esc(initials(coordinatorName()))}</span>${esc(coordinatorName())}${icon('arrow', 12)}</button>` : ''}${connectedEmployees.map((employee) => `<button data-focus="employee" data-id="${esc(employee.id)}"><span>${esc(initials(employee.name))}</span>${esc(employee.name)}${icon('arrow', 12)}</button>`).join('') || (includesCoordinator ? '' : '<p>No assigned agents.</p>')}</div></div>` : ''}</article>`;
-      }).join('') : '<div class="sidebar-empty"><span>No runtime assigned.</span><p>This specialist is waiting for a configuration.</p></div>'}</div>
-      <div class="connection-route-note">${icon('sparkle', 16)}<p>Your message → control center → specialist.<br><span>Department heads plan and assign the work.</span></p></div>`;
-    composerWrap.hidden = true;
+  function renderRuntimes() {
+    const reports = liveData.reports || [];
+    return `<div class="panel-section-heading"><div><h2>Local runtimes</h2><p>Installed CLIs power your heads and workers.</p></div><button class="sidebar-icon-button" type="button" data-manage-runtimes aria-label="Manage runtime installations" title="Manage runtime installations">${icon('arrow',16)}</button></div><div class="connection-list">${runtimes.map(runtime => {
+      const report = reports.find(item => item.runtimeId === runtime.id) || runtime.report || reports.find(item => !item.runtimeId && item.adapter === runtime.adapter);
+      const members = employees.filter(employee => employee.runtimeId === runtime.id);
+      const expanded = expandedRuntime === runtime.id;
+      const installed = report?.installed;
+      const auth = report?.auth === 'logged_in' ? 'Signed in' : report?.auth === 'logged_out' ? 'Sign-in required' : 'Sign-in unknown';
+      const blocked = installed === false || report?.auth === 'logged_out' || report?.adapterSupported === false || report?.controllable === false;
+      const needsConsent = workspaceDocument()?.runtimeRules?.[runtime.id]?.requiresWriteConsent === true;
+      const active = members.filter(member => ['working', 'running'].includes(member.status));
+      return `<article class="runtime-item ${expanded ? 'is-expanded' : ''}"><button class="runtime-summary" type="button" data-runtime="${esc(runtime.id)}" aria-expanded="${expanded}"><span class="runtime-monogram">${icon('terminal',18)}</span><span class="runtime-main"><strong>${esc(runtime.name)}</strong><span>${esc(runtime.version || report?.version || 'Version not checked')}</span></span><span class="runtime-status ${blocked || needsConsent ? 'runtime-blocked' : active.length ? 'runtime-active' : ''}"><i></i>${blocked ? 'Needs setup' : active.length ? `${active.length} active` : needsConsent ? 'Consent required' : installed ? 'Available' : 'Not checked'}</span><span class="task-chevron">${icon('chevron',13)}</span></button><div class="runtime-facts"><span>${installed === true ? 'CLI installed' : installed === false ? 'CLI missing' : 'Installation unknown'}</span><span>${esc(auth)}</span><span>${members.length} assigned</span></div>${expanded ? `<div class="runtime-details"><dl class="compact-facts"><div><dt>Executable</dt><dd><code>${esc(report?.executablePath || report?.executable || 'Configured path')}</code></dd></div><div><dt>Control adapter</dt><dd>${report?.adapterSupported === true ? 'Supported' : report?.adapterSupported === false ? 'Unsupported' : 'Not checked'}</dd></div><div><dt>File boundary</dt><dd>${needsConsent ? 'Consent required for this installed version' : esc(report?.writeContainment || workspaceDocument()?.runtimeRules?.[runtime.id]?.writeContainment || 'Not verified')}</dd></div><div><dt>Model</dt><dd>${esc(runtime.model || 'Runtime default')}</dd></div></dl>${report?.loginHint ? `<p class="runtime-login-hint">${esc(report.loginHint)}</p>` : ''}<div class="runtime-employees">${members.map(agent => `<button type="button" data-focus="employee" data-id="${esc(agent.id)}"><span>${esc(initials(agent.name))}</span>${esc(agent.name)}<small>${esc(roleLabel(agent))}</small></button>`).join('') || '<p>No agents assigned to this runtime.</p>'}</div><div class="inline-actions"><button type="button" data-manage-runtimes>Configure runtime</button></div></div>` : ''}</article>`;
+    }).join('') || '<div class="sidebar-empty"><h3>No runtimes discovered</h3><p>Configure an installed Codex or Claude Code CLI to run your agents.</p></div>'}</div><p class="connection-explainer">Installation and sign-in are checked without starting a model turn. Actual execution and verification are recorded with each task.</p><div class="inline-actions"><button type="button" data-recheck-runtimes ${runtimeChecking ? 'disabled' : ''}>${runtimeChecking ? 'Checking tools…' : 'Recheck tools'}</button><button type="button" data-manage-runtimes>Manage runtime paths ${icon('arrow',12)}</button><button type="button" data-manage-agents>Assign agents</button></div>`;
   }
 
   function render() {
     if (destroyed) return;
+    rememberViewport();
+    const view = viewportState();
+    const sameViewport = renderedViewport === viewportKey();
+    const focused = scroll.contains(document.activeElement) ? document.activeElement : null;
+    const focusKey = focused?.closest('[data-disclosure]')?.dataset.disclosure;
+    const open = new Set([...scroll.querySelectorAll('details[open][data-disclosure]')].map(node => node.dataset.disclosure));
+    const options = `<option value="office">Control Center · inspect team</option>${departments.map(department => `<optgroup label="${esc(department.name)}"><option value="department:${esc(department.id)}">${esc(department.name)}</option>${employees.filter(employee => employee.departmentId === department.id).map(employee => `<option value="employee:${esc(employee.id)}">${esc(employee.name)} · ${esc(roleLabel(employee))}</option>`).join('')}</optgroup>`).join('')}`;
+    if (contextSelect.innerHTML !== options) contextSelect.innerHTML = options;
     contextSelect.value = selection.type === 'office' || selection.type === 'control' ? 'office' : `${selection.type}:${selection.id}`;
-    element.querySelectorAll('.sidebar-tab').forEach((tab) => {
-      const isActive = tab.dataset.tab === activeTab;
-      tab.classList.toggle('is-active', isActive);
-      tab.setAttribute('aria-selected', String(isActive));
-      tab.tabIndex = isActive ? 0 : -1;
-    });
-    element.querySelector('.tab-task-count').textContent = String(tasks.filter((task) => task.status === 'review').length);
+    contextSelect.disabled = sending;
+    element.querySelectorAll('.sidebar-tab').forEach(tab => { const active = tab.dataset.tab === activeTab; tab.classList.toggle('is-active', active); tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; });
+    element.querySelector('.tab-task-count').textContent = String(scopedTasks().length);
     scroll.setAttribute('aria-labelledby', `office-tab-${activeTab}`);
-    if (activeTab === 'tasks') renderTasks();
-    else if (activeTab === 'connections') renderConnections();
-    else renderChat();
+    const html = activeTab === 'tasks' ? renderActivity() : activeTab === 'connections' ? renderRuntimes() : renderChat();
+    // Leave unchanged transcripts in place so polling preserves text selection and disclosures.
+    if (scroll.dataset.renderedHtml !== html) {
+      if (sameViewport && scroll.dataset.renderedHtml && activeTab === 'chat' && !view.following) view.unseen = true;
+      scroll.innerHTML = html;
+      scroll.dataset.renderedHtml = html;
+      for (const node of scroll.querySelectorAll('details[data-disclosure]')) { node.open = open.has(node.dataset.disclosure); if (node.dataset.disclosure === focusKey) node.querySelector('summary')?.focus({ preventScroll: true }); }
+    }
+    renderedViewport = viewportKey();
+    renderComposer();
+    applyViewport();
+    element.querySelector('[data-sync-note]').textContent = liveData.error ? 'Connection interrupted · draft saved locally' : liveData.updatedAt ? 'Connected to local coordinator' : 'Connecting to local coordinator';
+    element.querySelector('.sidebar-sync-dot').classList.toggle('is-offline', Boolean(liveData.error));
+    let error = element.querySelector('.sidebar-action-error');
+    if (actionError && !error) { error = document.createElement('p'); error.className = 'sidebar-error sidebar-action-error'; error.setAttribute('role','alert'); composerWrap.before(error); }
+    if (error) { error.textContent = actionError; error.hidden = !actionError; }
   }
 
+  async function refreshDetails() {
+    if (destroyed || detailPending || activeTab === 'connections') return;
+    const recent = conversationEntries(state.messages, tasks).filter(message => message.task).slice(-4).map(message => message.task);
+    // A growing queue must never stop updates for the older task actually running.
+    const candidates = activeTab === 'tasks' ? scopedTasks().filter(task => task.id === expandedTask) : [...new Map([...scopedTasks().filter(task => task.inMotion), ...recent].map(task => [taskKey(task), task])).values()];
+    const pending = candidates.filter(task => task.runId && task.projectId && (!details.get(taskKey(task)) || task.inMotion || details.get(taskKey(task))?.signature !== JSON.stringify([task.stateKey, task.at, task.entry?.item?.state])));
+    if (!pending.length) return;
+    detailPending = true;
+    await Promise.allSettled(pending.map(async task => {
+      const key = taskKey(task);
+      const cached = details.get(key) || { events: [], after: 0 };
+      const results = await Promise.allSettled([api.status(task.projectId, task.runId), api.eventsPage(task.projectId, task.runId, cached.after || 0)]);
+      if (results[0].status === 'fulfilled') {
+        cached.status = results[0].value;
+        const summaries = (cached.status.artifacts || []).filter(artifact => artifact.type === 'summary');
+        cached.summaries ||= {};
+        await Promise.allSettled(summaries.filter(artifact => !cached.summaries[artifact.id]).map(async artifact => {
+          const result = await api.artifact(task.projectId, task.runId, artifact.id);
+          if (typeof result.text === 'string') cached.summaries[artifact.id] = result.text;
+        }));
+      }
+      if (results[1].status === 'fulfilled') {
+        const rows = results[1].value.events || [];
+        const known = new Set(cached.events.map(event => event.sequence));
+        cached.events.push(...rows.filter(event => !known.has(event.sequence)));
+        if (rows.length) cached.after = rows.at(-1).sequence;
+        cached.hasMore = results[1].value.hasMore;
+      }
+      cached.error = results.find(result => result.status === 'rejected')?.reason?.message || null;
+      cached.signature = cached.error || cached.hasMore ? null : JSON.stringify([task.stateKey, task.at, task.entry?.item?.state]);
+      details.set(key, cached);
+    }));
+    detailPending = false;
+    if (!destroyed) render();
+  }
+
+  async function runTaskAction(action, id) {
+    const task = taskById(id);
+    if (!task || pendingAction && !['resume-confirm','routing-confirm','cancel-consent'].includes(action)) return;
+    actionError = '';
+    if (action === 'cancel-consent') { pendingAction = null; render(); return; }
+    if (action === 'routing-consent') { pendingAction = `routing-consent:${task.id}`; render(); return; }
+    if (action === 'resume') {
+      const current = chatRoute(workspaceDocument(), { projectId: task.projectId, departmentId: task.departmentId });
+      if (current.unconfined || task.entry?.item?.allowUnconfinedWrites) { pendingAction = `resume-consent:${task.id}`; render(); return; }
+    }
+    pendingAction = action;
+    render();
+    try {
+      if (action === 'routing-confirm') {
+        const item = task.entry.item;
+        const clientRequestId = consentSubmissions[task.id] || uid();
+        consentSubmissions[task.id] = clientRequestId; persist();
+        const text = item.task || task.entry?.run?.request?.text || task.title;
+        const result = await onAssignTask({ text, projectId: task.projectId, clientRequestId, allowUnconfinedWrites: true, ...(item.route?.state === 'selected' || item.route?.departmentId ? { consentDepartmentId: item.route.departmentId } : {}) });
+        if (!result?.task?.id) throw new Error('The coordinator did not return a receipt. Retrying uses the same request identity.');
+        if (!state.messages.some(message => message.requestId === result.task.id)) state.messages.push({ id: clientRequestId, requestId: result.task.id, text, projectId: task.projectId, departmentId: result.task.departmentId || null, at: result.task.receivedAt });
+        delete consentSubmissions[task.id]; persist();
+      }
+      if (action === 'stop') await api.stopRequest(task.requestId || task.entry.item.id);
+      if (action === 'start') await api.startHeld(task.requestId || task.entry.item.id);
+      if (action === 'discard') await api.discard(task.requestId || task.entry.item.id);
+      if (action === 'resume' || action === 'resume-confirm') await api.resume(task.projectId, task.runId, action === 'resume-confirm');
+      // Read-only refresh is requested through the shell's live-data event loop.
+      window.dispatchEvent(new CustomEvent('workforce-task-changed'));
+      await refreshDetails();
+    } catch (error) { actionError = error.message || 'The task action failed.'; }
+    finally { pendingAction = null; render(); }
+  }
+
+  function select(next = { type: 'office' }) {
+    if (sending) return;
+    if (next.type === 'employee' && !employeeById(next.id) || next.type === 'department' && !departmentById(next.id)) return;
+    if (next.type === selection.type && next.id === selection.id) return;
+    rememberViewport();
+    persist();
+    selection = { type: next.type || 'office', ...(next.id ? { id: next.id } : {}) };
+    render(); reveal(); void refreshDetails();
+  }
+  function showTab(tab) {
+    tab = ({activity:'tasks',runtimes:'connections'})[tab] || tab;
+    if (!['chat','tasks','connections'].includes(tab)) return;
+    rememberViewport();
+    activeTab = tab; render(); reveal(); void refreshDetails();
+  }
+  function showRuntime(runtimeId) { if (!runtimeById(runtimeId)) return; expandedRuntime = runtimeId; showTab('connections'); }
   function refresh() {
     if (destroyed) return;
-    tasks.splice(0, tasks.length, ...(liveData.tasks || []).map(normaliseTask));
-    if (selection.type === 'employee' && !employeeById(selection.id) || selection.type === 'department' && !departmentById(selection.id)) selection = { type: 'office' };
-    if (expandedTask && !tasks.some((task) => task.id === expandedTask)) expandedTask = null;
-    if (expandedRuntime && !runtimeById(expandedRuntime)) expandedRuntime = null;
-    contextSelect.innerHTML = contextOptions();
-    element.querySelector('.sidebar-agent-count').textContent = String(employees.length);
-    element.querySelector('.sidebar-coordinator-name').textContent = coordinatorName();
-    render();
+    tasks = [...(liveData.tasks || [])];
+    loadPersistence();
+    if (selection.type === 'employee' && !employeeById(selection.id) || selection.type === 'department' && !departmentById(selection.id)) { persist(); selection = { type: 'office' }; restoreContext(); }
+    render(); void refreshDetails();
   }
-
-  function select(nextSelection) {
-    const next = nextSelection || { type: 'office' };
-    if (next.type === 'employee' && !employeeById(next.id) || next.type === 'department' && !departmentById(next.id)) return;
-    selection = { type: next.type || 'office', ...(next.id ? { id: next.id } : {}) };
-    render();
-    scroll.scrollTop = 0;
-  }
-
-  function showTab(tab) {
-    if (!['chat', 'tasks', 'connections'].includes(tab)) return;
-    activeTab = tab;
-    render();
-    scroll.scrollTop = 0;
-  }
-
-  function showRuntime(runtimeId) {
-    if (!runtimeById(runtimeId)) return;
-    selection = { type: 'control' };
-    onFocus(selection);
-    activeTab = 'connections';
-    expandedRuntime = runtimeId;
-    render();
-    requestAnimationFrame(() => {
-      const target = [...scroll.querySelectorAll('.runtime-summary')].find((button) => button.dataset.runtime === runtimeId);
-      target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    });
-  }
-
-  contextSelect.addEventListener('change', () => {
-    const [type, ...idParts] = contextSelect.value.split(':');
-    const next = { type, ...(idParts.length ? { id: idParts.join(':') } : {}) };
-    select(next);
-    onFocus(next);
-  });
-
-  element.addEventListener('click', (event) => {
+  contextSelect.addEventListener('change', () => { const [type, ...id] = contextSelect.value.split(':'); const next = { type, ...(id.length ? { id: id.join(':') } : {}) }; select(next); onFocus(next); });
+  element.addEventListener('change', event => { if (event.target.matches('[data-resume-consent]')) { const button = [...element.querySelectorAll('[data-task-action="resume-confirm"], [data-task-action="routing-confirm"]')].find(node => node.dataset.id === event.target.dataset.resumeConsent); if (button) button.disabled = !event.target.checked; } });
+  element.addEventListener('click', event => {
     const button = event.target.closest('button');
     if (!button || !element.contains(button)) return;
-    if (button.hasAttribute('data-manage-agents')) onManageAgents();
-    else if (button.hasAttribute('data-add-department')) onAddDepartment();
-    else if (button.hasAttribute('data-add-agent')) onAddAgent(button.dataset.addAgent || (selection.type === 'department' ? selection.id : selection.type === 'employee' ? employeeById(selection.id)?.departmentId : undefined));
-    else if (button.hasAttribute('data-edit-agent')) onEditAgent(button.dataset.editAgent);
-    else if (button.dataset.focusExtra) { const next = {type:'department',id:button.dataset.focusExtra,extra:true};select(next);onFocus(next); }
-    else if (button.dataset.tab) showTab(button.dataset.tab);
-    else if (button.classList.contains('context-focus')) onFocus(selection);
-    else if (button.dataset.showTab) showTab(button.dataset.showTab);
-    else if (button.dataset.openTask) { const task = tasks.find((item) => item.id === button.dataset.openTask); if (task) onOpenTask(task); }
-    else if (button.dataset.taskFilter) { taskFilter = button.dataset.taskFilter; render(); }
-    else if (button.dataset.task) { expandedTask = expandedTask === button.dataset.task ? null : button.dataset.task; render(); }
-    else if (button.hasAttribute('data-runtime')) {
-      if (!runtimeById(button.dataset.runtime)) return;
-      if (activeTab !== 'connections') showRuntime(button.dataset.runtime);
-      else { expandedRuntime = expandedRuntime === button.dataset.runtime ? null : button.dataset.runtime; render(); }
-    } else if (button.dataset.focus) {
-      const next = { type: button.dataset.focus, id: button.dataset.id };
-      select(next);
-      onFocus(next);
+    if (button.hasAttribute('data-jump-latest')) jumpToLatest();
+    else if (button.hasAttribute('data-manage-agents')) onManageAgents();
+    else if (button.hasAttribute('data-manage-runtimes')) onManageRuntimes();
+    else if (button.hasAttribute('data-recheck-runtimes') && !runtimeChecking) {
+      runtimeChecking = true; actionError = ''; render();
+      api.workspace(true).then(document => {
+        liveData.workspaceDoc = document; liveData.workspaceDocument = document;
+        liveData.reports = document.runtimes?.reports || [];
+        window.dispatchEvent(new CustomEvent('workforce-task-changed'));
+      }).catch(error => { actionError = error.message || 'Could not recheck runtimes.'; }).finally(() => { runtimeChecking = false; render(); });
     }
+    else if (button.hasAttribute('data-add-project')) onAddProject();
+    else if (button.hasAttribute('data-add-department')) onAddDepartment();
+    else if (button.hasAttribute('data-add-agent')) onAddAgent(button.dataset.addAgent || selectedDepartment());
+    else if (button.hasAttribute('data-edit-agent')) onEditAgent(button.dataset.editAgent);
+    else if (button.hasAttribute('data-remove-agent')) onRemoveAgent?.(button.dataset.removeAgent);
+    else if (button.dataset.tab) showTab(button.dataset.tab);
+    else if (button.dataset.showTab) showTab(button.dataset.showTab);
+    else if (button.classList.contains('context-focus')) onFocus(selection);
+    else if (button.dataset.taskAction) void runTaskAction(button.dataset.taskAction, button.dataset.id);
+    else if (button.dataset.openTask) { const task = taskById(button.dataset.openTask); if (task) onOpenTask(task); }
+    else if (button.dataset.taskFilter) { taskFilter = button.dataset.taskFilter; render(); }
+    else if (button.dataset.task) { expandedTask = expandedTask === button.dataset.task ? null : button.dataset.task; render(); void refreshDetails(); }
+    else if (button.hasAttribute('data-runtime')) { expandedRuntime = expandedRuntime === button.dataset.runtime ? null : button.dataset.runtime; render(); }
+    else if (button.dataset.focus) { const next = { type: button.dataset.focus, id: button.dataset.id }; select(next); onFocus(next); }
   });
-
-  element.querySelector('.sidebar-tabs').addEventListener('keydown', (event) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const tabs = ['chat', 'tasks', 'connections'];
-    const index = tabs.indexOf(activeTab);
-    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : -1) + 3) % 3;
-    showTab(tabs[nextIndex]);
+  element.querySelector('.sidebar-tabs').addEventListener('keydown', event => {
+    if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+    event.preventDefault(); const tabs = ['chat','tasks','connections']; const index = tabs.indexOf(activeTab);
+    showTab(tabs[event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : -1) + 3) % 3]);
     element.querySelector(`[data-tab="${activeTab}"]`).focus();
   });
-
+  const interval = setInterval(() => { void refreshDetails(); }, 3000);
   render();
-  return {
-    select,
-    showTab,
-    showRuntime,
-    refresh,
-    updateData(next = {}) {
-      liveData = { ...liveData, ...next };
-      const focused = element.contains(document.activeElement) ? document.activeElement : null;
-      const focusId = focused?.id;
-      const selectionRange = focused?.tagName === 'TEXTAREA' ? [focused.selectionStart, focused.selectionEnd] : null;
-      if (focused?.tagName === 'TEXTAREA') draft = focused.value;
-      refresh();
-      if (focusId) {
-        const replacement = document.getElementById(focusId);
-        replacement?.focus({ preventScroll: true });
-        if (selectionRange) replacement?.setSelectionRange?.(...selectionRange);
-      }
-    },
-    addActivity(event) { activities.push({ ...(event || {}), at: Date.now() }); activities = activities.slice(-12); if (activeTab === 'tasks') render(); },
-    destroy() { destroyed = true; element.replaceChildren(); },
-  };
+  return { select, showTab, showRuntime, reveal, refresh, updateData(next = {}) { liveData = { ...liveData, ...next }; refresh(); }, addActivity() {}, destroy() { persist(); destroyed = true; clearInterval(interval); resizeObserver?.disconnect(); if (revealFrame !== null) cancelAnimationFrame(revealFrame); element.replaceChildren(); } };
 }

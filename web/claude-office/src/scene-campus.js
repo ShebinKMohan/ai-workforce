@@ -62,16 +62,14 @@ function rectangle(width, depth, radius, inset = 0) {
 
 function centralOutline(width, depth, inset = 0) {
   const w = width - inset * 2, d = depth - inset * 2;
-  // The back half is broad and octagonal. Inset shoulders open into a
-  // narrower front apron, echoing the original central island's cut corners.
-  // The mild concavity is intentional; this is not a rectangular plinth.
+  // An even chamfer distinguishes the coordinator without changing the
+  // architectural alignment or introducing concave shoulders and notches.
+  const corner = Math.min(w, d) * .12;
   const worldPoints = [
-    [-w * .28, -d / 2], [w * .28, -d / 2],
-    [w / 2, -d * .28], [w / 2, -d * .035],
-    [w * .385, d * .08], [w * .385, d * .31],
-    [w * .235, d / 2], [-w * .235, d / 2],
-    [-w * .385, d * .31], [-w * .385, d * .08],
-    [-w / 2, -d * .035], [-w / 2, -d * .28],
+    [-w / 2 + corner, -d / 2], [w / 2 - corner, -d / 2],
+    [w / 2, -d / 2 + corner], [w / 2, d / 2 - corner],
+    [w / 2 - corner, d / 2], [-w / 2 + corner, d / 2],
+    [-w / 2, d / 2 - corner], [-w / 2, -d / 2 + corner],
   ];
   return roundedOutline(worldPoints.map(([x, z]) => [x, -z]), Math.max(.055, Math.min(w, d) * .027));
 }

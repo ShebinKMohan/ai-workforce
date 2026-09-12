@@ -1,8 +1,9 @@
 /** Settings: coding tools, limits, the workspace file, importing an earlier setup, and earlier history. */
 import { esc, keyed } from '../render.js';
-import { agentTool, runtimeBoundary } from '../model.js';
-import { runStatusLine, runtimeStatus } from '../truth.js';
-import { plural, toolName } from '../words.js';
+import { renderRuntimePanel } from './runtime-panel.js';
+import { renderControlCenterPanel } from './control-center-panel.js';
+import { runStatusLine } from '../truth.js';
+import { plural } from '../words.js';
 import { errorHtml, formatTime, pageHead } from './common.js';
 
 export const LIMIT_FIELDS = [
@@ -16,21 +17,8 @@ export const LIMIT_FIELDS = [
 
 export function renderSettings(ctx) {
   const { ws, ui, runsDoc, requestsDoc, now } = ctx;
-  const tools = ws.reports.length
-    ? ws.reports
-        .map((report) => {
-          const status = runtimeStatus({ ...report, controllable: !['missing', 'installed', 'adapter_supported'].includes(report.readiness) });
-          const boundary = runtimeBoundary(ws, report.adapter === 'codex' ? 'codex-local' : 'claude-local');
-          const users = ws.liveAgents.filter((agent) => agentTool(ws, agent).adapter === report.adapter);
-          return `<li><div><strong>${esc(toolName(report.adapter))}</strong> <span class="muted">${esc(report.version ?? '')}</span></div>
-            <div><span class="tone-${status.tone === 'ready' ? 'neutral' : status.tone === 'failed' ? 'failed' : 'attention'}">${esc(status.label)}</span> <span class="muted small">(as the tool reports)</span>${report.auth === 'logged_out' && report.loginHint ? `<br><span class="small">To sign in, run <code>${esc(report.loginHint)}</code> in a terminal, then check again.</span>` : ''}
-            <br><span class="small muted">${boundary.verified ? 'Workforce keeps its changes inside each copy (verified for this tool).' : 'No verified file boundary: a task that uses it runs on its own, and you are asked before it may change files.'}</span>
-            <br><span class="small muted">${users.length ? `Used by ${esc(users.map((agent) => agent.name).join(', '))}.` : 'Nobody uses it yet.'}</span></div></li>`;
-        })
-        .join('')
-    : `<li class="muted">${ws.toolsError ? `Could not check for coding tools: ${esc(ws.toolsError)}. Nothing was started.` : 'No coding tool was reported.'}</li>`;
-  const toolsBlock = keyed('section', 'settings-tools', 'class="section card" aria-labelledby="tools-title"', `<div class="section-head"><h2 id="tools-title">Coding tools</h2><button type="button" class="button button-small" data-action="refresh-tools">Check again</button></div>
-    <p class="muted small">Workforce looks for Codex and Claude Code without starting a model or reading your credentials.${ws.toolsCheckedAt ? ` Last checked ${esc(formatTime(ws.toolsCheckedAt, now))}.` : ''}</p><ul class="people">${tools}</ul>`);
+  const controlCenterBlock = keyed('section', 'settings-control-center', 'class="section card" aria-labelledby="control-center-title"', renderControlCenterPanel(ctx));
+  const toolsBlock = keyed('section', 'settings-tools', 'class="section" aria-labelledby="tools-title"', renderRuntimePanel(ctx));
 
   const limits = ws.limits ?? {};
   const draft = ui.limitsDraft ?? {};
@@ -38,7 +26,7 @@ export function renderSettings(ctx) {
     'section',
     'settings-limits',
     'class="section card" aria-labelledby="limits-title"',
-    `<h2 id="limits-title">Limits</h2><div class="editor-grid">${LIMIT_FIELDS.map((field) => `<div class="field"><label for="limit-${field.key}">${esc(field.label)}</label><input type="number" id="limit-${field.key}" min="${field.min}" max="${field.max}" step="1" data-bind="limit" data-field="${field.key}" value="${esc(draft[field.key] ?? limits[field.key] ?? '')}" ${ws.ok ? '' : 'disabled'}></div>`).join('')}</div>
+    `<h2 id="limits-title">Execution limits</h2><div class="editor-grid">${LIMIT_FIELDS.map((field) => `<div class="field"><label for="limit-${field.key}">${esc(field.label)}</label><input type="number" id="limit-${field.key}" min="${field.min}" max="${field.max}" step="1" data-bind="limit" data-field="${field.key}" value="${esc(draft[field.key] ?? limits[field.key] ?? '')}" ${ws.ok ? '' : 'disabled'}></div>`).join('')}</div>
     ${ui.actionError?.key === 'limits' ? errorHtml(ui.actionError.error) : ''}${ui.notice?.key === 'limits' ? `<p class="muted">${esc(ui.notice.text)}</p>` : ''}
     <button type="button" class="button" data-action="save-limits" ${ws.ok ? '' : 'disabled'}>Save limits</button>`,
   );
@@ -74,5 +62,5 @@ export function renderSettings(ctx) {
     ? keyed('section', 'settings-earlier', 'class="section card" aria-labelledby="earlier-title"', `<h2 id="earlier-title">Earlier history</h2><p class="muted small">Runs made before this workspace existed. Read-only.</p><ul class="people">${earlier.map((run) => `<li><span>${esc(String(run.request?.text ?? '').split('\n', 1)[0] || run.id)}</span><span class="muted small">${esc(runStatusLine(run, runsDoc.earlierHistory.coordinator?.lock ?? null))} · ${esc(formatTime(run.createdAt, now))}</span></li>`).join('')}</ul>`)
     : '';
 
-  return [pageHead('settings-head', 'Settings'), toolsBlock, limitsBlock, fileBlock, importBlock, serverBlock, earlierBlock].filter(Boolean).join('');
+  return [pageHead('settings-head', 'Settings', 'Configure the installed runtimes and execution limits used by your local workforce.'), controlCenterBlock, toolsBlock, limitsBlock, fileBlock, importBlock, serverBlock, earlierBlock].filter(Boolean).join('');
 }

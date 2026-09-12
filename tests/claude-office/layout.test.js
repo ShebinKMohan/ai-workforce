@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildSceneLayout, campusSlots, OFFICE_METRICS as m } from '../../web/claude-office/src/scene-layout.js';
+import { createCentralIsland } from '../../web/claude-office/src/scene-campus.js';
 
 function office(sizes) {
   const departments = sizes.map((_, index) => ({ id: `department-${String(index).padStart(3, '0')}`, name: `Department ${index}`, headAgentId: `head-${index}` }));
@@ -60,6 +61,27 @@ describe('configured 3D office layout', () => {
     expect(layout.departments).toEqual([]);
     expect(layout.center).toMatchObject({ x: 0, z: 0, width: 6, depth: 6 });
     expect(layout.bounds).toMatchObject({ minX: -3, maxX: 3, minZ: -3, maxZ: 3 });
+  });
+
+  it('keeps the control platform convex and symmetric on the department floor axes', () => {
+    const island = createCentralIsland();
+    const points = island.userData.pickSurface.geometry.parameters.shapes.getPoints(24);
+    // The concave shoulders in the former hub created the irregular silhouette.
+    // All visible perimeter turns must now retain one winding direction.
+    const turns = points.map((point, index) => {
+      const next = points[(index + 1) % points.length];
+      const after = points[(index + 2) % points.length];
+      return (next.x - point.x) * (after.y - next.y) - (next.y - point.y) * (after.x - next.x);
+    }).filter(turn => Math.abs(turn) > 1e-8);
+    expect(turns.length).toBeGreaterThan(4);
+    expect(turns.every(turn => Math.sign(turn) === Math.sign(turns[0]))).toBe(true);
+    for (const point of points) {
+      expect(points.some(other => Math.abs(other.x + point.x) < 1e-7 && Math.abs(other.y - point.y) < 1e-7)).toBe(true);
+      expect(points.some(other => Math.abs(other.x - point.x) < 1e-7 && Math.abs(other.y + point.y) < 1e-7)).toBe(true);
+    }
+    const materials = new Set();
+    island.traverse(object => { object.geometry?.dispose();for (const material of [].concat(object.material || [])) materials.add(material); });
+    materials.forEach(material => material.dispose());
   });
 
   it('does not turn unconfigured illustration templates into rooms or people', () => {

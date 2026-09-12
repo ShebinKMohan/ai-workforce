@@ -45,10 +45,12 @@ import path from 'node:path';
 import { z } from 'zod';
 import { validateAgentConfig, type AgentConfigFile } from '../core/contracts.js';
 import { newId, nowIso, randomToken } from '../core/ids.js';
-import { isProcessAlive, matchProcessIdentity, observeProcessStartMs } from '../core/process.js';
+import { sha256Hex } from '../core/snapshot.js';
+import { isProcessAlive, isProcessGroupAlive, matchProcessIdentity, observeProcessStartMs, ProcessIdentitySchema } from '../core/process.js';
 import { assessContainment, createAdapter } from '../core/run-direct.js';
-import { workspaceReadiness, type WorkspaceConfig } from '../core/workspace-config.js';
-import type { RuntimeReadinessReport } from '../discovery/readiness.js';
+import { isToolUsable, toolFactForRuntime, type WorkspaceConfig } from '../core/workspace-config.js';
+import { controlRoutingExclusive, directControlRoute, RouteDecisionSchema, routeControlRequest, type ControlIntakeInput, type ControlIntakeResult } from '../routing/control-intake.js';
+import { readinessReportForRuntime, type RuntimeReadinessReport } from '../discovery/readiness.js';
 import { openStateStore, StateNotFoundError } from '../storage/db.js';
 import { acquireCoordinatorLock, classifyHolder, LockHeldError, readLockInfo, type CoordinatorLock, type LockInfo } from '../storage/lock.js';
 import { findRun, listRuns } from '../storage/records.js';
@@ -66,7 +68,8 @@ import { httpErrorFromWorkspace, invalidBody, readWorkspace, type PassiveReadine
 export const SERVE_DIR_NAME = 'serve';
 export const REQUESTS_FILE_NAME = 'requests.json';
 export const DEFAULT_QUEUE_POLL_MS = 1_000;
-/** Ended, failed and discarded items kept in the file; waiting and live ones are always kept. */
+/** Ended, failed and discarded items kept in the file; waiting, live, and
+ * unresolved routing-session ownership records are always kept. */
 export const MAX_FINISHED_ITEMS = 200;
 
 export const HELD_REASON = 'held: this request was still waiting when the page server stopped, so it was not started. Start it or discard it.';
@@ -74,8 +77,10 @@ export const HELD_REASON = 'held: this request was still waiting when the page s
 const noNul = (value: string): boolean => !value.includes('\0');
 
 export const RequestBodySchema = z.strictObject({
+  /** One logical composer submission. Retrying it must not start another paid turn. */
+  clientRequestId: z.string().min(1).max(128).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/).optional(),
   projectId: z.string().min(1).max(64),
-  departmentId: z.string().min(1).max(64),
+  departmentId: z.string().min(1).max(64).optional(),
   task: z
     .string()
     .max(MAX_TASK_CHARS)
@@ -98,6 +103,17 @@ const ResultSchema = z.strictObject({
 
 export const RequestItemSchema = z.strictObject({
   id: z.string().min(1),
+  /** Optional for queues written before submission deduplication was added. */
+  clientRequestId: z.string().min(1).max(128).optional(),
+  /** Original routing override, before automatic intake selected a department. */
+  submittedDepartmentId: z.string().nullable().optional(),
+  route: RouteDecisionSchema.optional(),
+  controlReply: z.string().optional(),
+  admissionReady: z.boolean().optional(),
+  admittedWorkspaceRevision: z.number().int().optional(),
+  approvedRosterHash: z.string().optional(),
+  admissionElapsedMs: z.number().nonnegative().optional(),
+  routingSession: z.strictObject({ sessionId: z.string(), process: ProcessIdentitySchema.nullable(), processId: z.number().int().positive().nullable().optional(), state: z.enum(['running', 'stopped', 'unknown']) }).optional(),
   kind: z.enum(['request', 'resume']),
   projectId: z.string().min(1),
   departmentId: z.string().nullable(),
@@ -151,6 +167,8 @@ export interface RequestQueueOptions {
   readonly invocation?: CliInvocation;
   readonly pollMs?: number;
   readonly readiness: () => Promise<PassiveReadiness>;
+  /** Injectable classification only; it never launches project work. */
+  readonly routeControl?: (input: ControlIntakeInput) => Promise<ControlIntakeResult>;
 }
 
 /** A project run that is live now, from this server's queue or from a project lock. */
@@ -176,16 +194,23 @@ function uniqueLabels(adapters: ReadonlyArray<string>): string[] {
   return [...new Set(adapters.map(runtimeLabel))];
 }
 
-function workspaceRosterFacts(config: WorkspaceConfig, roster: Roster): RosterFacts {
+function exclusiveRuntime(runtimeId: string, runtime: AgentConfigFile['runtimes'][string] | undefined, reports?: ReadonlyArray<RuntimeReadinessReport> | null): boolean {
+  if (runtime === undefined || adapterWriteContainment(runtime.adapter) !== 'verified') return true;
+  if (reports === undefined) return false;
+  const report = readinessReportForRuntime(reports ?? [], runtimeId, runtime);
+  return assessContainment(createAdapter({ id: runtimeId, ...runtime }), 'local-development', false, report?.version ?? null).untestedVersion;
+}
+
+function workspaceRosterFacts(config: WorkspaceConfig, roster: Roster, reports?: ReadonlyArray<RuntimeReadinessReport> | null): RosterFacts {
   const agents = [roster.head, ...roster.workers];
-  const unconfined = agents.map((agent) => config.runtimes[agent.runtime]?.adapter ?? agent.runtime).filter((adapter) => adapterWriteContainment(adapter) !== 'verified');
+  const unconfined = agents.filter((agent) => exclusiveRuntime(agent.runtime, config.runtimes[agent.runtime], reports)).map((agent) => config.runtimes[agent.runtime]?.adapter ?? agent.runtime);
   return { agentIds: rosterAgentIds(roster), workerIds: roster.workers.map((worker) => worker.id), exclusive: unconfined.length > 0, unconfinedRuntimes: uniqueLabels(unconfined) };
 }
 
 /** The same facts from a recorded v1 configuration (a roster snapshot or a run's config snapshot). */
-function snapshotRosterFacts(config: AgentConfigFile): RosterFacts {
+function snapshotRosterFacts(config: AgentConfigFile, reports?: ReadonlyArray<RuntimeReadinessReport> | null): RosterFacts {
   const planner = config.defaults.plannerAgent;
-  const unconfined = config.agents.map((agent) => config.runtimes[agent.runtime]?.adapter ?? agent.runtime).filter((adapter) => adapterWriteContainment(adapter) !== 'verified');
+  const unconfined = config.agents.filter((agent) => exclusiveRuntime(agent.runtime, config.runtimes[agent.runtime], reports)).map((agent) => config.runtimes[agent.runtime]?.adapter ?? agent.runtime);
   return {
     agentIds: config.agents.map((agent) => agent.id),
     workerIds: config.agents.filter((agent) => agent.id !== planner).map((agent) => agent.id),
@@ -215,7 +240,7 @@ function consentNeeded(
   return agents.flatMap((agent) => {
     const runtime = runtimes[agent.runtime];
     if (runtime === undefined) return [];
-    const report = runtime.adapter === 'fake' ? undefined : reports?.find((entry) => entry.adapter === runtime.adapter);
+    const report = readinessReportForRuntime(reports ?? [], agent.runtime, runtime);
     const containment = assessContainment(createAdapter({ id: agent.runtime, adapter: runtime.adapter, executable: runtime.executable }), agent.policy, false, report?.version ?? null);
     if (!containment.unconfinedWrites && !containment.untestedVersion) return [];
     const name = agent.name ?? agent.id;
@@ -261,6 +286,9 @@ export class RequestQueue {
   private notice: string | null = null;
   private readonly timer: NodeJS.Timeout;
   private closed = false;
+  private routing: { id: string; controller: AbortController; exclusive: boolean } | null = null;
+  private reports: ReadonlyArray<RuntimeReadinessReport> | null = null;
+  private readonly directRouting = new Set<string>();
 
   constructor(private readonly options: RequestQueueOptions) {
     this.root = path.resolve(options.stateRoot);
@@ -278,6 +306,7 @@ export class RequestQueue {
     if (this.closed) return;
     this.closed = true;
     clearInterval(this.timer);
+    this.routing?.controller.abort();
     this.lock?.release();
     this.lock = null;
   }
@@ -298,6 +327,13 @@ export class RequestQueue {
     this.items = this.readItems(true);
     const now = nowIso();
     for (const item of this.items) {
+      const routing = item.routingSession;
+      if (routing !== undefined && routing.state !== 'stopped') {
+        routing.state = 'unknown';
+        if (routing.process !== null && matchProcessIdentity(routing.process) === 'alive') {
+          try { process.kill(-routing.process.pid, 'SIGTERM'); } catch { /* identity remains guarded until a poll proves it is gone */ }
+        }
+      }
       if (item.state === 'queued') {
         item.state = 'held';
         item.heldAt = now;
@@ -339,7 +375,8 @@ export class RequestQueue {
   }
 
   private persist(): void {
-    const finished = this.items.filter((item) => !LIVE_STATES.has(item.state) && !WAITING_STATES.has(item.state));
+    const finished = this.items.filter((item) => !LIVE_STATES.has(item.state) && !WAITING_STATES.has(item.state) &&
+      (item.routingSession === undefined || item.routingSession.state === 'stopped'));
     if (finished.length > MAX_FINISHED_ITEMS) {
       const drop = new Set(finished.slice(0, finished.length - MAX_FINISHED_ITEMS).map((item) => item.id));
       this.items = this.items.filter((item) => !drop.has(item.id));
@@ -449,11 +486,14 @@ export class RequestQueue {
             message: typeof error?.message === 'string' ? error.message : null,
             details: Array.isArray(error?.details) ? error.details.filter((entry): entry is string => typeof entry === 'string') : [],
           };
+    if (typeof final?.['finalReply'] === 'string') item.controlReply = final['finalReply'];
+    else if (item.result.message !== null) item.controlReply = item.result.message;
     this.handles.delete(item.id);
     this.tails.delete(item.id);
     if (pump) {
       this.persist();
       this.pump();
+      this.queueRouting();
     }
   }
 
@@ -462,6 +502,10 @@ export class RequestQueue {
     try {
       let changed = false;
       for (const item of this.items) {
+        const routing = item.routingSession;
+        if (routing?.state === 'unknown' && routing.process !== null && !isProcessGroupAlive(routing.process.pid) && ['dead', 'pid_reused'].includes(matchProcessIdentity(routing.process))) {
+          routing.state = 'stopped'; changed = true;
+        }
         if (!LIVE_STATES.has(item.state)) continue;
         const before = item.state;
         this.scan(item);
@@ -473,6 +517,7 @@ export class RequestQueue {
       }
       if (changed) this.persist();
       this.pump();
+      this.queueRouting();
     } catch {
       // A failed poll is retried on the next one; the file and the processes are the truth.
     }
@@ -565,6 +610,7 @@ export class RequestQueue {
 
   private pump(): void {
     if (this.closed || this.lock === null) return;
+    if (this.routing?.exclusive === true || this.items.some((item) => item.routingSession?.state === 'unknown')) return;
     const queued = this.items.filter((item) => item.state === 'queued').sort((a, b) => a.receivedAt.localeCompare(b.receivedAt) || a.id.localeCompare(b.id));
     if (queued.length === 0) return;
     const workspace = readWorkspace(this.root).loaded?.config ?? null;
@@ -584,6 +630,17 @@ export class RequestQueue {
     };
 
     for (const item of queued) {
+      const admissionBegan = performance.now();
+      if (item.route?.state === 'pending' || item.admissionReady === false) {
+        wait(item, item.route?.state === 'pending' ? (item.reason?.startsWith('waiting: Control Center') ? item.reason : 'Control Center is routing your request.') : 'Checking the selected department before dispatch.');
+        projectsAhead.add(item.projectId);
+        continue;
+      }
+      if (live.some((run) => run.projectId === item.projectId)) {
+        wait(item, `waiting: another task is running on ${projectName(item.projectId)}`);
+        projectsAhead.add(item.projectId);
+        continue;
+      }
       let facts: RosterFacts;
       if (item.kind === 'request') {
         if (workspace === null) {
@@ -592,7 +649,27 @@ export class RequestQueue {
           continue;
         }
         try {
-          facts = workspaceRosterFacts(workspace, buildRoster(workspace, { projectId: item.projectId, departmentId: item.departmentId ?? '' }));
+          const roster = buildRoster(workspace, { projectId: item.projectId, departmentId: item.departmentId ?? '' });
+          if (!this.workerReady(workspace, roster.head.runtime)) {
+            this.failBeforeStart(item, 'runtime_not_ready', 'The selected department head runtime is unavailable. Check its runtime settings before sending the request again.');
+            changed = true; continue;
+          }
+          if (item.approvedRosterHash !== undefined && item.approvedRosterHash !== this.rosterHash(workspace, roster)) {
+            this.failBeforeStart(item, 'admission_workspace_changed', 'The selected department, its runtime settings, workers, or project checks changed while this request waited. Send the request again to approve the current configuration.');
+            changed = true; continue;
+          }
+          const free = roster.workers.filter((worker) => !live.some((run) => run.workerIds.has(worker.id)) && this.workerReady(workspace, worker.runtime) && (item.allowUnconfinedWrites || consentNeeded([worker], workspace.runtimes, this.reports).length === 0));
+          if (free.length === 0) {
+            const busy = roster.workers.map((worker) => ({ worker, run: live.find((run) => run.workerIds.has(worker.id)) })).find((entry) => entry.run !== undefined);
+            wait(item, busy === undefined ? `waiting: no available worker in ${roster.department.name} for ${projectName(item.projectId)}` : `waiting: ${agentName(busy.worker.id)} is busy on ${projectName(busy.run!.projectId)}`);
+            projectsAhead.add(item.projectId);
+            continue;
+          }
+          const explicitlyOne = /\b(?:exactly|only|just)\s+(?:one|1)\s+(?:worker|task)\b|\b(?:one|1)\s+(?:worker|task)\s+(?:only|total)\b/i.test(item.task ?? '');
+          const capacity = explicitlyOne ? 1 : Math.min(workspace.limits.maxActiveTurns, workspace.limits.maxActiveWriters, workspace.limits.maxTasksPerRun);
+          const selected = buildRoster(workspace, { projectId: item.projectId, departmentId: item.departmentId ?? '', workerIds: free.slice(0, capacity).map((worker) => worker.id) });
+          facts = workspaceRosterFacts(workspace, selected, this.reports ?? undefined);
+          item.admittedWorkspaceRevision = workspace.revision;
         } catch (error) {
           if (!(error instanceof WorkspaceError)) throw error;
           this.failBeforeStart(item, error.code, `the workspace changed while this request waited, and it can no longer start: ${error.message}`, [...error.details]);
@@ -602,6 +679,10 @@ export class RequestQueue {
       } else {
         facts = { agentIds: item.agentIds, workerIds: item.workerIds, exclusive: item.exclusive, unconfinedRuntimes: item.unconfinedRuntimes };
       }
+      // Admission recorded an exact-runtime version check. A synchronous
+      // roster refresh must not erase that restriction using an adapter-wide
+      // capability claim while this item is waiting.
+      if (item.exclusive && !facts.exclusive && (item.kind === 'resume' || this.reports === null)) facts = { ...facts, exclusive: true, unconfinedRuntimes: [...item.unconfinedRuntimes] };
       const label = facts.unconfinedRuntimes[0] ?? 'runtime without a file boundary';
       const project = projectName(item.projectId);
       const exclusiveLive = live.find((run) => run.exclusive);
@@ -626,6 +707,7 @@ export class RequestQueue {
         if (facts.exclusive && exclusiveAhead === null) exclusiveAhead = item;
         continue;
       }
+      item.admissionElapsedMs = performance.now() - admissionBegan;
       if (this.launch(item, facts)) {
         live.push({ projectId: item.projectId, requestId: item.id, pid: item.pid, workerIds: new Set(facts.workerIds), exclusive: facts.exclusive, label: facts.unconfinedRuntimes[0] ?? null, known: true });
       }
@@ -639,6 +721,7 @@ export class RequestQueue {
     item.endedAt = nowIso();
     item.reason = null;
     item.result = { exitCode: null, code, message, details };
+    item.controlReply = message;
   }
 
   /** The argv after the CLI entry: every value its own element, the task text one `--task=` element. */
@@ -651,6 +734,8 @@ export class RequestQueue {
       '--json',
       `--project=${item.projectId}`,
       `--department=${item.departmentId!}`,
+      ...item.workerIds.map((id) => `--worker=${id}`),
+      ...(item.admittedWorkspaceRevision === undefined ? [] : [`--workspace-revision=${item.admittedWorkspaceRevision}`]),
       `--task=${item.task!}`,
       ...(item.allowUnconfinedWrites ? ['--allow-unconfined-writes'] : []),
       ...(this.options.passStateDir ? [`--state-dir=${this.root}`] : []),
@@ -714,7 +799,7 @@ export class RequestQueue {
 
   // ---- routes ---------------------------------------------------------------------
 
-  private newItem(fields: Pick<RequestItem, 'kind' | 'projectId' | 'departmentId' | 'task' | 'resumeRunId' | 'allowUnconfinedWrites'> & RosterFacts): RequestItem {
+  private newItem(fields: Pick<RequestItem, 'kind' | 'projectId' | 'departmentId' | 'task' | 'resumeRunId' | 'allowUnconfinedWrites' | 'clientRequestId'> & RosterFacts): RequestItem {
     return {
       id: newId(),
       ...fields,
@@ -741,7 +826,144 @@ export class RequestQueue {
     this.items.push(item);
     this.persist();
     this.pump();
+    this.queueRouting();
     return structuredClone(item);
+  }
+
+  /** Recover the original receipt, including after a response is lost or the server restarts. */
+  private previousSubmission(body: z.infer<typeof RequestBodySchema>): RequestItem | null {
+    if (body.clientRequestId === undefined) return null;
+    const items = this.lock !== null ? this.items : this.readItems(false);
+    const previous = items.find((item) => item.kind === 'request' && item.clientRequestId === body.clientRequestId);
+    if (previous === undefined) return null;
+    const submittedDepartment = previous.submittedDepartmentId !== undefined ? previous.submittedDepartmentId : previous.departmentId;
+    if (previous.projectId !== body.projectId || submittedDepartment !== (body.departmentId ?? null) || previous.task !== body.task || previous.allowUnconfinedWrites !== (body.allowUnconfinedWrites === true)) {
+      throw new ApiError(409, 'request_id_conflict', 'this submission ID already belongs to a different request; send a new submission ID for changed task text or routing', [], { requestId: previous.id });
+    }
+    return structuredClone(previous);
+  }
+
+  private workerReady(config: WorkspaceConfig, runtimeId: string): boolean {
+    const runtime = config.runtimes[runtimeId];
+    if (runtime === undefined) return false;
+    if (runtime.adapter === 'fake' || this.reports === null) return true;
+    const fact = toolFactForRuntime(toolFacts(this.reports), runtimeId, runtime);
+    return fact !== undefined && isToolUsable(fact);
+  }
+
+  private rosterHash(config: WorkspaceConfig, roster: Roster): string {
+    const full = buildRoster(config, { projectId: roster.project.id, departmentId: roster.department.id });
+    const agents = [full.head, ...full.workers];
+    return sha256Hex(JSON.stringify({ project: full.project, department: full.department, agents, runtimes: agents.map((agent) => [agent.runtime, config.runtimes[agent.runtime]]) }));
+  }
+
+  /** Classification starts after the durable HTTP receipt and is serialized.
+   * It never waits for a project's execution lock or claims a worker. */
+  private queueRouting(): void {
+    if (this.closed || this.lock === null || this.routing !== null) return;
+    const item = this.items.find((entry) => entry.state === 'queued' && entry.route?.state === 'pending' && !this.directRouting.has(entry.id));
+    if (item === undefined) return;
+    const controller = new AbortController();
+    if (this.items.some((entry) => entry.routingSession?.state === 'unknown')) return;
+    this.routing = { id: item.id, controller, exclusive: false };
+    setImmediate(() => {
+      void this.resolveRouting(item, controller.signal).finally(() => {
+        this.routing = null;
+        this.pump();
+        if (item.route?.state !== 'pending') this.queueRouting();
+      });
+    });
+  }
+
+  private async resolveRouting(item: RequestItem, signal: AbortSignal): Promise<void> {
+    const active = (): boolean => !this.closed && !signal.aborted && this.lock !== null && item.state === 'queued';
+    try {
+      if (!active()) return;
+      const config = loadWorkspace(this.root).config;
+      if (!config.projects.some((project) => project.id === item.projectId && !project.archived)) throw new ApiError(409, 'routing_project_unavailable', 'The selected project is no longer available. Select an active project and send this message again.');
+      const input = { workspace: config, projectId: item.projectId, task: item.task! };
+      const direct = directControlRoute(input);
+      if (direct === null) {
+        const readiness = await this.options.readiness();
+        if (!active()) return;
+        this.reports = 'reports' in readiness ? readiness.reports : null;
+      }
+      if (direct === null && controlRoutingExclusive(config, this.reports ?? []) && item.allowUnconfinedWrites) {
+        if (this.liveRuns(config).length > 0) { item.reason = 'waiting: Control Center uses a runtime without a verified file boundary and must route this request on its own.'; return; }
+        if (this.routing !== null) this.routing.exclusive = true;
+      }
+      const decision = direct ?? await (this.options.routeControl ?? routeControlRequest)({ ...input, reports: this.reports ?? [], allowUnconfinedWrites: item.allowUnconfinedWrites, signal,
+        onSession: (session) => {
+          if (!active()) throw new Error('Routing ownership ended before the model turn.');
+          item.routingSession = { sessionId: session.sessionId, process: session.process ?? null, state: 'running' };
+          this.persist();
+        },
+        onStopped: (receipt) => {
+          if (item.routingSession === undefined) return;
+          item.routingSession.state = receipt?.state === 'process_tree_terminated' ? 'stopped' : 'unknown';
+          if (!this.closed && this.lock !== null) this.persist();
+        },
+        onStartupStopped: (receipt) => {
+          item.routingSession = { sessionId: receipt?.sessionId ?? `routing-${item.id}`, process: null, processId: receipt?.processId ?? null,
+            state: receipt?.state === 'process_tree_terminated' ? 'stopped' : 'unknown' };
+          if (!this.closed && this.lock !== null) this.persist();
+        },
+      });
+      if (!active()) return;
+      item.route = RouteDecisionSchema.parse(decision.route);
+      if (item.route.projectId !== item.projectId || (item.route.state === 'selected' && item.route.method !== 'direct_reply' && !config.departments.some((department) => department.id === item.route!.departmentId && !department.archived))) throw new ApiError(409, 'routing_invalid_response', 'Control Center selected a destination outside this request and its saved departments. No project work started.');
+      item.departmentId = item.route.departmentId;
+      item.controlReply = decision.reply ?? item.route.reason;
+      this.persist(); // The chosen destination exists on disk before its setup or execution is consulted.
+      if (item.route.state === 'blocked') {
+        this.failBeforeStart(item, item.route.code ?? 'routing_blocked', item.route.reason);
+      } else if (item.route.method === 'direct_reply') {
+        item.state = 'ended'; item.endedAt = nowIso(); item.exitCode = 0;
+        item.result = { exitCode: 0, code: 'control_reply', message: item.controlReply, details: [] };
+      } else {
+        if (loadWorkspace(this.root).config.revision !== config.revision) throw new ApiError(409, 'routing_workspace_changed', 'Workspace routing configuration changed during classification. Send the message again to use the current departments.');
+        const ready = await this.preflight({ projectId: item.projectId, departmentId: item.departmentId!, allowUnconfinedWrites: item.allowUnconfinedWrites });
+        if (!active()) return;
+        Object.assign(item, workspaceRosterFacts(ready.config, ready.roster, ready.reports));
+        item.approvedRosterHash = this.rosterHash(ready.config, ready.roster);
+        item.admissionReady = true;
+        item.controlReply = `Routed to ${ready.roster.department.name}. ${ready.roster.head.name} will plan the work and assign available workers.`;
+      }
+    } catch (error) {
+      if (!active()) return;
+      const code = error instanceof ApiError || error instanceof WorkspaceError ? error.code : 'routing_failed';
+      const message = error instanceof Error ? error.message : 'Control Center could not route this request.';
+      const details = error instanceof ApiError || error instanceof WorkspaceError ? [...error.details] : [];
+      if (item.route !== undefined) item.route = { ...item.route, state: 'blocked', code, reason: message, decidedAt: nowIso() };
+      this.failBeforeStart(item, code, message, details);
+    } finally {
+      if (!this.closed && this.lock !== null) { this.persist(); this.pump(); }
+    }
+  }
+
+  private async preflight(body: {projectId: string; departmentId: string; allowUnconfinedWrites?: boolean}): Promise<{config: WorkspaceConfig; roster: Roster; reports: ReadonlyArray<RuntimeReadinessReport> | null}> {
+    let config: WorkspaceConfig;
+    let roster: Roster;
+    try {
+      const loaded = loadWorkspace(this.root);
+      if (!loaded.exists) throw new ApiError(400, 'no_workspace', 'there is no workspace yet: add a project and a department with a head and a worker before sending work');
+      config = loaded.config;
+      roster = buildRoster(config, { projectId: body.projectId, departmentId: body.departmentId });
+    } catch (error) { if (error instanceof WorkspaceError) throw httpErrorFromWorkspace(error); throw error; }
+    const checks = await resolveProjectChecks(roster.project);
+    if (checks.count === null) throw new ApiError(400, 'project_unavailable', `project "${roster.project.id}" cannot be worked on: ${checks.detail}`);
+    const readiness = await this.options.readiness();
+    const reports = 'reports' in readiness ? readiness.reports : null;
+    this.reports = reports;
+    const readyWorkers = roster.workers.filter((worker) => this.workerReady(config, worker.runtime));
+    if (reports !== null && (!this.workerReady(config, roster.head.runtime) || readyWorkers.length === 0)) throw new ApiError(409, 'runtime_not_ready', 'The selected department needs an available head runtime and at least one available worker runtime. Check its runtime settings.');
+    if (readyWorkers.length > 0) roster = buildRoster(config, { projectId: body.projectId, departmentId: body.departmentId, workerIds: readyWorkers.map((worker) => worker.id) });
+    if (checks.count === 0) throw new ApiError(400, 'project_has_no_checks', `project "${roster.project.id}" has no acceptance check, so nothing could verify the result: ${checks.detail}`, [`add one: workforce workspace project edit ${roster.project.id} --check "npm test"`, 'or commit .workforce/checks.json to the repository']);
+    const consentFree = roster.workers.filter((worker) => consentNeeded([worker], config.runtimes, reports).length === 0);
+    if (body.allowUnconfinedWrites !== true && consentFree.length > 0) roster = buildRoster(config, { projectId: body.projectId, departmentId: body.departmentId, workerIds: consentFree.map((worker) => worker.id) });
+    const consent = consentNeeded([roster.head, ...roster.workers], config.runtimes, reports);
+    if (consent.length > 0 && body.allowUnconfinedWrites !== true) throw new ApiError(409, 'consent_required', 'This department requires explicit consent for a runtime without a verified file boundary. Review the named runtimes and resend with consent.', consent.map((agent) => agent.line), { consent: { required: true, agents: consent } });
+    return { config, roster, reports };
   }
 
   /** `POST /api/requests`. Refusals are synchronous and start nothing; an accepted request is started or queued. */
@@ -750,58 +972,54 @@ export class RequestQueue {
     if (!parsed.success) throw invalidBody(parsed.error.issues, 'the request');
     const body = parsed.data;
     if (this.closed) throw new ApiError(503, 'server_closing', 'the page server is stopping');
+    const previous = this.previousSubmission(body);
+    if (previous !== null) return previous;
 
-    let config: WorkspaceConfig;
-    let roster: Roster;
-    try {
+    if (body.departmentId === undefined) {
       const loaded = loadWorkspace(this.root);
-      if (!loaded.exists) throw new ApiError(400, 'no_workspace', 'there is no workspace yet: add a project and a department with a head and a worker before sending work');
-      config = loaded.config;
-      roster = buildRoster(config, { projectId: body.projectId, departmentId: body.departmentId });
-    } catch (error) {
-      if (error instanceof WorkspaceError) throw httpErrorFromWorkspace(error);
-      throw error;
+      const project = loaded.config.projects.find((project) => project.id === body.projectId && !project.archived);
+      if (!loaded.exists || project === undefined) throw new ApiError(400, 'unknown_project', 'Select a saved, active project before sending a message to Control Center.');
+      this.ensureOwner();
+      const acceptedWhileChecking = this.previousSubmission(body);
+      if (acceptedWhileChecking !== null) return acceptedWhileChecking;
+      const item = this.newItem({ kind: 'request', ...(body.clientRequestId === undefined ? {} : { clientRequestId: body.clientRequestId }), projectId: body.projectId,
+        departmentId: null, task: body.task, resumeRunId: null, allowUnconfinedWrites: body.allowUnconfinedWrites === true,
+        agentIds: [], workerIds: [], exclusive: false, unconfinedRuntimes: [] });
+      item.submittedDepartmentId = null;
+      item.admissionReady = false;
+      item.route = { state: 'pending', projectId: body.projectId, departmentId: null, headAgentId: null, reason: 'Control Center is routing your request.',
+        decidedAt: null, elapsedMs: 0, method: 'pending', workspaceRevision: loaded.config.revision };
+      this.items.push(item);
+      this.persist();
+      const receipt = structuredClone(item);
+      if (directControlRoute({ workspace: loaded.config, projectId: item.projectId, task: item.task! }) !== null) {
+        this.directRouting.add(item.id);
+        setImmediate(() => { void this.resolveRouting(item, new AbortController().signal).finally(() => { this.directRouting.delete(item.id); this.queueRouting(); }); });
+      } else this.queueRouting();
+      return receipt;
     }
-
-    const checks = await resolveProjectChecks(roster.project);
-    if (checks.count === null) throw new ApiError(400, 'project_unavailable', `project "${roster.project.id}" cannot be worked on: ${checks.detail}`);
-    const readiness = await this.options.readiness();
-    const reports = 'reports' in readiness ? readiness.reports : null;
-    const pair = workspaceReadiness(config, { projectCheckCounts: { [roster.project.id]: checks.count }, ...(reports !== null ? { tools: toolFacts(reports) } : {}) }).eligibility.find(
-      (entry) => entry.projectId === roster.project.id && entry.departmentId === roster.department.id,
-    );
-    if (pair?.codes.includes('project_has_no_checks') === true) {
-      throw new ApiError(400, 'project_has_no_checks', `project "${roster.project.id}" has no acceptance check, so nothing could verify the result: ${checks.detail}`, [
-        `add one: workforce workspace project edit ${roster.project.id} --check "npm test"`,
-        'or commit .workforce/checks.json to the repository',
-      ]);
-    }
-    if (pair?.codes.includes('runtime_not_ready') === true) {
-      throw new ApiError(409, 'runtime_not_ready', pair.reasons.find((reason) => reason.includes('coding tool')) ?? 'a coding tool this department needs is not installed or not signed in', [...pair.reasons]);
-    }
-    const consent = consentNeeded([roster.head, ...roster.workers], config.runtimes, reports);
-    if (consent.length > 0 && body.allowUnconfinedWrites !== true) {
-      throw new ApiError(
-        409,
-        'consent_required',
-        'this department changes files on a coding tool without a verified file boundary; send allowUnconfinedWrites: true to accept that (it is recorded in the run)',
-        consent.map((agent) => agent.line),
-        { consent: { required: true, agents: consent } },
-      );
-    }
+    const { config, roster, reports } = await this.preflight({ projectId: body.projectId, departmentId: body.departmentId, ...(body.allowUnconfinedWrites === undefined ? {} : { allowUnconfinedWrites: body.allowUnconfinedWrites }) });
     // Only an accepted request takes the queue (and writes its file); every refusal above wrote nothing.
     this.ensureOwner();
-    return this.accept(
-      this.newItem({
+    // The check must also happen under queue ownership after every await:
+    // two simultaneous retries can both finish preflight before either accepts.
+    const acceptedWhileChecking = this.previousSubmission(body);
+    if (acceptedWhileChecking !== null) return acceptedWhileChecking;
+    const item = this.newItem({
         kind: 'request',
+        ...(body.clientRequestId !== undefined ? { clientRequestId: body.clientRequestId } : {}),
         projectId: roster.project.id,
         departmentId: roster.department.id,
         task: body.task,
         resumeRunId: null,
         allowUnconfinedWrites: body.allowUnconfinedWrites === true,
-        ...workspaceRosterFacts(config, roster),
-      }),
-    );
+        ...workspaceRosterFacts(config, roster, reports),
+      });
+    item.submittedDepartmentId = body.departmentId;
+    item.approvedRosterHash = this.rosterHash(config, roster);
+    item.route = { state: 'selected', projectId: body.projectId, departmentId: body.departmentId, headAgentId: roster.head.id,
+      reason: 'The request explicitly selected this department.', decidedAt: nowIso(), elapsedMs: 0, method: 'explicit', workspaceRevision: config.revision };
+    return this.accept(item);
   }
 
   /** `POST /api/projects/:id/runs/:runId/resume`: `workforce resume` with the project's state root, through the queue. */
@@ -847,7 +1065,7 @@ export class RequestQueue {
       throw new ApiError(409, 'resume_already_requested', `run ${runId} already has a resume waiting or in progress`);
     }
     return this.accept(
-      this.newItem({ kind: 'resume', projectId, departmentId: department, task: null, resumeRunId: runId, allowUnconfinedWrites: parsed.data.allowUnconfinedWrites === true, ...snapshotRosterFacts(config) }),
+      this.newItem({ kind: 'resume', projectId, departmentId: department, task: null, resumeRunId: runId, allowUnconfinedWrites: parsed.data.allowUnconfinedWrites === true, ...snapshotRosterFacts(config, 'reports' in readiness ? readiness.reports : null) }),
     );
   }
 
@@ -868,8 +1086,21 @@ export class RequestQueue {
     if (item.state !== 'held') throw new ApiError(409, 'not_held', `request ${id} is ${item.state}; only a held request can be started`);
     item.state = 'queued';
     item.reason = null;
+    if (item.kind === 'request' && item.route?.state !== 'pending') {
+      item.admissionReady = false;
+      item.reason = 'Checking current runtime readiness before restarting this held request.';
+      void this.preflight({ projectId: item.projectId, departmentId: item.departmentId!, allowUnconfinedWrites: item.allowUnconfinedWrites }).then((ready) => {
+        if (this.closed || item.state !== 'queued') return;
+        Object.assign(item, workspaceRosterFacts(ready.config, ready.roster, ready.reports));
+        item.admissionReady = true;
+      }, (error: unknown) => {
+        if (this.closed || item.state !== 'queued') return;
+        this.failBeforeStart(item, error instanceof ApiError ? error.code : 'admission_failed', error instanceof Error ? error.message : 'This held request cannot start.');
+      }).finally(() => { if (!this.closed && this.lock !== null) { this.persist(); this.pump(); } });
+    }
     this.persist();
     this.pump();
+    this.queueRouting();
     return structuredClone(item);
   }
 
@@ -879,6 +1110,7 @@ export class RequestQueue {
     const item = this.find(id);
     if (!WAITING_STATES.has(item.state)) throw new ApiError(409, 'not_waiting', `request ${id} is ${item.state}; only a queued or held request can be discarded`);
     item.state = 'discarded';
+    if (this.routing?.id === item.id) this.routing.controller.abort();
     item.endedAt = nowIso();
     item.reason = null;
     this.persist();

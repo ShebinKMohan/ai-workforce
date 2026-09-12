@@ -36,7 +36,7 @@ import {
   type HandoffPacket,
 } from '../routing/handoff.js';
 import type { FailureClass } from './classify.js';
-import { recordFallback, selectFallbackRuntime, type FallbackEvidence, type RuntimeCandidate } from './fallback.js';
+import { recordFallback, selectFallbackRuntime, type FallbackEvidence, type RefusedCandidate, type RuntimeCandidate } from './fallback.js';
 
 /** Failure classes a second runtime could plausibly get past. */
 export const HANDOFF_FAILURE_CLASSES: ReadonlySet<FailureClass> = new Set<FailureClass>(['authentication', 'quota', 'provider_transient']);
@@ -58,6 +58,10 @@ export interface RunWithFallbackOptions {
   readonly enabled?: boolean;
   /** Injection seam for tests; defaults to the real orchestrator. */
   readonly run?: (input: RunDirectInput) => Promise<RunDirectResult>;
+  /** Atomically reserve a replacement after readiness probes. Null means busy
+   * or not a worker in this run. A successful lease lasts through settlement.
+   * Direct runs omit this hook and retain their configured fallback behavior. */
+  readonly acquireFallbackAgent?: (agentId: string) => (() => void) | null;
 }
 
 /**
@@ -86,73 +90,101 @@ export async function runWithFallback(input: RunDirectInput, options: RunWithFal
   }
 
   const policy = policyOf(input, first);
-  const selection = selectFallbackRuntime({
-    candidates: await candidatesFrom(input, first),
-    policy,
-    exclude: [first.runtime.runtimeId],
-    ...(input.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
-  });
-
-  const packet = selection.selected === null ? null : packetFor(input, first, selection.selected, classification.failureClass);
-  let packetPath: string | null = null;
-  if (packet !== null) {
-    packetPath = path.join(first.runDir, 'handoff', `${first.attemptId}.json`);
-    try {
-      writeFileSync(packetPath, serializeHandoffPacket(packet), { mode: 0o600 });
-    } catch {
-      // The packet is carried in memory either way; failing to persist it is
-      // not a reason to abandon the work.
-      packetPath = null;
+  // Readiness can await a process handshake. Capacity must be checked only
+  // afterwards, synchronously with acquisition, or another task could take
+  // the replacement while this task was probing it.
+  let candidates = await candidatesFrom(input, first);
+  if (input.signal?.aborted === true) return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: 'the run was interrupted while checking replacement runtimes; no handoff started' };
+  let agent: AgentDefinition | null = null;
+  let releaseAgent: (() => void) | null = null;
+  const unavailable: RefusedCandidate[] = [];
+  const choose = () => selectFallbackRuntime({ candidates, policy, exclude: [first.runtime.runtimeId],
+    ...(input.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}) });
+  let selection = choose();
+  while (selection.selected !== null) {
+    const runtimeId = selection.selected.runtimeId;
+    for (const candidate of input.config.agents.filter((entry) => entry.runtime === runtimeId)) {
+      const lease = options.acquireFallbackAgent === undefined ? () => {} : options.acquireFallbackAgent(candidate.id);
+      if (lease === null) continue;
+      agent = candidate;
+      releaseAgent = lease;
+      break;
     }
+    if (agent !== null) break;
+    unavailable.push({ runtimeId, reason: 'no configured worker on this runtime has available capacity for this task' });
+    candidates = candidates.filter((candidate) => candidate.runtimeId !== runtimeId);
+    selection = choose();
+  }
+  selection = { ...selection, refused: [...unavailable, ...selection.refused] };
+  if (selection.selected !== null && agent !== null) {
+    // Several workers can share a runtime. Record the actual selected worker's
+    // overrides rather than the first configured agent's (often the head's).
+    selection = { ...selection, selected: { ...selection.selected, model: agent.model ?? null, effort: agent.effort ?? null } };
   }
 
-  const evidence = recordFallback(input.db, {
-    runId: first.runId,
-    taskId: first.taskId,
-    attemptId: first.attemptId,
-    fromRuntimeId: first.runtime.runtimeId,
-    fromAdapter: first.runtime.adapter,
-    selection,
-    classification,
-  });
+  try {
+    const packet = selection.selected === null ? null : packetFor(input, first, selection.selected, classification.failureClass);
+    let packetPath: string | null = null;
+    if (packet !== null) {
+      packetPath = path.join(first.runDir, 'handoff', `${first.attemptId}.json`);
+      try {
+        writeFileSync(packetPath, serializeHandoffPacket(packet), { mode: 0o600 });
+      } catch {
+        // The packet is carried in memory either way; failing to persist it is
+        // not a reason to abandon the work.
+        packetPath = null;
+      }
+    }
 
-  if (selection.selected === null || packet === null) {
-    return {
-      result: first,
-      attempts,
-      fallback: evidence,
-      packet: null,
-      packetPath: null,
-      note: `no fallback runtime was eligible: ${selection.reason}${selection.userAction === null ? '' : ` — ${selection.userAction}`}`,
-    };
-  }
-
-  const agent = agentFor(input, selection.selected.runtimeId);
-  if (agent === null) {
-    return { result: first, attempts, fallback: evidence, packet, packetPath, note: `no agent in the configuration is bound to runtime "${selection.selected.runtimeId}"` };
-  }
-
-  const brief = applyHandoffPacket(packet, {
-    runtimeEnforcesWrites: selection.selected.writeContainment === 'verified',
-  });
-
-  // A new generation of the same task: the first attempt is superseded, so the
-  // second is not a second attempt at the same generation.
-  beginNewGeneration(input.db, first.taskId);
-
-  const second = await run({
-    ...input,
-    agentId: agent.id,
-    slot: {
+    const evidence = recordFallback(input.db, {
       runId: first.runId,
       taskId: first.taskId,
-      attemptId: newId(),
-      objective: first.contract.objective,
-      briefing: brief.prompt,
-    },
-  });
-  attempts.push(second);
-  return { result: second, attempts, fallback: evidence, packet, packetPath, note: null };
+      attemptId: first.attemptId,
+      fromRuntimeId: first.runtime.runtimeId,
+      fromAdapter: first.runtime.adapter,
+      selection,
+      classification,
+    });
+
+    if (selection.selected === null || packet === null) {
+      return {
+        result: first,
+        attempts,
+        fallback: evidence,
+        packet: null,
+        packetPath: null,
+        note: `no fallback runtime was eligible: ${selection.reason}${selection.userAction === null ? '' : ` — ${selection.userAction}`}`,
+      };
+    }
+
+    if (agent === null) {
+      return { result: first, attempts, fallback: evidence, packet, packetPath, note: `no agent in the configuration is bound to runtime "${selection.selected.runtimeId}"` };
+    }
+
+    const brief = applyHandoffPacket(packet, {
+      runtimeEnforcesWrites: selection.selected.writeContainment === 'verified',
+    });
+
+    // A new generation of the same task: the first attempt is superseded, so the
+    // second is not a second attempt at the same generation.
+    beginNewGeneration(input.db, first.taskId);
+
+    const second = await run({
+      ...input,
+      agentId: agent.id,
+      slot: {
+        runId: first.runId,
+        taskId: first.taskId,
+        attemptId: newId(),
+        objective: first.contract.objective,
+        briefing: brief.prompt,
+      },
+    });
+    attempts.push(second);
+    return { result: second, attempts, fallback: evidence, packet, packetPath, note: null };
+  } finally {
+    releaseAgent?.();
+  }
 }
 
 function policyOf(input: RunDirectInput, first: RunDirectResult): AgentDefinition['policy'] {
@@ -223,10 +255,6 @@ async function candidatesFrom(input: RunDirectInput, first: RunDirectResult): Pr
     });
   }
   return candidates;
-}
-
-function agentFor(input: RunDirectInput, runtimeId: string): AgentDefinition | null {
-  return input.config.agents.find((agent) => agent.runtime === runtimeId) ?? null;
 }
 
 function packetFor(input: RunDirectInput, first: RunDirectResult, to: RuntimeCandidate, failureClass: FailureClass): HandoffPacket | null {

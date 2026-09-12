@@ -14,11 +14,11 @@ Make the local workforce usable every day: configure projects and people, follow
 
 ## Brand Personality
 
-Calm, clear, capable. Use plain language and familiar work-management patterns. Preserve the exact Agent Office composition the user selected at the local port 4318 prototype: original miniature raster artwork, compact header, canvas at the left and Control center at the right. Warm surfaces and restrained typography support long work sessions in a normally lit room.
+Calm, clear, capable. Use plain language and familiar work-management patterns. Preserve the selected composition: isometric department islands and connected Control center on the left, a resizable task conversation on the right, and compact shared management controls. The live scene is procedural Three.js artwork driven by the saved workforce. Neutral warm surfaces, system typography and restrained department colors support long development sessions.
 
 ## Anti-references
 
-Do not simulate activity, invent progress percentages, or treat a runtime saying done as verified. Do not use a left navigation rail, excessive empty space, decorative motion, or jargon in primary task instructions. The user explicitly authorized migration of their existing local prototype and original office artwork; do not replace that selection with a newly interpreted SVG design.
+Do not simulate activity, invent progress percentages, or treat a runtime saying done as verified. Do not use a left navigation rail, decorative motion, playful rewards or jargon in primary task instructions. Preserve the selected spatial office composition. Every visible agent, department, task and runtime status must come from saved configuration or recorded evidence.
 
 ## Design Principles
 
@@ -27,11 +27,16 @@ Do not simulate activity, invent progress percentages, or treat a runtime saying
 - Keep settings and raw technical records behind clear disclosures.
 - Preserve entered work and the current task during live updates.
 - Use the same five task phases in onboarding and task details.
-- Keep Assign, Tasks and Connections in the Control center; open the normal task review sheet before starting work. Do not recreate the prototype's scripted chat.
+- Keep Chat, Activity and Runtimes in the Control center. Every message enters one Control Center conversation. The composer shows project context; Control Center chooses the department and records its route, then the head delegates within the available reserved roster. Canvas selection only changes inspection context.
+- Return the Control Center response after the department head has reviewed the combined result and independent checks have passed. Negative reviews and missing evidence remain explicit. Worker output is available through execution details.
+- Preserve drafts, reading position and panel width during live updates and responsive changes.
+- Separate installation, sign-in, execution compatibility, active work and verified results. A green login indicator is not an execution receipt.
+- Make agent archive, head replacement, project assignment and runtime configuration discoverable without crowding the conversation.
+- Animate meaningful selection, camera and recorded activity transitions; honor reduced motion and pause idle rendering.
 
 ## Accessibility & Inclusion
 
-Support keyboard navigation, visible focus, readable status words alongside color, reduced motion, narrow screens, and escaped untrusted task content. Layout checks complement a real browser walkthrough; neither alone establishes complete accessibility conformance.
+Support desktop keyboard navigation, visible focus, readable status words alongside color, reduced motion, adjustable window layouts, and escaped untrusted task content. The user has explicitly excluded mobile use and further mobile proof. Layout checks complement a real desktop browser walkthrough; neither alone establishes complete accessibility conformance.
 
 ## Sources
 

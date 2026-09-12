@@ -7,6 +7,8 @@
  * live check, which WP03/WP05 supply once a real session has run.
  */
 import { nowIso } from '../core/ids.js';
+import type { RuntimeConfig } from '../core/contracts.js';
+import { toolFactForRuntime } from '../core/workspace-config.js';
 import {
   capabilitiesFor,
   isControllable,
@@ -31,6 +33,9 @@ export type Readiness = (typeof READINESS_LEVELS)[number];
 
 export interface RuntimeReadinessReport {
   readonly adapter: DiscoverableAdapter;
+  /** Present only for a saved runtime binding; adapter-wide discovery leaves these absent. */
+  readonly runtimeId?: string;
+  readonly configuredExecutable?: string;
   /** Selected executable path, or null when nothing was found. */
   readonly executable: string | null;
   /** The selected executable with symlinks resolved. */
@@ -92,6 +97,7 @@ export async function discoverRuntime(adapter: DiscoverableAdapter, options: Dis
   const checkedAt = options.now ?? nowIso();
 
   const resolution = resolveExecutable(adapter, {
+    ...(options.executableName !== undefined ? { executableName: options.executableName } : {}),
     ...(options.override !== undefined ? { override: options.override } : {}),
     ...(options.pathValue !== undefined ? { pathValue: options.pathValue } : {}),
     ...(options.homeDir !== undefined ? { homeDir: options.homeDir } : {}),
@@ -196,6 +202,48 @@ export async function discoverRuntimes(options: DiscoverRuntimesOptions = {}): P
     reports.push(await discoverRuntime(adapter, { ...shared, overrides, ...(override !== undefined ? { override } : {}) }));
   }
   return reports;
+}
+
+/**
+ * Keep installation discovery for setup, then observe every saved binding using
+ * the executable that will actually be spawned. A broken override must never
+ * inherit a healthy installation's status merely because its adapter matches.
+ */
+export async function discoverWorkspaceRuntimes(
+  runtimes: Readonly<Record<string, RuntimeConfig>>,
+  options: DiscoverRuntimesOptions = {},
+): Promise<ReadonlyArray<RuntimeReadinessReport>> {
+  const { overridePaths: _overridePaths, adapters: _adapters, ...shared } = options;
+  const reports = [...await discoverRuntimes(options)];
+  const boundReports = new Map<string, RuntimeReadinessReport>();
+  for (const [runtimeId, runtime] of Object.entries(runtimes)) {
+    if (runtime.adapter === 'fake') continue;
+    const key = JSON.stringify([runtime.adapter, runtime.executable]);
+    let report = boundReports.get(key);
+    if (report === undefined) {
+      const namesPath = runtime.executable.includes('/') || runtime.executable.includes('\\') || runtime.executable.startsWith('~') || runtime.executable.startsWith('.');
+      const bindingOptions: DiscoveryOptions = namesPath
+        ? { ...shared, override: runtime.executable }
+        // spawn resolves a bare command on PATH. Known-location discovery is
+        // useful for setup, but cannot prove that this binding will launch.
+        : { ...shared, executableName: runtime.executable, knownLocations: [] };
+      const selected = resolveExecutable(runtime.adapter, bindingOptions).selected;
+      report = selected === null ? undefined : reports.find((entry) => entry.runtimeId === undefined && entry.adapter === runtime.adapter && entry.executable === selected.path);
+      report ??= await discoverRuntime(runtime.adapter, bindingOptions);
+      boundReports.set(key, report);
+    }
+    reports.push({ ...report, runtimeId, configuredExecutable: runtime.executable });
+  }
+  return reports;
+}
+
+/** Select evidence for the saved binding, with conservative support for old adapter-only callers. */
+export function readinessReportForRuntime(
+  reports: ReadonlyArray<RuntimeReadinessReport>,
+  runtimeId: string,
+  runtime: RuntimeConfig,
+): RuntimeReadinessReport | undefined {
+  return toolFactForRuntime(reports, runtimeId, runtime);
 }
 
 // ---------------------------------------------------------------------------

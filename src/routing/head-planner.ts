@@ -36,6 +36,7 @@ import { writeArtifact } from '../storage/artifacts.js';
 import { appendEvent } from '../storage/events.js';
 import type { StatePaths } from '../storage/paths.js';
 import { recordRuntimeEvent } from '../telemetry/events.js';
+import { redactText } from '../telemetry/redaction.js';
 import type { HeadAssignedTask, HeadPlanner, HeadPlanningInput, HeadPlanningOutcome } from '../workspace/planning.js';
 import { createCandidateWorkspace, removeCandidateWorkspace, type CandidateWorkspace } from '../workspaces/candidate.js';
 import { git } from '../workspaces/git.js';
@@ -163,6 +164,8 @@ export interface HeadRoundReport {
   readonly proposals: number;
   readonly conclusion: HeadRoundConclusion;
   readonly detail: string | null;
+  /** A rejected request cannot be repaired by asking the same head to plan again. */
+  readonly runtimeActionRequired: boolean;
   readonly sessionStopped: boolean;
 }
 
@@ -235,7 +238,8 @@ export class HeadPlannerClient implements PlannerClient {
       stopReason: 'interrupted' | 'deadline' | null;
       conclusion: HeadRoundConclusion;
       detail: string | null;
-    } = { session: null, turn: null, stopReceipt: null, stopping: null, stopReason: null, conclusion: 'runtime_exited', detail: null };
+      runtimeActionRequired: boolean;
+    } = { session: null, turn: null, stopReceipt: null, stopping: null, stopReason: null, conclusion: 'runtime_exited', detail: null, runtimeActionRequired: false };
     const stopped = (): boolean => flow.stopReason !== null;
 
     const stopSession = async (): Promise<void> => {
@@ -322,11 +326,18 @@ export class HeadPlannerClient implements PlannerClient {
             if (line !== null) writeLineFrom(o.stream, line, 'runtime');
             if (event.kind === 'turn_completed') {
               flow.conclusion = event.payload['status'] === 'failed' || event.payload['isError'] === true ? 'turn_failed' : 'completed';
+              if (flow.conclusion === 'turn_failed') {
+                const failure = headRuntimeFailure(event.payload);
+                flow.detail = failure?.message ?? flow.detail;
+                flow.runtimeActionRequired ||= failure?.actionRequired === true;
+              }
             } else if (event.kind === 'turn_interrupted') {
               flow.conclusion = 'interrupted';
-            } else if (event.kind === 'error' && event.payload['fatal'] === true) {
-              flow.conclusion = 'runtime_exited';
-              flow.detail = typeof event.payload['detail'] === 'string' ? event.payload['detail'] : typeof event.payload['message'] === 'string' ? event.payload['message'] : null;
+            } else if (event.kind === 'error') {
+              const failure = headRuntimeFailure(event.payload);
+              flow.detail = failure?.message ?? flow.detail;
+              flow.runtimeActionRequired ||= failure?.actionRequired === true;
+              if (event.payload['fatal'] === true) flow.conclusion = 'runtime_exited';
             }
           }
         }
@@ -368,7 +379,7 @@ export class HeadPlannerClient implements PlannerClient {
     }
 
     if (flow.stopReason !== null) flow.conclusion = flow.stopReason;
-    this.#lastRound = { attempt, proposals: proposals.length, conclusion: flow.conclusion, detail: flow.detail, sessionStopped: flow.session === null || flow.stopReceipt?.state === 'process_tree_terminated' };
+    this.#lastRound = { attempt, proposals: proposals.length, conclusion: flow.conclusion, detail: flow.detail, runtimeActionRequired: flow.runtimeActionRequired, sessionStopped: flow.session === null || flow.stopReceipt?.state === 'process_tree_terminated' };
     return proposals.length === 0 ? undefined : proposals[proposals.length - 1];
   }
 
@@ -657,6 +668,15 @@ async function planInRun(input: HeadPlanningInput, run: PlannedRun, binding: Eff
         failure = 'interrupted';
         break;
       }
+      if (round?.runtimeActionRequired === true && round.conclusion !== 'completed') {
+        failure = {
+          code: 'head_runtime_rejected',
+          reason: `head "${head.id}" could not run on ${adapter.id}: ${round.detail ?? 'the runtime rejected the request'}; no worker was started`,
+          details: ['Update the configured runtime or choose a supported model and effort, then send the request again. Repeating the same planning prompt cannot correct a rejected runtime request.'],
+          exitCode: 3,
+        };
+        break;
+      }
 
       let issues: PlanIssue[];
       if (proposal === undefined) {
@@ -770,6 +790,24 @@ function describeRound(round: HeadRoundReport | null): string {
     interrupted: 'the turn was interrupted',
   };
   return ` (${what[round.conclusion]}${round.detail !== null ? `: ${round.detail}` : ''})`;
+}
+
+/** Preserve actionable provider errors, including Codex's JSON-encoded HTTP 400 detail. */
+function headRuntimeFailure(payload: Record<string, unknown>): { message: string; actionRequired: boolean } | null {
+  const raw = [payload['error'], payload['detail'], payload['message']].find((value): value is string => typeof value === 'string' && value.length > 0);
+  if (raw === undefined) return null;
+  let message = raw;
+  let actionRequired = payload['errorClass'] === 'request_rejected';
+  try {
+    const detail = JSON.parse(raw) as { status?: unknown; error?: { type?: unknown; message?: unknown } };
+    if (detail !== null && typeof detail === 'object') {
+      if (typeof detail.error?.message === 'string') message = detail.error.message;
+      actionRequired ||= detail.status === 400 && detail.error?.type === 'invalid_request_error';
+    }
+  } catch {
+    // Plain-text runtime errors remain plain text.
+  }
+  return { message: redactText(message).slice(0, 4_000), actionRequired };
 }
 
 function firstLine(text: string): string {

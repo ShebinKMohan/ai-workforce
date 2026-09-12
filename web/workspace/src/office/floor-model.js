@@ -75,6 +75,13 @@ export function floorModel(ws, runsDoc, entries = [], filterProjectId = null) {
           href = planning.href;
           doing = `planning "${planning.title}" on ${projectName(ws, planning.projectId)}`;
         }
+        const review = runs.find((run) => LIVE_RUN_STATES.has(run.state) && run.projectLock?.held === true && run.headReview?.state === 'running' && run.headReview.headAgentId === agent.id);
+        if (review) {
+          statusWord = 'Reviewing';
+          href = hrefFor(review);
+          activeProjectId = review.projectId;
+          doing = `reviewing the combined candidate on ${projectName(ws, review.projectId)}`;
+        }
       }
       if (activity.live) {
         statusWord = LIVE_WORDS[activity.live.state];
@@ -94,6 +101,16 @@ export function floorModel(ws, runsDoc, entries = [], filterProjectId = null) {
           tone = 'attention';
           href = hrefFor(activity.stopped.run);
           doing = `its task on ${projectName(ws, activity.stopped.run.projectId)} was stopped and waits for you`;
+        }
+      }
+      if (agent.role === 'worker' && statusWord === 'Available') {
+        const reservation = entries.find((entry) => ['starting', 'running'].includes(entry.item?.state) && entry.item.workerIds?.includes(agent.id));
+        if (reservation) {
+          statusWord = 'Reserved';
+          tone = 'attention';
+          href = reservation.href;
+          activeProjectId = reservation.projectId;
+          doing = `reserved for "${reservation.title}" on ${projectName(ws, reservation.projectId)}; no worker turn is running now`;
         }
       }
       if (statusWord === 'Available' && tool.ready === false) {

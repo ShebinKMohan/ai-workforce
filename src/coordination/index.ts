@@ -17,7 +17,7 @@ import {
   BRIDGE_TOKEN_ENV,
   bridgeEntryPath,
 } from './bridge.js';
-import { CoordinationServer, type CoordinationNotice, type PlanProposalHandler, type ReceiverRegistry, type WorkerIdentity } from './server.js';
+import { CoordinationServer, type CoordinationNotice, type HeadReviewResultHandler, type PlanProposalHandler, type ReceiverRegistry, type WorkerIdentity } from './server.js';
 import {
   acknowledge as acknowledgeMessage,
   deliverableFor as deliverableForTask,
@@ -108,6 +108,8 @@ export interface CoordinationBridge {
    * identity (a head plans outside any task row, so it is not an attempt id).
    */
   headConfigFor(input: { readonly planningId: string; readonly agentId: string; readonly onProposePlan: PlanProposalHandler }): AttemptBridgeConfig;
+  /** Separate review-only authority, scoped to this review's token and callback. */
+  headReviewConfigFor(input: { readonly reviewId: string; readonly agentId: string; readonly onReviewResult: HeadReviewResultHandler }): AttemptBridgeConfig;
   /** Coordinator-side write of a message (for example a coordinator answer to a worker). */
   recordMessage(input: RecordMessageInput): RecordMessageResult;
   /** Bounded inbox for a task. */
@@ -179,6 +181,12 @@ export async function createCoordinationBridge(options: CoordinationBridgeOption
     return configFor(identity, token, { [BRIDGE_ROLE_ENV]: 'head' });
   };
 
+  const headReviewConfigFor: CoordinationBridge['headReviewConfigFor'] = (input) => {
+    const identity: WorkerIdentity = { runId: options.runId, taskId: `head-review:${input.agentId}`, attemptId: input.reviewId, role: 'head-review', agentId: input.agentId };
+    const token = server.registerHeadReview(identity, input.onReviewResult);
+    return configFor(identity, token, { [BRIDGE_ROLE_ENV]: 'head-review' });
+  };
+
   const configFor = (identity: WorkerIdentity, token: string, extraEnv: Readonly<Record<string, string>>): AttemptBridgeConfig => {
     const attemptId = identity.attemptId;
     const command = process.execPath;
@@ -221,6 +229,7 @@ export async function createCoordinationBridge(options: CoordinationBridgeOption
     server,
     mcpConfigFor,
     headConfigFor,
+    headReviewConfigFor,
     recordMessage: (input) => recordMessageInStore(options.db, input),
     deliverableFor: (taskId, query) =>
       deliverableForTask(options.db, {

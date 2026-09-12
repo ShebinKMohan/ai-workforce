@@ -19,6 +19,7 @@ import { insertAttempt, upsertAgentSnapshot } from '../../src/storage/records.js
 import { computeAgentSnapshot } from '../../src/core/snapshot.js';
 import { openTempState, seedRunAndTask, sampleContract } from '../helpers/state.js';
 import { parseHandoffPacket } from '../../src/routing/handoff.js';
+import { Scheduler } from '../../src/routing/schedule.js';
 
 const CONFIG = validateAgentConfig(JSON.parse(readFileSync('fixtures/agents/example.json', 'utf8')));
 
@@ -294,5 +295,98 @@ describe('continuing a task on a second runtime', () => {
     expect(calls).toBe(1);
     expect(result.fallback).toBeNull();
     state.store.close();
+  });
+});
+
+describe('fallback worker reservations', () => {
+  const config = validateAgentConfig({ ...CONFIG,
+    agents: [...CONFIG.agents, { ...CONFIG.agents[0]!, id: 'worker-b', runtime: 'codex-local', model: 'worker-model' }],
+  });
+  function fixture() {
+    const state = openTempState();
+    const { run, task } = seedRunAndTask(state);
+    const snapshot = computeAgentSnapshot(config, 'engineer');
+    upsertAgentSnapshot(state.store.db, snapshot);
+    const first = insertAttempt(state.store.db, { taskId: task.id, agentSnapshotHash: snapshot.hash });
+    const input = { ...inputFor(state, run.id), config, configRaw: JSON.stringify(config) };
+    return { state, run, task, first, input };
+  }
+  const acquire = (scheduler: Scheduler) => (id: string) =>
+    id === 'worker-b' ? scheduler.tryAcquireAgent('a', id) : null;
+
+  it('refuses A quota fallback when worker B already runs another task; the head is never substituted', async () => {
+    const f = fixture();
+    const scheduler = new Scheduler([{ id: 'a', agentId: 'engineer' }, { id: 'b', agentId: 'worker-b' }], { maxActiveTurns: 2, maxActiveWriters: 2 });
+    scheduler.dispatch();
+    const called: Array<string | undefined> = [];
+    try {
+      const result = await runWithFallback(f.input, {
+        acquireFallbackAgent: acquire(scheduler),
+        run: async (input) => { called.push(input.agentId); return failedResult(f.run.id, f.task.id, f.first.id); },
+      });
+      expect(called).toEqual(['engineer']);
+      expect(result.fallback?.toRuntimeId).toBeNull();
+      expect(result.fallback?.refused.some((entry) => entry.reason.includes('available capacity'))).toBe(true);
+      expect(scheduler.runningTaskForAgent('worker-b')).toBe('b');
+    } finally { f.state.store.close(); }
+  });
+
+  it.each(['failed', 'interrupted', 'throw'] as const)('holds idle B exclusively through fallback and releases it after %s', async (outcome) => {
+    const f = fixture();
+    const scheduler = new Scheduler([{ id: 'a', agentId: 'engineer' }, { id: 'c', agentId: 'worker-c' }], { maxActiveTurns: 2, maxActiveWriters: 2 });
+    scheduler.dispatch();
+    let calls = 0;
+    try {
+      const promise = runWithFallback(f.input, {
+        acquireFallbackAgent: acquire(scheduler),
+        run: async (input) => {
+          calls += 1;
+          if (calls === 1) return failedResult(f.run.id, f.task.id, f.first.id);
+          expect(input.agentId).toBe('worker-b');
+          expect(scheduler.runningTaskForAgent('worker-b')).toBe('a');
+          expect(scheduler.tryAcquireAgent('c', 'worker-b')).toBeNull();
+          if (outcome === 'throw') throw new Error('replacement stopped unexpectedly');
+          return failedResult(f.run.id, f.task.id, 'attempt-2', { outcome });
+        },
+      });
+      if (outcome === 'throw') await expect(promise).rejects.toThrow('replacement stopped unexpectedly');
+      else {
+        const result = await promise;
+        expect(result.attempts).toHaveLength(2);
+        expect(result.fallback?.toRuntimeId).toBe('codex-local');
+      }
+      expect(calls).toBe(2);
+      expect(scheduler.runningTaskForAgent('worker-b')).toBeUndefined();
+      expect(scheduler.runningTaskForAgent('engineer')).toBe('a');
+    } finally { f.state.store.close(); }
+  });
+
+  it('rechecks capacity after an async readiness probe, so a newly busy B cannot be double assigned', async () => {
+    const f = fixture();
+    const scheduler = new Scheduler([{ id: 'a', agentId: 'engineer' }, { id: 'c', agentId: 'worker-c' }], { maxActiveTurns: 2, maxActiveWriters: 2 });
+    scheduler.dispatch();
+    let probeStarted!: () => void;
+    let finishProbe!: () => void;
+    const started = new Promise<void>((resolve) => { probeStarted = resolve; });
+    const gate = new Promise<void>((resolve) => { finishProbe = resolve; });
+    const adapter = stubAdapter('codex', {}, 'verified');
+    let calls = 0;
+    let release: (() => void) | null = null;
+    try {
+      const resultPromise = runWithFallback({ ...f.input, adapterFactory: (runtime) => runtime.id === 'codex-local'
+        ? { ...adapter, probe: async (...args) => { probeStarted(); await gate; return adapter.probe(...args); } }
+        : stubAdapter('claude-code', {}, 'unsupported') }, {
+        acquireFallbackAgent: acquire(scheduler),
+        run: async () => { calls += 1; return failedResult(f.run.id, f.task.id, f.first.id); },
+      });
+      await started;
+      release = scheduler.tryAcquireAgent('c', 'worker-b');
+      expect(release).not.toBeNull();
+      finishProbe();
+      const result = await resultPromise;
+      expect(calls).toBe(1);
+      expect(result.fallback?.toRuntimeId).toBeNull();
+      expect(scheduler.runningTaskForAgent('worker-b')).toBe('c');
+    } finally { release?.(); finishProbe(); f.state.store.close(); }
   });
 });

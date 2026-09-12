@@ -31,11 +31,13 @@ import {
 import { canonicalJson } from '../core/snapshot.js';
 import {
   AgentRoleSchema,
+  ControlCenterConfigSchema,
   DEPARTMENT_COLORS,
   DepartmentColorSchema,
   SlugSchema,
   activeHead,
   type WorkspaceAgent,
+  type ControlCenterConfig,
   type WorkspaceConfig,
   type WorkspaceDepartment,
   type WorkspaceProject,
@@ -174,6 +176,28 @@ export function setRuntime(config: WorkspaceConfig, input: RuntimeSetInput): Wor
   return draft;
 }
 
+/** Full replacement, or null runtime to restore automatic Control Center selection. */
+export function setControlCenter(config: WorkspaceConfig, input: { readonly runtime: string | null; readonly model?: string; readonly effort?: string; readonly instructions?: string; readonly projectRoutes?: ControlCenterConfig['projectRoutes'] }): WorkspaceConfig {
+  const draft = structuredClone(config);
+  if (input.runtime === null) {
+    if (input.model !== undefined || input.effort !== undefined || input.instructions !== undefined || input.projectRoutes !== undefined) throw invalid('invalid_control_center', 'automatic Control Center selection cannot include runtime-specific overrides or project routes');
+    delete draft.controlCenter;
+    return draft;
+  }
+  const parsed = ControlCenterConfigSchema.safeParse(input);
+  if (!parsed.success) throw invalid('invalid_control_center', 'Control Center settings are invalid', parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`));
+  if (!(parsed.data.runtime in config.runtimes)) throw invalid('unknown_runtime', `Control Center uses unknown runtime "${parsed.data.runtime}"; configure that runtime first`);
+  const projects = new Set<string>();
+  for (const route of parsed.data.projectRoutes ?? []) {
+    findProject(config, route.projectId);
+    findDepartment(config, route.departmentId);
+    if (projects.has(route.projectId)) throw invalid('duplicate_project_route', `Control Center has more than one route for project "${route.projectId}"`);
+    projects.add(route.projectId);
+  }
+  draft.controlCenter = parsed.data;
+  return draft;
+}
+
 /** Add `codex-local` or `claude-local` with its default executable when it is named and not yet defined. */
 export function ensureStandardRuntime(config: WorkspaceConfig, runtimeId: string): WorkspaceConfig {
   if (runtimeId in config.runtimes) return config;
@@ -266,6 +290,7 @@ export function removeProject(config: WorkspaceConfig, id: string, context: OpCo
   const draft = structuredClone(config);
   draft.projects = draft.projects.filter((p) => p.id !== id);
   for (const agent of draft.agents) agent.projectIds = agent.projectIds.filter((projectId) => projectId !== id);
+  if (draft.controlCenter?.projectRoutes !== undefined) draft.controlCenter.projectRoutes = draft.controlCenter.projectRoutes.filter((route) => route.projectId !== id);
   draft.retiredIds.projects.push(id);
   return draft;
 }
@@ -345,6 +370,7 @@ export function removeDepartment(config: WorkspaceConfig, id: string): Workspace
   for (const agent of draft.agents.filter((a) => a.departmentId === id)) draft.retiredIds.agents.push(agent.id);
   draft.agents = draft.agents.filter((agent) => agent.departmentId !== id);
   draft.departments = draft.departments.filter((d) => d.id !== id);
+  if (draft.controlCenter?.projectRoutes !== undefined) draft.controlCenter.projectRoutes = draft.controlCenter.projectRoutes.filter((route) => route.departmentId !== id);
   draft.retiredIds.departments.push(id);
   return draft;
 }
@@ -601,6 +627,7 @@ const checks = z.array(z.string().trim().min(1).max(500)).max(32);
 
 export const WorkspaceOpSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('runtime.set'), id: z.string().min(1), adapter: AdapterIdSchema, executable: z.string().min(1), model: ModelSchema.optional(), effort: EffortSchema.optional() }),
+  z.strictObject({ op: z.literal('control-center.set'), runtime: RuntimeIdSchema.nullable(), model: ModelSchema.optional(), effort: EffortSchema.optional(), instructions: z.string().trim().min(1).max(12000).optional(), projectRoutes: ControlCenterConfigSchema.shape.projectRoutes }),
   z.strictObject({ op: z.literal('limits.set'), limits: LimitsPatchSchema }),
   z.strictObject({ op: z.literal('project.add'), repoPath: z.string().min(1), name: text(80).optional(), id: z.string().min(1).optional(), checks: checks.optional() }),
   z.strictObject({ op: z.literal('project.edit'), id: z.string().min(1), name: text(80).optional(), checks: checks.optional(), repoPath: z.string().optional() }),
@@ -663,6 +690,8 @@ export function applyWorkspaceOp(config: WorkspaceConfig, op: WorkspaceOp, conte
   switch (op.op) {
     case 'runtime.set':
       return setRuntime(config, strip({ id: op.id, adapter: op.adapter, executable: op.executable, model: op.model, effort: op.effort }));
+    case 'control-center.set':
+      return setControlCenter(config, strip({ runtime: op.runtime, model: op.model, effort: op.effort, instructions: op.instructions, projectRoutes: op.projectRoutes }));
     case 'limits.set':
       return setLimits(config, op.limits);
     case 'project.add':

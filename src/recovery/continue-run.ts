@@ -199,6 +199,8 @@ export interface ContinuedTask {
 export interface ContinueResumedRunResult {
   readonly runId: string;
   readonly outcome: ContinueOutcome;
+  readonly headReview?: RunPlannedResult['headReview'];
+  readonly finalReply?: string | null;
   readonly runState: RunRow['state'];
   readonly continued: ReadonlyArray<ContinuedTask>;
   /** Tasks that were already accepted and were therefore not re-dispatched. */
@@ -532,6 +534,7 @@ async function continueHeadPlanning(
     configRaw: setup.configRaw,
     configPath: setup.configPath,
     tasks: outcome.tasks,
+    headReview: { headAgentId: roster.head.id, required: true },
     ...(outcome.run !== undefined ? { run: outcome.run } : {}),
   });
   return plannedContinuationResult(plan, store, result, setup.notes, now);
@@ -581,7 +584,7 @@ function plannedContinuationResult(plan: ResumePlan, store: StateStore, result: 
   lines.push(`run ${plan.runId}: ${runState} — ${result.reason}`);
   for (const item of result.unresolved) lines.push(`unresolved: ${item}`);
   for (const note of notes) lines.push(`note: ${note}`);
-  return { runId: plan.runId, outcome, runState, continued, preservedTaskIds: preserved, notContinued: [], lines, notes };
+  return { runId: plan.runId, outcome, runState, continued, preservedTaskIds: preserved, notContinued: [], lines, notes, headReview: result.headReview ?? null, finalReply: result.finalReply ?? null };
 }
 
 function report(

@@ -1,7 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultFakeRuntimeScript, FAKE_SCENARIO_ENV } from '../../src/adapters/index.js';
+import { defaultFakeRuntimeScript, FAKE_SCENARIO_ENV, FakeAdapter, type SessionInput, type SessionHandle } from '../../src/adapters/index.js';
+import { HEAD_REVIEW_TOOL } from '../../src/routing/head-reviewer.js';
+import { sha256Hex } from '../../src/core/snapshot.js';
+import { git } from '../../src/workspaces/git.js';
 import { commandRun } from '../../src/cli/commands/run.js';
 import { CliError, EXIT_CODES, Reporter } from '../../src/cli/output.js';
 import type { HeadPlanner, HeadPlanningInput } from '../../src/workspace/planning.js';
@@ -64,6 +67,23 @@ function useScenario(): void {
   });
 }
 
+/** Script the head decision against the real combined candidate identity. */
+class ReviewAwareFakeAdapter extends FakeAdapter {
+  override async openSession(input: SessionInput): Promise<SessionHandle> {
+    if (!input.systemInstructions.includes('For this turn, review the completed candidate as department head.')) return super.openSession(input);
+    const revision = await git(['rev-parse', 'HEAD'], { cwd: input.cwd });
+    const base = await git(['rev-list', '--max-parents=0', 'HEAD'], { cwd: input.cwd });
+    const patch = await git(['diff', '--binary', '--no-ext-diff', `${base.stdout.trim()}..${revision.stdout.trim()}`], { cwd: input.cwd });
+    expect(revision.ok && base.ok && patch.ok).toBe(true);
+    expect(patch.stdout).toContain('src/pagination.js');
+    const scenario = writeScenario({ scenarioVersion: 1, steps: [
+      { action: 'call_tool', tool: HEAD_REVIEW_TOOL, arguments: { reviewVersion: 1, candidateRevision: revision.stdout.trim(), diffHash: sha256Hex(Buffer.from(patch.stdout, 'utf8')), verdict: 'approve', summary: 'Corrected both pagination boundary errors. The unchanged project tests pass on the combined candidate; the head reviewed the implementation against the original request.', findings: [] } },
+      { action: 'claim_done', message: 'Review submitted through the bridge.' },
+    ] });
+    return super.openSession({ ...input, env: { ...input.env, [FAKE_SCENARIO_ENV]: scenario } });
+  }
+}
+
 async function runWithPlanner(stateRoot: string, planner: HeadPlanner) {
   let stdout = '';
   let stderr = '';
@@ -71,7 +91,7 @@ async function runWithPlanner(stateRoot: string, planner: HeadPlanner) {
   try {
     const result = await commandRun(
       { project: 'app', department: 'eng', task: 'Fix the pagination off-by-one.', stateDir: stateRoot, allowUnconfinedWrites: true, json: false },
-      { reporter: new Reporter(false, streams), streams, headPlanner: planner },
+      { reporter: new Reporter(false, streams), streams, headPlanner: planner, adapterFactory: () => new ReviewAwareFakeAdapter() },
     );
     return { result, error: null, stdout, stderr };
   } catch (error) {
@@ -219,6 +239,8 @@ describe('workforce run --project --department: the head decides', () => {
     const projectRoot = path.join(stateRoot, 'projects', 'app');
     expect(result.data).toMatchObject({ accepted: true, stateRoot: projectRoot, project: 'app', department: 'eng', head: 'atlas', workers: ['nova'] });
     expect(result.data).not.toHaveProperty('route');
+    expect(result.data['headReview']).toMatchObject({ headAgentId: 'atlas', verdict: 'passed', sessionStopped: true });
+    expect(result.data['finalReply']).toContain('Corrected both pagination boundary errors');
 
     // The planner was given the roster and the project's own state, with the lock held.
     const input = seen as HeadPlanningInput | null;

@@ -111,6 +111,10 @@ function codexReport(): RuntimeReadinessReport {
   } as unknown as RuntimeReadinessReport;
 }
 
+function claudeReport(): RuntimeReadinessReport {
+  return { ...codexReport(), adapter: 'claude-code', displayName: 'Claude Code', version: '2.1.236' };
+}
+
 /**
  * Three projects with checks. Engineering (head Atlas) has one worker per
  * project. Research (head Iris) has Shared on checkout and billing, and Forge on
@@ -151,7 +155,7 @@ interface Office {
 }
 
 async function office(stateRoot: string, h: Harness, extra: Partial<OfficeServerOptions> = {}): Promise<Office> {
-  const server = await startOfficeServer({ stateRoot, port: 0, discover: async () => [codexReport()], spawner: h.spawner, cliInvocation: STUB_INVOCATION, queuePollMs: 40, ...extra });
+  const server = await startOfficeServer({ stateRoot, port: 0, discover: async () => [codexReport(), claudeReport()], spawner: h.spawner, cliInvocation: STUB_INVOCATION, queuePollMs: 40, ...extra });
   registerCleanup(() => void server.close());
   return { server, token: await tokenFrom(server) };
 }
@@ -193,6 +197,56 @@ const running = (request: Record<string, any>) => request.state === 'running';
 const ended = (request: Record<string, any>) => request.state === 'ended';
 
 describe('a request becomes exactly one `workforce run --project --department` argument array', () => {
+  it('concurrent retries of one composer submission return one durable request and spawn only once', async () => {
+    const stateRoot = await workspace();
+    const h = harness();
+    const target = await office(stateRoot, h);
+    const body = { projectId: 'checkout', departmentId: 'eng', task: 'Fix the rounding defect.', clientRequestId: 'composer-09a39d82' };
+    const responses = await Promise.all([post(target, '/api/requests', body), post(target, '/api/requests', body)]);
+    expect(responses.map((response) => response.status)).toEqual([202, 202]);
+    const ids = responses.map((response) => json(response).request.id);
+    expect(new Set(ids).size).toBe(1);
+    expect(h.calls).toHaveLength(1);
+    const persisted = JSON.parse(readFileSync(path.join(stateRoot, 'serve', 'requests.json'), 'utf8'));
+    expect(persisted.items).toHaveLength(1);
+    expect(persisted.items[0].clientRequestId).toBe(body.clientRequestId);
+    h.release('checkout-1');
+    await until(target, ids[0], ended);
+  });
+
+  it('a retry after restart returns the completed receipt without running again or revalidating a changed roster', async () => {
+    const stateRoot = await workspace();
+    const h = harness();
+    const target = await office(stateRoot, h);
+    const body = { projectId: 'checkout', departmentId: 'eng', task: 'Fix the rounding defect.', clientRequestId: 'composer-reconnect' };
+    const original = json(await post(target, '/api/requests', body)).request;
+    h.release('checkout-1');
+    await until(target, original.id, ended);
+    await target.server.close();
+    updateWorkspace(stateRoot, (current) => applyWorkspaceOps(current, parseWorkspaceOps([{ op: 'agent.archive', id: 'nova' }])));
+    const restarted = await office(stateRoot, h);
+    const retry = await post(restarted, '/api/requests', body);
+    expect(retry.status).toBe(202);
+    expect(json(retry).request).toMatchObject({ id: original.id, clientRequestId: body.clientRequestId, state: 'ended' });
+    expect(h.calls).toHaveLength(1);
+  });
+
+  it('a reused submission ID refuses changed text, route or consent rather than launching different work', async () => {
+    const stateRoot = await workspace();
+    const h = harness();
+    const target = await office(stateRoot, h);
+    const body = { projectId: 'checkout', departmentId: 'eng', task: 'Fix the rounding defect.', clientRequestId: 'composer-conflict' };
+    const original = json(await post(target, '/api/requests', body)).request;
+    for (const change of [{ task: 'A different request' }, { projectId: 'billing' }, { departmentId: 'research' }, { allowUnconfinedWrites: true }]) {
+      const response = await post(target, '/api/requests', { ...body, ...change });
+      expect(response.status).toBe(409);
+      expect(json(response)).toMatchObject({ error: { code: 'request_id_conflict' }, requestId: original.id });
+    }
+    expect(h.calls).toHaveLength(1);
+    h.release('checkout-1');
+    await until(target, original.id, ended);
+  });
+
   it('never uses a shell, carries the task verbatim, and the item ends with what the process printed', async () => {
     const stateRoot = await workspace();
     const h = harness();
@@ -210,7 +264,7 @@ describe('a request becomes exactly one `workforce run --project --department` a
     expect(call!.options.detached).toBe(true);
     expect((call!.options.stdio as unknown[])[0]).toBe('ignore');
     expect(call!.command).toBe(STUB_INVOCATION.command);
-    expect(call!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', `--task=${hostile}`, `--state-dir=${stateRoot}`]);
+    expect(call!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, `--task=${hostile}`, `--state-dir=${stateRoot}`]);
     const parsed = parseCliArgs(call!.cliArgv);
     expect(parsed).toMatchObject({ command: 'run', positionals: [], project: 'checkout', department: 'eng', task: hostile, stateDir: stateRoot, json: true, allowUnconfinedWrites: false, help: false });
 
@@ -230,7 +284,7 @@ describe('a request becomes exactly one `workforce run --project --department` a
     const h = harness();
     const target = await office(stateRoot, h, { passStateDir: false });
     await send(target, 'checkout', 'eng', 'Fix it.');
-    expect(h.calls[0]!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--task=Fix it.']);
+    expect(h.calls[0]!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--task=Fix it.']);
   });
 
   it('refuses what the run would refuse — and asks for consent for a writer without a file boundary — before anything is queued', async () => {
@@ -269,6 +323,27 @@ describe('a request becomes exactly one `workforce run --project --department` a
 });
 
 describe('when a request starts', () => {
+  it('a consented Codex version outside the tested boundary remains exclusive while queued and running', async () => {
+    const stateRoot = await workspace();
+    const h = harness();
+    let version = codexReport().version;
+    const target = await office(stateRoot, h, { discover: async () => [{ ...codexReport(), version }, claudeReport()] });
+    const first = await send(target, 'checkout', 'eng', 'The first task uses the verified version.');
+    await until(target, first.id, running);
+    version = '0.160.0';
+    const document = json(await rawRequest(target.server, { path: '/api/workspace?refresh=1' }));
+    expect(document.runtimeRules['codex-local']).toMatchObject({ requiresWriteConsent: true, runsOnItsOwn: true });
+    const second = await send(target, 'billing', 'eng', 'The next task uses an untested version.', { allowUnconfinedWrites: true });
+    expect(second).toMatchObject({ state: 'queued', exclusive: true, unconfinedRuntimes: ['Codex'] });
+    expect(h.calls).toHaveLength(1);
+    h.release('checkout-1');
+    await until(target, first.id, ended);
+    expect(await until(target, second.id, running)).toMatchObject({ exclusive: true, unconfinedRuntimes: ['Codex'] });
+    expect(h.calls).toHaveLength(2);
+    h.release('billing-2');
+    await until(target, second.id, ended);
+  });
+
   it('waits behind the running request for the same project, and requests for one project start in arrival order', async () => {
     const stateRoot = await workspace();
     const h = harness();
@@ -332,7 +407,7 @@ describe('when a request starts', () => {
 
     h.release('checkout-1');
     await until(target, claude.id, running);
-    expect(h.calls[1]!.cliArgv).toEqual(['run', '--json', '--project=search', '--department=research', '--task=search work', '--allow-unconfined-writes', `--state-dir=${stateRoot}`]);
+    expect(h.calls[1]!.cliArgv).toEqual(['run', '--json', '--project=search', '--department=research', '--worker=forge', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--task=search work', '--allow-unconfined-writes', `--state-dir=${stateRoot}`]);
     expect(await item(target, later.id)).toMatchObject({ state: 'queued', reason: 'waiting: a Claude Code task runs on its own' });
     const queue = json(await rawRequest(target.server, { path: '/api/requests' }));
     expect(queue.live).toEqual([expect.objectContaining({ projectId: 'search', runsOnItsOwn: true, runsOnItsOwnBecause: 'Claude Code has no verified file boundary' })]);

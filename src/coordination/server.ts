@@ -25,10 +25,13 @@ import {
   DEFAULT_INBOX_LIMIT,
   MAX_INBOX_LIMIT,
   MAX_LINE_BYTES,
+  HeadReviewResultSchema,
   WireRequestSchema,
   isHeadBridgeTool,
+  isHeadReviewBridgeTool,
   type BridgeRole,
   type BridgeToolName,
+  type HeadReviewResult,
   type WireResponse,
 } from './bridge.js';
 import { appendEvent } from '../storage/events.js';
@@ -50,8 +53,8 @@ export interface WorkerIdentity {
   readonly taskId: string;
   readonly attemptId: string;
   /**
-   * `head` for a department head's planning session, which may only propose a
-   * plan; absent or `worker` for a worker. Minted by the coordinator with the
+   * `head` for planning only, `head-review` for reviewing only; absent or
+   * `worker` for a worker. Minted by the coordinator with the
    * token, never read from a request.
    */
   readonly role?: BridgeRole;
@@ -65,6 +68,9 @@ export interface WorkerIdentity {
  * tool result the head reads. It may throw `CoordinationError` to refuse.
  */
 export type PlanProposalHandler = (identity: WorkerIdentity, params: Record<string, unknown>) => Record<string, unknown>;
+
+/** The review owner validates candidate identity and persists its decision before returning. */
+export type HeadReviewResultHandler = (result: HeadReviewResult) => Record<string, unknown>;
 
 /** Upper bound on messages one attempt may produce, so a looping worker cannot flood the store. */
 export const DEFAULT_MAX_MESSAGES_PER_ATTEMPT = 200;
@@ -288,6 +294,8 @@ export interface HandlerOptions {
   readonly onNotice?: (notice: CoordinationNotice) => void;
   /** The planning session's handler for `workforce_propose_plan`; only a head identity reaches it. */
   readonly proposePlan?: PlanProposalHandler;
+  /** Token-scoped review callback; receives only a validated structured result. */
+  readonly reviewResult?: HeadReviewResultHandler;
 }
 
 /**
@@ -308,8 +316,22 @@ export function handleCoordinationRequest(
   const sender = { runId: identity.runId, taskId: identity.taskId, attemptId: identity.attemptId };
 
   // Roles are enforced here, from the identity the coordinator minted, not
-  // from which tools a bridge process chose to advertise. A head plans and
-  // does nothing else; a worker can never propose a plan for its department.
+  // from which tools a bridge process chose to advertise. Planning, reviewing,
+  // and worker operations have separate token scopes.
+  if (isHeadReviewBridgeTool(op)) {
+    if (identity.role !== 'head-review') {
+      throw new CoordinationError('forbidden', `"${op}" is offered to a department head's review session only`);
+    }
+    if (options.reviewResult === undefined) {
+      throw new CoordinationError('review_closed', 'this review session is no longer taking results');
+    }
+    const parsed = HeadReviewResultSchema.safeParse(rawParams);
+    if (!parsed.success) throw new CoordinationError('invalid_params', formatIssues(parsed.error));
+    return options.reviewResult(parsed.data);
+  }
+  if (identity.role === 'head-review') {
+    throw new CoordinationError('forbidden', `a review session can only call workforce_review_result; "${op}" is outside its scope`);
+  }
   if (isHeadBridgeTool(op)) {
     if (identity.role !== 'head') {
       throw new CoordinationError('forbidden', `"${op}" is offered to a department head's planning session only; a worker cannot propose a plan`);
@@ -578,6 +600,7 @@ export class CoordinationServer {
   readonly #server: net.Server;
   readonly #tokens = new Map<string, WorkerIdentity>();
   readonly #planHandlers = new Map<string, PlanProposalHandler>();
+  readonly #reviewHandlers = new Map<string, HeadReviewResultHandler>();
   readonly #options: CoordinationServerOptions;
   #closed = false;
 
@@ -620,9 +643,18 @@ export class CoordinationServer {
     return token;
   }
 
+  /** Issue a separate review-only token; this cannot reuse planning authority. */
+  registerHeadReview(identity: Omit<WorkerIdentity, 'role'>, onReviewResult: HeadReviewResultHandler): string {
+    const token = randomBytes(32).toString('hex');
+    this.#tokens.set(token, { ...identity, role: 'head-review' });
+    this.#reviewHandlers.set(token, onReviewResult);
+    return token;
+  }
+
   revokeWorker(token: string): void {
     this.#tokens.delete(token);
     this.#planHandlers.delete(token);
+    this.#reviewHandlers.delete(token);
   }
 
   identityFor(token: string): WorkerIdentity | null {
@@ -638,6 +670,7 @@ export class CoordinationServer {
     this.#closed = true;
     this.#tokens.clear();
     this.#planHandlers.clear();
+    this.#reviewHandlers.clear();
     await new Promise<void>((resolve) => {
       this.#server.close(() => resolve());
     });
@@ -722,6 +755,7 @@ export class CoordinationServer {
         ...(this.#options.receivers === undefined ? {} : { receivers: this.#options.receivers }),
         ...(this.#options.onNotice === undefined ? {} : { onNotice: this.#options.onNotice }),
         ...(this.#planHandlers.has(token) ? { proposePlan: this.#planHandlers.get(token)! } : {}),
+        ...(this.#reviewHandlers.has(token) ? { reviewResult: this.#reviewHandlers.get(token)! } : {}),
       });
       this.#options.onRequest?.({ op, identity, ok: true });
       return { v: COORDINATION_PROTOCOL_VERSION, id, ok: true, result };

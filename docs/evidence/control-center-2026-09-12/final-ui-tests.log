@@ -1,0 +1,12 @@
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+
+ Test Files  20 passed (20)
+      Tests  173 passed (173)
+   Start at  23:00:24
+   Duration  1.28s (transform 67%, import 17%, tests 15%, worker 1%)
+
+  Transform  transforming modules took 3.78s · 67% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns

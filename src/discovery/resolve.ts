@@ -38,6 +38,8 @@ export interface ExecutableResolution {
 }
 
 export interface ResolveOptions {
+  /** Exact bare command to find for a configured binding; defaults to the adapter's standard command. */
+  readonly executableName?: string;
   /** Explicit path from `--codex-path` / `--claude-path`. A path, not a bare command name. */
   readonly override?: string | null;
   /** PATH value to split; defaults to the process PATH. */
@@ -81,6 +83,7 @@ interface Found {
 
 export function resolveExecutable(adapter: DiscoverableAdapter, options: ResolveOptions = {}): ExecutableResolution {
   const descriptor = runtimeDescriptor(adapter);
+  const executableName = options.executableName ?? descriptor.executableName;
   const homeDir = options.homeDir ?? os.homedir();
   const pathValue = options.pathValue ?? process.env['PATH'] ?? '';
   const knownLocations = options.knownLocations ?? KNOWN_LOCATIONS;
@@ -109,7 +112,7 @@ export function resolveExecutable(adapter: DiscoverableAdapter, options: Resolve
     if (seenDirs.has(absoluteDir)) return;
     seenDirs.add(absoluteDir);
     searched.push(absoluteDir);
-    const candidate = path.join(absoluteDir, descriptor.executableName);
+    const candidate = path.join(absoluteDir, executableName);
     if (isExecutableFile(candidate)) found.push({ path: candidate, source, origin });
   };
 
@@ -139,14 +142,14 @@ export function resolveExecutable(adapter: DiscoverableAdapter, options: Resolve
 
   if (installations.length > 1) {
     diagnostics.push(
-      `${installations.length} ${descriptor.executableName} installations found; using ${selectedPath ?? '(none)'} — others: ${installations
+      `${installations.length} ${executableName} installations found; using ${selectedPath ?? '(none)'} — others: ${installations
         .filter((i) => !i.selected)
         .map((i) => i.path)
         .join(', ')}`,
     );
   }
   if (installations.length === 0 && override === null) {
-    diagnostics.push(`no ${descriptor.executableName} executable on PATH or in the known locations (${knownLocations.join(', ')})`);
+    diagnostics.push(`no ${executableName} executable on PATH or in the known locations (${knownLocations.join(', ')})`);
   }
 
   const distinctReal = new Set(installations.map((i) => i.realPath));
@@ -154,5 +157,5 @@ export function resolveExecutable(adapter: DiscoverableAdapter, options: Resolve
     diagnostics.push('some of those paths are links to the same file, so they are one installation reached by several names');
   }
 
-  return { adapter, executableName: descriptor.executableName, requestedOverride: override, installations, selected, searchedLocations: searched, diagnostics };
+  return { adapter, executableName, requestedOverride: override, installations, selected, searchedLocations: searched, diagnostics };
 }

@@ -5,6 +5,7 @@
  * Changes, Checks and All events sit behind disclosures.
  */
 import { esc, keyed } from '../render.js';
+import { renderRecordedOutput } from '../recorded-output.js';
 import { checkView, describeEvent, diffLines } from '../truth.js';
 import { TONE_ICON } from '../words.js';
 import { chipHtml, domId, errorHtml, formatTime, recordHtml, statusHtml, toggleHtml } from './common.js';
@@ -124,6 +125,8 @@ export function renderTask(ctx) {
     return keyed('section', 'task-missing', 'class="section"', `${crumbs}<h1 tabindex="-1" class="page-title">Task not found</h1><p class="muted">This task is not in the recorded history this page can read.</p>${taskView.error ? errorHtml(taskView.error) : ''}`);
   }
   const detail = taskView.detail;
+  const fullTitle = String(detail.title ?? 'Task');
+  const heading = fullTitle.length > 160 ? `${fullTitle.slice(0, 157).replace(/\s+\S*$/, '')}…` : fullTitle;
   const entry = taskView.entry;
   const buttons = [];
   if (detail.canStop) buttons.push(`<button type="button" class="button" data-action="stop-request" data-live-action data-id="${esc(entry.item.id)}">Stop this task</button>`);
@@ -140,7 +143,7 @@ export function renderTask(ctx) {
     'header',
     'task-head',
     'class="section"',
-    `${crumbs}<div class="task-head"><div><h1 tabindex="-1" class="page-title">${esc(detail.title)}</h1><div class="task-meta">${meta.join('<span aria-hidden="true">·</span>')}</div>${detail.status.line ? `<p class="lede" style="margin-top:8px">${esc(detail.status.line)}</p>` : ''}</div><div class="button-row">${buttons.join('')}</div></div>
+    `${crumbs}<div class="task-head"><div><h1 tabindex="-1" class="page-title">${esc(heading)}</h1><div class="task-meta">${meta.join('<span aria-hidden="true">·</span>')}</div>${detail.status.line ? `<p class="lede" style="margin-top:8px">${esc(detail.status.line)}</p>` : ''}${heading !== fullTitle ? `<details class="task-original-request"><summary>Full task instructions</summary><p>${esc(entry.item?.task ?? taskView.status?.request?.text ?? fullTitle)}</p></details>` : ''}</div><div class="button-row">${buttons.join('')}</div></div>
     ${detail.stopNote ? `<p class="muted small">${esc(detail.stopNote)}</p>` : ''}
     ${detail.activeResume ? `<p class="notice">Resume ${detail.activeResume.state === 'queued' ? `is waiting: ${esc((detail.activeResume.reason ?? '').replace(/^waiting:\s*/, ''))}` : detail.activeResume.state === 'held' ? 'was held when the page server stopped' : 'is in progress'}.</p>` : ''}
     ${detail.overlay ? `<div class="notice notice-failed" role="status"><p>${esc(detail.overlay.line)}</p></div>` : ''}
@@ -153,5 +156,7 @@ export function renderTask(ctx) {
   const phases = keyed('section', 'phases', 'class="section" aria-labelledby="phases-title"', `<div class="section-head"><h2 id="phases-title">How it is moving</h2><p class="muted small">Each line appears only when Workforce records it.</p></div><ol class="phases">${detail.phases.map((phase) => phaseHtml(phase, ui, now)).join('')}</ol>`);
   const more = keyed('section', 'more', 'class="section"', [changesHtml(ctx, taskView), checksHtml(ctx, taskView), eventsHtml(ctx, taskView)].join(''));
   const record = keyed('div', 'task-record-wrap', 'class="section"', disclosure('task-record', toggleHtml('task-record', ui.expanded.has('task-record'), 'Show record', 'Hide record', 'task-record-body'), 'task-record-body', ui.expanded.has('task-record') ? recordHtml(detail.record) : ''));
-  return [header, actors, phases, more, record].join('');
+  const reply = detail.finalReply ? keyed('section', 'control-final-reply', 'class="section card" aria-labelledby="control-final-reply-title"', `<h2 id="control-final-reply-title">Control Center final reply</h2><p class="muted small">${detail.headReview?.headAgentId ? `Department-head review by ${esc(ctx.ws.agentById.get(detail.headReview.headAgentId)?.name || detail.headReview.headAgentId)}.` : 'Recorded delivery response.'}</p>${renderRecordedOutput(detail.finalReply)}`) : '';
+  const candidateReview = detail.candidateReviewReady ? keyed('section', 'candidate-review', 'class="section" aria-labelledby="candidate-review-title"', `<h2 id="candidate-review-title">Your review</h2><p>The local result is ready for you to inspect. ${detail.headReview ? 'Department-head review and your decision to use the result are separate steps.' : 'No department-head review is recorded for this older task.'}</p>`) : '';
+  return [header, actors, phases, reply, candidateReview, more, record].join('');
 }

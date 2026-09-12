@@ -11,7 +11,7 @@ import { loadAgentConfigFile } from '../core/config.js';
 import { commandStatus } from '../cli/commands/status.js';
 import { configSearchPath } from '../cli/commands/launch.js';
 import { CliError, Reporter } from '../cli/output.js';
-import type { RuntimeReadinessReport } from '../discovery/readiness.js';
+import { readinessReportForRuntime, type RuntimeReadinessReport } from '../discovery/readiness.js';
 import { runtimeDescriptor } from '../discovery/runtimes.js';
 import {
   ArtifactCorruptError,
@@ -27,6 +27,7 @@ import { classifyHolder, readLockInfo } from '../storage/lock.js';
 import { SchemaTooNewError } from '../storage/migrations.js';
 import type { StatePaths } from '../storage/paths.js';
 import { DEFAULT_LIST_RUNS, findRun, listRuns, listTasks, MAX_LIST_RUNS, type RunRow } from '../storage/records.js';
+import { headReviewView } from '../storage/head-review-view.js';
 import { runEvidenceView } from '../storage/run-evidence.js';
 import { redactText } from '../telemetry/redaction.js';
 import { ApiError } from './http.js';
@@ -138,7 +139,7 @@ export function officeDocument(input: OfficeInputs): Record<string, unknown> {
       configuration = { ...configuration, found: true, path: loaded.path, source: found.source, defaults: loaded.config.defaults };
       agents = loaded.config.agents.map((agent) => {
         const runtime = loaded.config.runtimes[agent.runtime]!;
-        const report = runtime.adapter === 'fake' ? undefined : reports.find((entry) => entry.adapter === runtime.adapter);
+        const report = readinessReportForRuntime(reports, agent.runtime, runtime);
         // What the coordinator's own gate would say about this binding, from
         // the adapter's declared capability and the passively observed version.
         const containment = assessContainment(
@@ -231,6 +232,7 @@ function runSummary(store: StateStore, run: RunRow): Record<string, unknown> {
   return {
     id: run.id,
     state: run.state,
+    ...headReviewView(store.db, run.id),
     repoPath: run.repo_path,
     baseRevision: run.base_revision,
     policy: run.policy,

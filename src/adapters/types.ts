@@ -407,12 +407,15 @@ export interface RuntimeAdapter {
 export class AdapterError extends Error {
   readonly adapter: AdapterId;
   readonly code: string;
+  /** Cleanup observed after a process started but before a session handle was returned. */
+  readonly startupStopReceipt?: StopReceipt;
 
-  constructor(adapter: AdapterId, code: string, message: string) {
+  constructor(adapter: AdapterId, code: string, message: string, startupStopReceipt?: StopReceipt) {
     super(`${adapter}: ${message}`);
     this.name = 'AdapterError';
     this.adapter = adapter;
     this.code = code;
+    if (startupStopReceipt !== undefined) this.startupStopReceipt = startupStopReceipt;
   }
 }
 

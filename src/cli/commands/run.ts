@@ -56,6 +56,10 @@ export interface RunCommandArgs {
    */
   readonly project?: string;
   readonly department?: string;
+  /** Exact capacity reservation for this project request; omitted for the ordinary CLI roster. */
+  readonly workerIds?: ReadonlyArray<string>;
+  /** Admission revision. A changed workspace must be admitted again before any model turn. */
+  readonly workspaceRevision?: number;
   readonly repo?: string;
   readonly agents?: string;
   readonly task?: string;
@@ -288,6 +292,9 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   // A request to a department is its own path; the single-file form below is
   // untouched by it.
   if (args.project !== undefined || args.department !== undefined) return commandRunProject(args, deps);
+  if (args.workerIds !== undefined || args.workspaceRevision !== undefined) {
+    throw new CliError(EXIT_CODES.invalidInput, 'project_selection_required', '--worker and --workspace-revision require --project and --department');
+  }
   // Validate every input before touching state: an invalid invocation must
   // exit 2 without creating a state root or taking the coordinator lock.
   const repo = requireRepo(args.repo);
@@ -606,6 +613,8 @@ export function plannedCommandResult(planned: RunPlannedResult, stateRoot: strin
     tasks: planned.tasks.map((task) => ({ key: task.key, taskId: task.taskId, objective: task.objective, accepted: task.accepted, repairsUsed: task.repairsUsed, attempts: task.attempts.length })),
     combined,
     review: planned.review,
+    headReview: planned.headReview ?? null,
+    finalReply: planned.finalReply ?? null,
     unresolved: planned.unresolved,
   };
   const lines: string[] = [

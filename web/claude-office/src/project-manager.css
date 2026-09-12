@@ -1,0 +1,26 @@
+.project-manager .am-heading-row h1 { font-family: inherit; font-size: 24px; font-weight: 650; letter-spacing: -.65px; }
+.project-manager .pm-path-row { display: flex; align-items: center; gap: 8px; }
+.project-manager .pm-path-row input { min-width: 0; flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.pm-inspection { margin: 14px 0; padding: 12px; border: 1px solid var(--line, #dce3dc); border-radius: 8px; background: #f3f6f3; font-size: 12px; line-height: 1.6; }
+.pm-inspection p { margin: 0 0 6px; }
+.pm-inspection code { color: #68746c; font-size: 11px; }
+.pm-failed { color: #a33c38; }
+.pm-neutral { color: #47584d; }
+.pm-checks { display: grid; gap: 8px; list-style: none; padding: 0; margin: 12px 0; }
+.pm-checks li { padding: 9px 11px; border: 1px solid #e2e6e0; border-radius: 6px; background: #f5f7f3; font-size: 12px; overflow-wrap: anywhere; }
+.pm-advanced { margin-top: 14px; font-size: 12px; }
+.pm-advanced summary { color: #4c6554; cursor: pointer; padding: 6px 0; }
+.pm-advanced[open] summary { margin-bottom: 8px; }
+.pm-workers { display: grid; gap: 8px; }
+.pm-worker { display: flex; gap: 10px; align-items: center; padding: 12px; border: 1px solid #e0e5dd; border-radius: 8px; background: #fbfcfa; cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
+.pm-worker:hover { background: #f2f5ef; }
+.pm-worker:has(input:checked) { border-color: #8aaa92; background: #eff5ef; }
+.pm-worker input { width: 16px; height: 16px; accent-color: #48735b; flex: 0 0 16px; }
+.pm-worker > span:nth-child(2) { flex: 1; min-width: 0; }
+.pm-worker strong { display: block; font-size: 13px; color: #2d3b32; }
+.pm-worker small { display: block; margin-top: 4px; font-size: 11px; color: #6d796d; overflow-wrap: anywhere; }
+.pm-worker-policy { font-size: 10px; color: #68776a; border-radius: 4px; padding: 3px 5px; background: #edf1eb; }
+.pm-empty { padding: 14px; border-radius: 8px; border: 1px dashed #d5ddd2; color: #687568; font-size: 12px; line-height: 1.65; }
+.pm-empty strong { color: #3f5242; }
+.pm-empty p { margin: 5px 0 0; }
+@media (prefers-reduced-motion: reduce) { .pm-worker { transition: none; } }

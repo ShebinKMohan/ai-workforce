@@ -70,7 +70,17 @@ export async function commandRunProject(args: RunCommandArgs, deps: RunCommandDe
   let workspace;
   try {
     workspace = loadWorkspace(stateRoot);
-    roster = buildRoster(workspace.config, { projectId: args.project, departmentId: args.department });
+    if (args.workspaceRevision !== undefined) {
+      if (!Number.isSafeInteger(args.workspaceRevision) || args.workspaceRevision < 0) {
+        throw new CliError(EXIT_CODES.invalidInput, 'invalid_workspace_revision', '--workspace-revision must be a non-negative safe integer');
+      }
+      if (workspace.config.revision !== args.workspaceRevision) {
+        throw new CliError(EXIT_CODES.userActionRequired, 'admission_workspace_changed', `the workspace changed after admission (reserved revision ${args.workspaceRevision}, current revision ${workspace.config.revision}); no head or worker was started`, [
+          'Send the request again so the coordinator can reserve the current available workers.',
+        ]);
+      }
+    }
+    roster = buildRoster(workspace.config, { projectId: args.project, departmentId: args.department, ...(args.workerIds !== undefined ? { workerIds: args.workerIds } : {}) });
   } catch (error) {
     if (error instanceof WorkspaceError) {
       const noFile = workspace !== undefined && !workspace.exists ? [`there is no workspace at ${workspace.path} yet; build one with "workforce workspace" (see workforce --help)`] : [];
@@ -206,6 +216,7 @@ export async function commandRunProject(args: RunCommandArgs, deps: RunCommandDe
         configPath: snapshot.path,
         requestText: task.text,
         requestSource: task.source,
+        headReview: { headAgentId: roster.head.id, required: true },
         tasks,
         paths,
         db: store.db,

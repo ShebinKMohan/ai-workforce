@@ -15,7 +15,7 @@
  * "workforce" does not match, and nothing it asks for is approved.
  */
 import path from 'node:path';
-import { BRIDGE_TOOL_NAMES, HEAD_BRIDGE_TOOL_NAMES, bridgeEntryPath } from '../../coordination/bridge.js';
+import { ALL_BRIDGE_TOOL_NAMES, bridgeEntryPath } from '../../coordination/bridge.js';
 import type { ProvisionedBridge } from './rpc.js';
 
 /** `mcp_servers.<name>.args=<toml>` — the override that names the server's argument vector. */
@@ -81,7 +81,7 @@ export function provisionedBridgeFromArgs(args: ReadonlyArray<string>, entryPath
     if (elements === null || elements.length !== 1 || path.resolve(elements[0]!) !== wanted) continue;
     // A head's planning session is provisioned with the same entry point; the
     // coordinator decides from the session token which of these it may call.
-    return { serverName: matched[1]!, toolNames: [...BRIDGE_TOOL_NAMES, ...HEAD_BRIDGE_TOOL_NAMES] };
+    return { serverName: matched[1]!, toolNames: [...ALL_BRIDGE_TOOL_NAMES] };
   }
   return null;
 }

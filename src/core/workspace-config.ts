@@ -112,11 +112,24 @@ export const RetiredIdsSchema = z.strictObject({
   agents: z.array(AgentIdSchema).default([]),
 });
 
+/** The user-facing intake role is configured independently from department agents. */
+export const ControlCenterConfigSchema = z.strictObject({
+  runtime: RuntimeIdSchema,
+  model: ModelSchema.optional(),
+  effort: EffortSchema.optional(),
+  instructions: z.string().trim().min(1).max(12000).optional(),
+  /** Explicit project specialization; missing rules always leave routing to the model. */
+  projectRoutes: z.array(z.strictObject({ projectId: SlugSchema, departmentId: SlugSchema })).max(64).optional(),
+});
+export type ControlCenterConfig = z.infer<typeof ControlCenterConfigSchema>;
+
 const WorkspaceShape = z.strictObject({
   schemaVersion: z.literal(WORKSPACE_SCHEMA_VERSION),
   /** Compare-and-swap counter. 0 only for the in-memory empty workspace; every write increments it. */
   revision: z.number().int().min(0),
   runtimes: z.record(RuntimeIdSchema, RuntimeConfigSchema).default({}),
+  /** Absent in earlier schema-v2 files: select a usable configured runtime automatically. */
+  controlCenter: ControlCenterConfigSchema.optional(),
   projects: z.array(WorkspaceProjectSchema).max(64).default([]),
   departments: z.array(WorkspaceDepartmentSchema).max(64).default([]),
   agents: z.array(WorkspaceAgentSchema).max(256).default([]),
@@ -135,6 +148,7 @@ export type WorkspaceIssueCode =
   | 'unknown_department'
   | 'unknown_project'
   | 'duplicate_assignment'
+  | 'duplicate_project_route'
   | 'head_not_read_only'
   | 'head_has_projects'
   | 'unknown_head'
@@ -205,6 +219,18 @@ export function workspaceReferenceIssues(config: WorkspaceConfig): WorkspaceIssu
   const departmentIndex = uniqueIds('departments', config.departments.map((d) => d.id), 'department');
   const agentIndex = uniqueIds('agents', config.agents.map((a) => a.id), 'agent');
   const runtimeIds = Object.keys(config.runtimes);
+
+  if (config.controlCenter !== undefined) {
+    if (!(config.controlCenter.runtime in config.runtimes)) issues.push({ code: 'unknown_runtime', path: 'controlCenter.runtime', message: `Control Center uses unknown runtime "${config.controlCenter.runtime}"; known runtimes: ${list(runtimeIds)}` });
+    const routed = new Set<string>();
+    for (const [index, route] of (config.controlCenter.projectRoutes ?? []).entries()) {
+      const at = `controlCenter.projectRoutes[${index}]`;
+      if (!projectIndex.has(route.projectId)) issues.push({ code: 'unknown_project', path: `${at}.projectId`, message: `Control Center route names unknown project "${route.projectId}"` });
+      if (!departmentIndex.has(route.departmentId)) issues.push({ code: 'unknown_department', path: `${at}.departmentId`, message: `Control Center route names unknown department "${route.departmentId}"` });
+      if (routed.has(route.projectId)) issues.push({ code: 'duplicate_project_route', path: `${at}.projectId`, message: `Control Center has more than one route for project "${route.projectId}"` });
+      routed.add(route.projectId);
+    }
+  }
 
   // Projects: one repository, one project.
   const paths = new Map<string, string>();
@@ -317,9 +343,24 @@ export function eligibleWorkers(config: WorkspaceConfig, departmentId: string, p
 /** What passive discovery established about one coding tool. Structural, so core does not depend on discovery. */
 export interface ToolFact {
   readonly adapter: string;
+  readonly runtimeId?: string;
+  readonly configuredExecutable?: string;
+  readonly executable?: string | null;
+  readonly realPath?: string | null;
   readonly installed: boolean;
   readonly adapterSupported: boolean;
+  readonly controllable?: boolean;
   readonly auth: string;
+}
+
+/** A named binding's evidence takes precedence over any other installation of its adapter. */
+export function toolFactForRuntime<T extends ToolFact>(tools: ReadonlyArray<T>, runtimeId: string, runtime: { adapter: string; executable: string }): T | undefined {
+  const bound = tools.filter((tool) => tool.runtimeId === runtimeId);
+  if (bound.length > 0) return bound.find((tool) => tool.adapter === runtime.adapter && tool.configuredExecutable === runtime.executable);
+  const standardCommand = runtime.adapter === 'codex' ? 'codex' : runtime.adapter === 'claude-code' ? 'claude' : null;
+  return tools.find((tool) => tool.runtimeId === undefined && tool.adapter === runtime.adapter && (
+    runtime.executable === standardCommand || runtime.executable === tool.executable || runtime.executable === tool.realPath
+  ));
 }
 
 export interface ReadinessFacts {
@@ -371,7 +412,7 @@ export interface WorkspaceReadiness {
 }
 
 export function isToolUsable(tool: ToolFact): boolean {
-  return tool.installed && tool.adapterSupported && tool.auth !== 'logged_out';
+  return tool.installed && tool.adapterSupported && tool.controllable !== false && tool.auth !== 'logged_out';
 }
 
 /** Checks a project is known to have: configured ones, else what was resolved at its last commit, else unknown (null). */
@@ -382,13 +423,13 @@ export function knownCheckCount(project: WorkspaceProject, facts: ReadinessFacts
 }
 
 export function workspaceReadiness(config: WorkspaceConfig, facts: ReadinessFacts = {}): WorkspaceReadiness {
-  const toolByAdapter = new Map((facts.tools ?? []).map((tool) => [tool.adapter, tool] as const));
-  /** A runtime is not ready only when discovery says so; an adapter discovery does not cover (the fake runtime) is not judged. */
+  /** Once checked, a supported binding needs its own usable evidence. The fake runtime is not passively discovered. */
   const runtimeNotReady = (runtimeId: string): boolean => {
     const runtime = config.runtimes[runtimeId];
     if (runtime === undefined) return true;
-    const tool = toolByAdapter.get(runtime.adapter);
-    return tool !== undefined && !isToolUsable(tool);
+    if (runtime.adapter === 'fake' || facts.tools === undefined) return false;
+    const tool = toolFactForRuntime(facts.tools, runtimeId, runtime);
+    return tool === undefined || !isToolUsable(tool);
   };
 
   const eligibility: PairEligibility[] = [];
@@ -424,7 +465,7 @@ export function workspaceReadiness(config: WorkspaceConfig, facts: ReadinessFact
       }
       if ((head !== null && runtimeNotReady(head.runtime)) || (workers.length > 0 && workers.every((worker) => runtimeNotReady(worker.runtime)))) {
         codes.push('runtime_not_ready');
-        reasons.push(head !== null && runtimeNotReady(head.runtime) ? `the head's coding tool (${head.runtime}) is not installed or not signed in` : 'no eligible worker has a coding tool that is installed and signed in');
+        reasons.push(head !== null && runtimeNotReady(head.runtime) ? `the head's configured coding tool (${head.runtime}) is missing, unsupported, signed out, or has not been checked` : 'no eligible worker has a configured coding tool available for execution; check its executable and connection status');
       }
       eligibility.push({
         departmentId: department.id,

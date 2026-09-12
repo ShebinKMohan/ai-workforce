@@ -1,5 +1,5 @@
 /** Original Claude Office shapes, populated only from the live workspace API. */
-import { indexWorkspace, taskEntries, toolFact, adapterOf, entryFromStatus } from '../../workspace/src/model.js';
+import { indexWorkspace, taskEntries, toolFact, runtimeBoundary, adapterOf, entryFromStatus } from '../../workspace/src/model.js';
 import { floorModel } from '../../workspace/src/office/floor-model.js';
 
 // Coordinate extent is a renderer contract, not a source of departments or seats.
@@ -50,7 +50,7 @@ export function applyLiveDocuments(workspace, runs, requests) {
     const agent = ws.agentById.get(desk.agentId);
     const adapter = adapterOf(ws, agent.runtime);
     const activeTask = entries.find((entry) => entry.href === desk.href && entry.inMotion);
-    const status = ['Working', 'Planning', 'Being checked', 'Waiting'].includes(desk.statusWord) ? 'working' : desk.statusWord === 'Needs you' || desk.statusWord === 'Stalled' ? 'review' : 'configured';
+    const status = ['Working', 'Planning', 'Reviewing', 'Being checked', 'Waiting'].includes(desk.statusWord) ? 'working' : ['Needs you', 'Stalled', 'Reserved'].includes(desk.statusWord) ? 'review' : 'configured';
     return { ...agent, id: agent.id, agentId: agent.id, name: agent.name,
       role: agent.role === 'head' ? 'Department head' : 'Worker', workspaceRole: agent.role,
       departmentId: department.id, runtimeId: agent.runtime, runtime: runtimeFor(adapter), adapter,
@@ -62,11 +62,12 @@ export function applyLiveDocuments(workspace, runs, requests) {
   }));
 
   const runtimeRows = Object.entries(ws.config?.runtimes ?? {}).map(([id, config]) => {
-    const fact = toolFact(ws, config.adapter);
+    const fact = toolFact(ws, config.adapter, id);
     const models = [...new Set(ws.liveAgents.filter((agent) => agent.runtime === id).map((agent) => agent.model ?? config.model).filter(Boolean))];
-    return { id, name: fact.name, adapter: config.adapter, model: models.join(', ') || config.model || 'Runtime default', kind: 'Headless CLI', runtime: runtimeFor(config.adapter), provider: providerFor(config.adapter), status: 'configured', configured: true, connectionLabel: fact.word, version: fact.version, ready: fact.ready, report: fact.report, description: `${fact.name}: ${fact.word}. Passive discovery${fact.version ? `, version ${fact.version}` : ''}; this does not imply an active model session.` };
+    return { id, name: fact.name, adapter: config.adapter, model: models.join(', ') || config.model || 'Runtime default', kind: 'Headless CLI', runtime: runtimeFor(config.adapter), provider: providerFor(config.adapter), status: 'configured', configured: true, connectionLabel: fact.word, version: fact.version, ready: fact.ready, requiresWriteConsent: runtimeBoundary(ws, id).requiresWriteConsent, report: fact.report, description: `${fact.name}: ${fact.word}. Passive discovery${fact.version ? `, version ${fact.version}` : ''}; this does not imply an active model session.` };
   });
   for (const report of ws.reports) {
+    if (report.runtimeId) continue;
     if (runtimeRows.some((runtime) => runtime.adapter === report.adapter)) continue;
     const fact = toolFact(ws, report.adapter);
     runtimeRows.push({ id: `discovered:${report.adapter}`, name: fact.name, adapter: report.adapter, model: 'No agents assigned', kind: 'Headless CLI', runtime: runtimeFor(report.adapter), provider: providerFor(report.adapter), status: 'discovered', configured: false, connectionLabel: fact.word, version: fact.version, ready: fact.ready, report, description: `${fact.name}: ${fact.word}. Discovered passively; no workspace agent uses it.` });

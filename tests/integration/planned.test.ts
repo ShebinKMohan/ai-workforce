@@ -32,6 +32,14 @@ function addFileScenario(file: string, content: string): FakeScenario {
   };
 }
 
+/** Parallel task fixtures need distinct worker identities; a worker owns one
+ * active task even when the runtime itself can accept concurrent sessions. */
+function withParallelWorker(loaded: ReturnType<typeof loadAgentConfigFile>) {
+  const worker = loaded.config.agents.find((agent) => agent.id === loaded.config.defaults.workerAgent)!;
+  const config = { ...loaded.config, agents: [...loaded.config.agents, { ...worker, id: 'parallel-worker' }] };
+  return { ...loaded, config, raw: JSON.stringify(config) };
+}
+
 describe('the planned path', () => {
   it('runs two dependent tasks, combines their artifacts and checks the COMBINED candidate', async () => {
     const fixture = await useFixture('ts-bug');
@@ -289,7 +297,7 @@ describe('the planned repair loop', () => {
     const fixture = await useFixture('ts-bug');
     const stateDir = path.join(tempDir('workforce-planned-conc-'), 'state');
     const configPath = writeFakeAgentsConfig(tempDir('workforce-planned-conc-config-'));
-    const loaded = loadAgentConfigFile(configPath);
+    const loaded = withParallelWorker(loadAgentConfigFile(configPath));
     const paths = createStatePaths(stateDir);
     const store = openStateStore(paths, { mode: 'mutating' });
     registerCleanup(() => store.close());
@@ -311,7 +319,7 @@ describe('the planned repair loop', () => {
       checkFlags: ['node --version'],
       tasks: [
         { key: 't1', objective: 'One.' },
-        { key: 't2', objective: 'Two.' },
+        { key: 't2', objective: 'Two.', agentId: 'parallel-worker' },
       ],
       paths,
       db: store.db,
@@ -379,7 +387,7 @@ describe('AT09: dependency release is per task, not per batch', () => {
     const fixture = await useFixture('ts-bug');
     const stateDir = path.join(tempDir('workforce-at09-'), 'state');
     const configPath = writeFakeAgentsConfig(tempDir('workforce-at09-config-'));
-    const loaded = loadAgentConfigFile(configPath);
+    const loaded = withParallelWorker(loadAgentConfigFile(configPath));
     const paths = createStatePaths(stateDir);
     const store = openStateStore(paths, { mode: 'mutating' });
     registerCleanup(() => store.close());
@@ -424,7 +432,7 @@ describe('AT09: dependency release is per task, not per batch', () => {
       tasks: [
         { key: 'fast', objective: OBJECTIVES.fast },
         { key: 'dependent', objective: OBJECTIVES.dependent, dependencies: ['fast'] },
-        { key: 'slow', objective: OBJECTIVES.slow },
+        { key: 'slow', objective: OBJECTIVES.slow, agentId: 'parallel-worker' },
       ],
       checkFlags: ['node --version'],
       paths,

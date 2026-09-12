@@ -40,7 +40,7 @@ import {
   resolveAcceptanceChecks,
   type ResolvedChecks,
 } from '../core/run-direct.js';
-import type { RuntimeReadinessReport } from '../discovery/readiness.js';
+import { readinessReportForRuntime, type RuntimeReadinessReport } from '../discovery/readiness.js';
 import { runtimeDescriptor } from '../discovery/runtimes.js';
 import type { StatePaths } from '../storage/paths.js';
 import { describeDirty, inspectProject, type ProjectInspection } from '../workspaces/project.js';
@@ -264,7 +264,7 @@ export async function previewStart(raw: unknown, inputs: PreviewInputs): Promise
   }
   const { repo, inspection, root, head } = await resolveRepository(parsed.data.repo);
   const { loaded, agentId, agent, runtime } = resolveAgent(repo, parsed.data.agent, inputs.paths, inputs.env);
-  const report = runtime.adapter === 'fake' ? undefined : inputs.reports.find((entry) => entry.adapter === runtime.adapter);
+  const report = readinessReportForRuntime(inputs.reports, agent.runtime, runtime);
   const adapter = createAdapter({ id: agent.runtime, adapter: runtime.adapter, executable: runtime.executable });
   const containment = assessContainment(adapter, agent.policy, false, report?.version ?? null);
 

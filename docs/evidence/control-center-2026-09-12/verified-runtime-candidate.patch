@@ -1,0 +1,12 @@
+diff --git a/web/claude-office/src/scene-layout.js b/web/claude-office/src/scene-layout.js
+index 73cdbac..7ba7a53 100644
+--- a/web/claude-office/src/scene-layout.js
++++ b/web/claude-office/src/scene-layout.js
+@@ -68,6 +68,7 @@ function roomFor(department, agents, slot) {
+ 
+ /** First ring follows the reference's upper-left/right, middle-left/right, lower-left/right. */
+ export function campusSlots(count) {
++  if (!Number.isInteger(count) || count < 0) throw new RangeError('campusSlots count must be a finite nonnegative integer.');
+   const slots = [{ x: -1, z: 0 }, { x: 0, z: -1 }, { x: -1, z: 1 }, { x: 1, z: -1 }, { x: 0, z: 1 }, { x: 1, z: 0 }];
+   for (let ring = 2; slots.length < count; ring += 1) {
+     const outer = [];

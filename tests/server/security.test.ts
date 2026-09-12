@@ -243,7 +243,7 @@ describe('the workspace UI', () => {
       const page = await rawRequest(office, { path: '/' });
       expect(page.status).toBe(200);
       expect(page.headers['content-security-policy']).toContain("frame-ancestors 'none'");
-      expect(page.body).toContain('<title>Agent Office · Your team, in one place</title>');
+      expect(page.body).toContain('<title>Workforce · Local developer workspace</title>');
       expect(page.body).toContain('<script type="module" src="/src/main.js"></script>');
       expect(sessionToken(page.body)).toBe(office.token);
       expect(readFileSync(indexPath, 'utf8')).not.toContain('workforce-session-token');

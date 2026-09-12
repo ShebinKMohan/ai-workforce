@@ -61,8 +61,12 @@ export type WorkerBridgeToolName = (typeof BRIDGE_TOOL_NAMES)[number];
 export const HEAD_BRIDGE_TOOL_NAMES = ['workforce_propose_plan'] as const;
 export type HeadBridgeToolName = (typeof HEAD_BRIDGE_TOOL_NAMES)[number];
 
+/** Review sessions cannot plan, dispatch, or report worker results. */
+export const HEAD_REVIEW_BRIDGE_TOOL_NAMES = ['workforce_review_result'] as const;
+export type HeadReviewBridgeToolName = (typeof HEAD_REVIEW_BRIDGE_TOOL_NAMES)[number];
+
 /** Every operation the coordinator's socket understands. Which ones a session may call is decided by its role. */
-export const ALL_BRIDGE_TOOL_NAMES = [...BRIDGE_TOOL_NAMES, ...HEAD_BRIDGE_TOOL_NAMES] as const;
+export const ALL_BRIDGE_TOOL_NAMES = [...BRIDGE_TOOL_NAMES, ...HEAD_BRIDGE_TOOL_NAMES, ...HEAD_REVIEW_BRIDGE_TOOL_NAMES] as const;
 export type BridgeToolName = (typeof ALL_BRIDGE_TOOL_NAMES)[number];
 
 /**
@@ -71,11 +75,30 @@ export type BridgeToolName = (typeof ALL_BRIDGE_TOOL_NAMES)[number];
  * starts a bridge with `head` in its environment still cannot propose a plan.
  */
 export const BRIDGE_ROLE_ENV = 'WORKFORCE_BRIDGE_ROLE';
-export type BridgeRole = 'worker' | 'head';
+export type BridgeRole = 'worker' | 'head' | 'head-review';
 
 export function isHeadBridgeTool(name: string): name is HeadBridgeToolName {
   return (HEAD_BRIDGE_TOOL_NAMES as ReadonlyArray<string>).includes(name);
 }
+
+export function isHeadReviewBridgeTool(name: string): name is HeadReviewBridgeToolName {
+  return (HEAD_REVIEW_BRIDGE_TOOL_NAMES as ReadonlyArray<string>).includes(name);
+}
+
+/** The coordinator validates this before invoking the token's review handler. */
+export const HeadReviewResultSchema = z.object({
+  reviewVersion: z.literal(1),
+  candidateRevision: z.string().min(1).max(128),
+  diffHash: z.string().min(1).max(128),
+  verdict: z.enum(['approve', 'changes_requested']),
+  summary: z.string().min(1).max(8_000),
+  findings: z.array(z.object({
+    summary: z.string().min(1).max(8_000),
+    file: z.string().min(1).max(1_024).optional(),
+    line: z.number().int().min(1).optional(),
+  }).strict()).max(100),
+}).strict();
+export type HeadReviewResult = z.infer<typeof HeadReviewResultSchema>;
 
 export interface BridgeToolDefinition {
   readonly name: BridgeToolName;
@@ -217,8 +240,36 @@ export const HEAD_BRIDGE_TOOLS: ReadonlyArray<BridgeToolDefinition> = [
   },
 ];
 
+export const HEAD_REVIEW_BRIDGE_TOOLS: ReadonlyArray<BridgeToolDefinition> = [
+  {
+    name: 'workforce_review_result',
+    description:
+      'Submit your review of the frozen combined candidate and verifier evidence. Use the exact candidate revision and diff hash supplied by the coordinator. Only this tool submits a review; prose submits nothing. Review approval does not replace required verifier checks or authorize applying, merging, or publishing the candidate.',
+    inputSchema: obj(
+      {
+        reviewVersion: { type: 'integer', enum: [1], description: 'Always 1.' },
+        candidateRevision: { type: 'string', minLength: 1, maxLength: 128 },
+        diffHash: { type: 'string', minLength: 1, maxLength: 128 },
+        verdict: { type: 'string', enum: ['approve', 'changes_requested'] },
+        summary: { type: 'string', minLength: 1, maxLength: 8_000 },
+        findings: {
+          type: 'array',
+          maxItems: 100,
+          items: obj({
+            summary: { type: 'string', minLength: 1, maxLength: 8_000 },
+            file: { type: 'string', minLength: 1, maxLength: 1_024 },
+            line: { type: 'integer', minimum: 1 },
+          }, ['summary']),
+        },
+      },
+      ['reviewVersion', 'candidateRevision', 'diffHash', 'verdict', 'summary', 'findings'],
+    ),
+  },
+];
+
 /** The tools a session in `role` is offered. */
 export function bridgeToolsFor(role: BridgeRole): ReadonlyArray<BridgeToolDefinition> {
+  if (role === 'head-review') return HEAD_REVIEW_BRIDGE_TOOLS;
   return role === 'head' ? HEAD_BRIDGE_TOOLS : BRIDGE_TOOLS;
 }
 
@@ -433,7 +484,9 @@ export function runBridge(options: BridgeOptions): Promise<void> {
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: BRIDGE_SERVER_NAME, version: `${COORDINATION_PROTOCOL_VERSION}.0.0` },
           instructions:
-            role === 'head'
+            role === 'head-review'
+              ? 'Review the supplied candidate and evidence. Submit the structured decision with workforce_review_result; prose submits nothing. You cannot plan, dispatch, or accept a candidate without its required verifier evidence.'
+              : role === 'head'
               ? 'Planning tool for this request. Deliver your plan by calling workforce_propose_plan; a plan written as text creates nothing. You plan; your workers do the work.'
               : 'Coordination tools for this run. Your identity is fixed by the coordinator; you cannot send as another worker, raise your own budgets, or accept your own result.',
         }),
@@ -539,7 +592,9 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  await runBridge({ socketPath, token, input: process.stdin, output: process.stdout, role: process.env[BRIDGE_ROLE_ENV] === 'head' ? 'head' : 'worker' });
+  const configuredRole = process.env[BRIDGE_ROLE_ENV];
+  const role: BridgeRole = configuredRole === 'head-review' || configuredRole === 'head' ? configuredRole : 'worker';
+  await runBridge({ socketPath, token, input: process.stdin, output: process.stdout, role });
 }
 
 const invokedAs = process.argv[1];

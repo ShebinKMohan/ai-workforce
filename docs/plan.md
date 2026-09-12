@@ -892,17 +892,19 @@ The [start-here guide](start-here.md) documents ordinary use; the
    IDs govern membership, including departments with repeated names. Desks face toward the
    central control, and pan, zoom, fit and selection operate on actual 3D geometry.
    The selected Claude visual design also governs the scene: globally aligned rounded
-   pastel department islands, a distinct stepped sage hub with a curved command desk,
+   pastel department islands, a distinct symmetric chamfered sage hub with a curved command desk,
    compact nameplates and solid cream walkways meeting the platform edges. The first six
    occupied positions surround the hub in the reference arrangement; additional rooms
    connect through outer campus rings. Only saved departments generate islands or paths.
    Furniture faces inward independently of floor alignment. Existing department slots
    persist as a browser layout preference keyed by the workspace path.
    The central Coordinator is the system scheduler, with no invented model. Control center
-   Chat holds a task draft and opens a reviewed project/department/check/consent submission;
+   Chat holds a task draft with visible project/department routing, setup readiness and
+   applicable runtime consent before direct submission to the selected department head;
    Tasks shows recorded work; Connections reports configured bindings and runtime information.
    The existing setup, project, task and evidence pages remain under `/workspace/`. Real requests
-   use the app on 4317; the separate 4318 prototype is not an execution source. No sample work,
+   use the running workspace server (4421 for the current user's workspace); the separate
+   4318 prototype is not an execution source. No sample work,
    simulated chat or extra universal coordinator is introduced. This supersedes the earlier
    fixed-raster/inward-artwork integration. The new scene does not copy Agents Office source
    or artwork; vendored Three.js retains its MIT notice in
@@ -913,9 +915,69 @@ The [start-here guide](start-here.md) documents ordinary use; the
    stops. A task stop must settle as interrupted, not failed; Resume reconciles its original
    project and saved roster before continuing. Stop requests and observed settlement are distinct.
 
+### Harness usability refinement — 12 September 2026
+
+The user's subsequent request makes the right panel a task conversation with recorded agent
+output, visible project and department destinations, live phases and review evidence. This
+supersedes the normal modal review-sheet interaction for this entry point. Required runtime
+consent remains explicit in the composer. Selecting an employee provides context; the selected
+department head still owns planning and assignment. Each submitted message starts a distinct
+request. It does not silently steer or cancel older work, and automatic cross-department
+classification is not part of this local milestone.
+
+The shell uses shared neutral surfaces, restrained department colors, consistent controls and
+typography. It retains the isometric department islands and connecting paths, replaces the
+irregular central platform with symmetric geometry, and uses motion for selection, camera
+transitions and actual activity. Reduced motion is respected and an idle scene stops continuous
+rendering. The right panel supports pointer and keyboard resizing, remembers its width, and
+becomes a mobile drawer. Drafts and deliberate history scroll positions survive live refreshes.
+
+The agent directory has active and archived views. Archiving removes an agent from the active
+workforce without erasing historical work or recycling its identity. Replacing a department
+head is an atomic configuration operation. Project registration and worker assignment are
+available through the interface. Runtime management exposes each configured executable,
+version, authentication, model, effort and execution boundary using that binding's own probe.
+The supported adapters remain Codex and Claude Code; an arbitrary CLI requires an adapter.
+
+Request admission persists a client submission identifier to deduplicate double submits and
+uncertain retries. Hard runtime rejections preserve the provider error and stop before worker
+dispatch instead of being mislabeled as a missing plan. These are implemented and tested
+behaviors, separate from the broader release gates below. The
+[harness verification record](evidence/harness-ui-2026-09-12/README.md) documents the source
+checks, browser observations and one real Codex head/worker/verifier run on the AI Employee
+repository. It does not claim a Claude acceptance run or desktop distribution readiness.
+
+### Control Center hierarchy amendment — 12 September 2026
+
+The user's subsequent clarification supersedes the manual department destination and the
+single verification gate described in the first usability refinement. Every primary chat
+submission goes to Control Center. It records receipt and automatically selects the department
+from project context, explicit saved routing rules or one bounded classification turn. The
+composer supplies project context but no department choice. Canvas selection is inspection
+context and never silently overrides the conversation's route.
+
+The department head plans against an exact admitted worker roster. Coordinator code, rather
+than model reasoning, checks availability, reserves the bounded subset before spawn, and
+enforces one active task per named worker. Admission carries the workspace revision to the
+CLI so the head cannot accidentally regain busy agents through a later roster rebuild. The
+existing project lock, runtime containment, process settlement and resume ownership rules
+continue to apply.
+
+After independent checks on the combined candidate, the head performs a separate recorded
+semantic review. A new head approval cannot override failed or missing verifier receipts.
+Control Center returns the reviewed result in the same chat; review rejection preserves the
+candidate with actionable feedback. A runtime's prose alone cannot approve the result.
+Routing failures and unclear requests produce a recorded blocker or clarification rather than
+an arbitrary fallback department. Per-message submission identifiers remain durable through
+the asynchronous routing phase.
+
+This is a PC workspace. Further visual verification targets desktop use. The
+[Control Center flow](control-center-flow.md) records component responsibilities, performance
+boundaries, concurrency limits and the primary orchestration references.
+
 ### Added feature rows
 
-FR085–FR090 are new in the authoritative master plan. Their day-one acceptance criteria below
+FR085–FR093 are new in the authoritative master plan. Their day-one acceptance criteria below
 replace proposals bearing those IDs in the earlier unimplemented redesign draft.
 
 | ID | Feature | Milestone | Acceptance criterion |
@@ -926,6 +988,9 @@ replace proposals bearing those IDs in the earlier unimplemented redesign draft.
 | FR088 | Project request admission | WP10b, selected FR038 scope | One page queue manager per workspace admits one request per project at a time, respects the concurrent-project cap, refuses overlapping use of a roster worker, and runs unverified-containment rosters alone. Every queued request carries its blocking reason. Restored queued requests are held until Start; Discard starts nothing. |
 | FR089 | Guided workspace setup and editing | WP10b, selected FR016/FR018/FR072 scope | The local page offers passive tool checks, Add project with detected or entered checks, explicit atomic department/head creation, worker/project assignments and first-task submission. Project creation adds no agents. Ready requires a sendable department/project pair. Configuration operations require the existing Host/Origin/token gate and revision check; malformed files are never silently overwritten. |
 | FR090 | Recorded workspace task view | WP10b, selected FR040/FR057/FR063/FR073 scope | Home, the dynamic 3D Office within the selected Claude shell and Control center, Needs you and task history consume recorded state. Zero departments renders only the central scheduler; each configured department room grows around its complete roster without a fixed seat cap. Each task displays Sent, Department head, Work, Checks and Review, current actors, changes, checks, events and record disclosures. A passing uncompromised verifier receipt is required for green/Verified. Queueing, planning, interruption, failure and missing proof remain visibly distinct; stop/resume controls reflect actual ownership. |
+| FR091 | Control Center intake | WP10b hierarchy refinement | The primary composer sends every message to Control Center with project context and no department override. Receipt is durable before routing. Explicit saved rules can route without a model turn; other actionable requests use a bounded classifier against the saved department catalog. Ambiguity, timeout, configuration changes and missing eligibility produce explicit recorded outcomes. Routing time is measured, and duplicate submissions reuse the original receipt. |
+| FR092 | Department head result review | WP10b hierarchy refinement | New department runs persist a required head-review policy. After passing combined-candidate checks, the frozen head reviews that exact candidate in an owned analysis session and submits a structured decision. Candidate identity, check receipts and confirmed process stop gate approval. Rejection preserves feedback and the candidate; infrastructure interruption remains resumable. Only a checks-backed approved head result produces the Control Center final reply. |
+| FR093 | Worker capacity admission | WP10b hierarchy refinement | Coordinator code selects an available bounded worker subset, reserves it before spawn and passes exact IDs plus workspace revision to the CLI. Planning, repair, fallback and resume cannot expand beyond the admitted roster or double-assign an active worker. Reservations persist through owned process settlement; the UI distinguishes reserved from currently running and reports the actual waiting reason. |
 
 FR084 now serves `web/claude-office` by default and `web/workspace` under `/workspace/`. Its loopback-only Host/Origin/token and
 `shell:false` launch boundaries remain. It also writes validated workspace configuration and

@@ -707,12 +707,34 @@ export class ClaudeCodeAdapter implements RuntimeAdapter {
     try {
       initializeRaw = await transport.initialize(this.#options.startupTimeoutMs);
     } catch (error) {
-      await transport.stop();
-      const stderr = transport.stderrLines.slice(-3).join(' | ');
-      if (error instanceof ClaudeTransportError) {
-        throw new AdapterError(CLAUDE_CODE_ADAPTER, `transport_${error.reason}`, `${error.message}${stderr ? ` (stderr: ${stderr})` : ''}`);
+      let startupStopReceipt: StopReceipt;
+      try {
+        const result = await transport.stop();
+        const terminated = result.exited && !result.groupAlive;
+        startupStopReceipt = {
+          sessionId,
+          state: terminated ? 'process_tree_terminated' : result.signalled === null ? 'unknown' : 'requested',
+          processId: identity.pid,
+          signal: result.signalled,
+          at: nowIso(),
+          ...(terminated ? {} : { detail: `claude startup cleanup did not confirm termination of process group ${identity.pid}` }),
+        };
+      } catch (stopError) {
+        startupStopReceipt = { sessionId, state: 'unknown', processId: identity.pid, signal: null, at: nowIso(), detail: `claude startup cleanup failed: ${stopError instanceof Error ? stopError.message : String(stopError)}` };
       }
-      throw error;
+      const stderr = transport.stderrLines.slice(-3).join(' | ');
+      let failure: AdapterError;
+      if (error instanceof AdapterError) {
+        const prefix = `${error.adapter}: `;
+        failure = new AdapterError(error.adapter, error.code, error.message.startsWith(prefix) ? error.message.slice(prefix.length) : error.message, startupStopReceipt);
+      } else if (error instanceof ClaudeTransportError) {
+        failure = new AdapterError(CLAUDE_CODE_ADAPTER, `transport_${error.reason}`, `${error.message}${stderr ? ` (stderr: ${stderr})` : ''}`, startupStopReceipt);
+      } else {
+        const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : 'startup_failed';
+        failure = new AdapterError(CLAUDE_CODE_ADAPTER, code, error instanceof Error ? error.message : String(error), startupStopReceipt);
+      }
+      failure.cause = error;
+      throw failure;
     }
 
     const parsedInit = InitializeResponseSchema.safeParse(initializeRaw);
