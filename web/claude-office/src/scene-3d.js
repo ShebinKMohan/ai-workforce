@@ -60,6 +60,8 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
     let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
     for(const x of [bounds.minX,bounds.maxX])for(const z of [bounds.minZ,bounds.maxZ])for(const y of [0,3.2]){const p=new THREE.Vector3(x,y,z).sub(desiredTarget);const sx=p.dot(right),sy=p.dot(up);minX=Math.min(minX,sx);maxX=Math.max(maxX,sx);minY=Math.min(minY,sy);maxY=Math.max(maxY,sy);}
     desiredSpan=Math.max(10,(maxY-minY)*1.55,(maxX-minX)/(width/height)*1.3);
+    // Leave a clear lower area for the first-department invitation.
+    if(!layout.departments.length){desiredSpan=Math.max(17,desiredSpan);desiredTarget.y=-3;}
     if(instant){span=desiredSpan;target.copy(desiredTarget);}
   }
   function fit(instant=false) {selected={type:'office'};fitBounds(layout.bounds,instant);fitSpan=desiredSpan;updateSelected();}
