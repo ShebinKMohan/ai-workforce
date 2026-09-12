@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "artifact": {
+    "id": "01a09578-929a-726a-bd22-a64e725394ed",
+    "runId": "01a09578-8fac-77f4-952c-1a6f1c495c21",
+    "taskId": "01a09578-90e1-750c-8cfe-05756f86afd7",
+    "attemptId": "01a09578-90e5-737f-85d8-cdc7c05878b3",
+    "type": "candidate_patch",
+    "path": "tasks/01a09578-90e5-737f-85d8-cdc7c05878b3/candidate.patch",
+    "sha256": "9264501dc89ec0c87448924819227a67dacc4cb4dbef71b1225ac95cf03b97fa",
+    "sizeBytes": 313,
+    "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+    "candidateRevision": "f4c23f3e5b82c5b99125a7d747102c230314e02e",
+    "createdAt": "2026-09-12T11:55:02.170Z"
+  },
+  "encoding": "utf-8",
+  "redacted": false,
+  "text": "diff --git a/docs/beta.md b/docs/beta.md\nnew file mode 100644\nindex 0000000000000000000000000000000000000000..9cc2c729d38a0f60adf2ac6a0adc8cacd9a3524c\n--- /dev/null\n+++ b/docs/beta.md\n@@ -0,0 +1,3 @@\n+# docs/beta.md\n+\n+Written for Document the pagination helpers and the search endpoint for the new team members.\n"
+}

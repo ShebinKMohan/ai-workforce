@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /**
- * workforce CLI: (interactive) | doctor | run | status | watch | resume.
+ * workforce CLI: (interactive) | doctor | run | status | watch | resume | serve.
+ *
+ * `serve` (FR084) is the loopback office view: it reads the state root
+ * read-only and starts work only by executing `workforce run --json`.
  *
  * WP01 wired argument parsing, configuration validation (exit 2 on invalid
  * input) and state-root resolution. WP02 implements `doctor` (passive runtime
@@ -33,6 +36,8 @@ import { commandWatch } from './commands/watch.js';
 import { leaveActiveViews } from './live/restore.js';
 import { commandStatus } from './commands/status.js';
 import { commandResume as runResume } from './commands/resume.js';
+import { commandServe } from './commands/serve.js';
+import { commandWorkspace, WORKSPACE_USAGE } from './commands/workspace.js';
 import { CliError, EXIT_CODES, Reporter, type CommandResult, type ExitCode, type Streams } from './output.js';
 
 export const USAGE = `workforce — coordinate installed coding runtimes on one engineering task
@@ -50,11 +55,24 @@ Every flag form below still works exactly as it did.
 Usage:
   workforce doctor [--connect] [--codex-path <file>] [--claude-path <file>] [--agents <file>] [--state-dir <dir>] [--json]
   workforce run --repo <path> --agents <file> (--task <text> | --task-file <file>) [--agent <id>] [--path direct|planned] [--plan <file>] [--check "<cmd> [args]"]... [--allow-unconfined-writes] [--view live|plain] [--watch] [--state-dir <dir>] [--workspace-root <dir>] [--json]
+  workforce run --project <id> --department <id> (--task <text> | --task-file <file>) [--allow-unconfined-writes] [--view live|plain] [--watch] [--state-dir <dir>] [--json]
+  workforce workspace [show|init|import|project|department|agent|assign|unassign|runtime] ... [--expect-revision <n>] [--state-dir <dir>] [--json]
   workforce status <run-id> [--state-dir <dir>] [--json]
   workforce watch <run-id> [--task <key>] [--state-dir <dir>] [--json]
   workforce resume <run-id> [--agents <file>] [--allow-unconfined-writes] [--state-dir <dir>] [--json]
+  workforce serve [--port <n>] [--state-dir <dir>] [--open] [--json]
 
 Options:
+  --project <id>       run: the workspace project to work on. With --department it
+                       replaces --repo and --agents: the repository, the agents
+                       (the department head and its workers placed on the
+                       project) and the checks all come from the workspace, and
+                       the run's state lives under <state-root>/projects/<id>.
+                       The head plans every request before any worker starts.
+  --department <id>    run: the department whose head receives the request
+  --expect-revision <n>
+                       workspace: change the workspace only if it is still at
+                       revision n; otherwise exit 3 and write nothing
   --repo <path>        Git repository to work on (its checkout is never modified)
   --agents <file>      agent configuration JSON (schemaVersion 1)
   --task <text>        task request text
@@ -99,11 +117,18 @@ Options:
   --state-dir <dir>    coordinator state root (default: $WORKFORCE_STATE_DIR or ~/.workforce)
   --workspace-root <dir>
                        candidate workspace root (default: <state-root>/workspaces)
+  --port <n>           serve: port on 127.0.0.1 (default 4317; 0 picks a free one).
+                       The office view reads the state root read-only and
+                       starts work only by running "workforce run".
+  --open               serve: open the office page in the default browser
   --json               machine-readable stdout; diagnostics go to stderr.
                        "run --json", and "resume --json" once it continues a
                        run, emit JSONL: one event object per line, then the
                        final result object.
   -h, --help           show this help
+
+Building a workspace (departments, heads, workers and projects in <state-root>/workspace.json):
+${WORKSPACE_USAGE}
 
 Exit codes: 0 verified candidate · 2 invalid input/config · 3 user action required · 4 execution/validation failure · 130 interrupted`;
 
@@ -126,9 +151,47 @@ interface ParsedArgs {
   readonly watch: boolean;
   readonly checks?: ReadonlyArray<string>;
   readonly allowUnconfinedWrites: boolean;
+  readonly port?: string;
+  readonly open: boolean;
+  readonly project?: string;
+  readonly department?: string;
+  readonly expectRevision?: string;
+  readonly name?: string;
+  readonly note?: string;
+  readonly color?: string;
+  readonly id?: string;
+  readonly role?: string;
+  readonly runtime?: string;
+  readonly model?: string;
+  readonly effort?: string;
+  readonly policy?: string;
+  readonly instructions?: string;
+  readonly instructionsFile?: string;
+  readonly capabilities?: ReadonlyArray<string>;
+  readonly adapter?: string;
+  readonly executable?: string;
   readonly json: boolean;
   readonly help: boolean;
 }
+
+/** Flags that belong to `workforce workspace` alone. */
+const WORKSPACE_ONLY_FLAGS = [
+  'expect-revision',
+  'name',
+  'note',
+  'color',
+  'id',
+  'role',
+  'runtime',
+  'model',
+  'effort',
+  'policy',
+  'instructions',
+  'instructions-file',
+  'capability',
+  'adapter',
+  'executable',
+] as const;
 
 export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
   let parsed: ReturnType<typeof parseArgs<{ options: typeof OPTIONS; allowPositionals: true; strict: true }>>;
@@ -139,9 +202,52 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
   }
   const [command, ...rest] = parsed.positionals;
   const values = parsed.values;
+  // `--port` and `--open` belong to `serve` alone. They sit in the one shared
+  // option table because parseArgs takes a single table, but accepting them
+  // silently on every other command would turn a mistyped flag into a no-op
+  // where it used to be an error.
+  if (command !== 'serve' && (values.port !== undefined || values.open === true)) {
+    throw new CliError(
+      EXIT_CODES.invalidInput,
+      'invalid_arguments',
+      `${values.port !== undefined ? '--port' : '--open'} applies only to "workforce serve"`,
+      ['run "workforce --help" for usage'],
+    );
+  }
+  // The workspace flags get the same guard, for the same reason: a mistyped
+  // flag on another command must stay an error, not become a silent no-op.
+  if (command !== 'workspace') {
+    const stray = WORKSPACE_ONLY_FLAGS.find((flag) => values[flag] !== undefined);
+    if (stray !== undefined) {
+      throw new CliError(EXIT_CODES.invalidInput, 'invalid_arguments', `--${stray} applies only to "workforce workspace"`, ['run "workforce --help" for usage']);
+    }
+    if (command !== 'run') {
+      const strayTarget = (['project', 'department'] as const).find((flag) => values[flag] !== undefined);
+      if (strayTarget !== undefined) {
+        throw new CliError(EXIT_CODES.invalidInput, 'invalid_arguments', `--${strayTarget} applies only to "workforce run" and "workforce workspace"`, ['run "workforce --help" for usage']);
+      }
+    }
+  }
   return {
     command: command ?? null,
     positionals: rest,
+    ...(values.project !== undefined ? { project: values.project } : {}),
+    ...(values.department !== undefined ? { department: values.department } : {}),
+    ...(values['expect-revision'] !== undefined ? { expectRevision: values['expect-revision'] } : {}),
+    ...(values.name !== undefined ? { name: values.name } : {}),
+    ...(values.note !== undefined ? { note: values.note } : {}),
+    ...(values.color !== undefined ? { color: values.color } : {}),
+    ...(values.id !== undefined ? { id: values.id } : {}),
+    ...(values.role !== undefined ? { role: values.role } : {}),
+    ...(values.runtime !== undefined ? { runtime: values.runtime } : {}),
+    ...(values.model !== undefined ? { model: values.model } : {}),
+    ...(values.effort !== undefined ? { effort: values.effort } : {}),
+    ...(values.policy !== undefined ? { policy: values.policy } : {}),
+    ...(values.instructions !== undefined ? { instructions: values.instructions } : {}),
+    ...(values['instructions-file'] !== undefined ? { instructionsFile: values['instructions-file'] } : {}),
+    ...(values.capability !== undefined ? { capabilities: values.capability } : {}),
+    ...(values.adapter !== undefined ? { adapter: values.adapter } : {}),
+    ...(values.executable !== undefined ? { executable: values.executable } : {}),
     ...(values.repo !== undefined ? { repo: values.repo } : {}),
     ...(values.agents !== undefined ? { agents: values.agents } : {}),
     ...(values.task !== undefined ? { task: values.task } : {}),
@@ -158,6 +264,8 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     watch: values.watch === true,
     ...(values.check !== undefined ? { checks: values.check } : {}),
     allowUnconfinedWrites: values['allow-unconfined-writes'] === true,
+    ...(values.port !== undefined ? { port: values.port } : {}),
+    open: values.open === true,
     json: values.json === true,
     help: values.help === true,
   };
@@ -180,6 +288,25 @@ const OPTIONS = {
   watch: { type: 'boolean', default: false },
   check: { type: 'string', multiple: true },
   'allow-unconfined-writes': { type: 'boolean', default: false },
+  port: { type: 'string' },
+  open: { type: 'boolean', default: false },
+  project: { type: 'string' },
+  department: { type: 'string' },
+  'expect-revision': { type: 'string' },
+  name: { type: 'string' },
+  note: { type: 'string' },
+  color: { type: 'string' },
+  id: { type: 'string' },
+  role: { type: 'string' },
+  runtime: { type: 'string' },
+  model: { type: 'string' },
+  effort: { type: 'string' },
+  policy: { type: 'string' },
+  instructions: { type: 'string' },
+  'instructions-file': { type: 'string' },
+  capability: { type: 'string', multiple: true },
+  adapter: { type: 'string' },
+  executable: { type: 'string' },
   json: { type: 'boolean', default: false },
   help: { type: 'boolean', short: 'h', default: false },
 } as const;
@@ -332,8 +459,48 @@ export async function runCli(argv: ReadonlyArray<string>, streams: Streams = pro
         );
       case 'resume':
         return reporter.result(await commandResume(args, { reporter, streams, ...(signal !== undefined ? { signal } : {}) }));
+      case 'serve':
+        return reporter.result(
+          await commandServe(
+            {
+              open: args.open,
+              json: args.json,
+              ...(args.port !== undefined ? { port: args.port } : {}),
+              ...(args.stateDir !== undefined ? { stateDir: args.stateDir } : {}),
+            },
+            { reporter, ...(signal !== undefined ? { signal } : {}) },
+          ),
+        );
+      case 'workspace':
+        return reporter.result(
+          await commandWorkspace({
+            positionals: args.positionals,
+            json: args.json,
+            ...(args.stateDir !== undefined ? { stateDir: args.stateDir } : {}),
+            ...(args.expectRevision !== undefined ? { expectRevision: args.expectRevision } : {}),
+            ...(args.agents !== undefined ? { agents: args.agents } : {}),
+            ...(args.repo !== undefined ? { repo: args.repo } : {}),
+            ...(args.name !== undefined ? { name: args.name } : {}),
+            ...(args.note !== undefined ? { note: args.note } : {}),
+            ...(args.color !== undefined ? { color: args.color } : {}),
+            ...(args.id !== undefined ? { id: args.id } : {}),
+            ...(args.department !== undefined ? { department: args.department } : {}),
+            ...(args.project !== undefined ? { project: args.project } : {}),
+            ...(args.role !== undefined ? { role: args.role } : {}),
+            ...(args.runtime !== undefined ? { runtime: args.runtime } : {}),
+            ...(args.model !== undefined ? { model: args.model } : {}),
+            ...(args.effort !== undefined ? { effort: args.effort } : {}),
+            ...(args.policy !== undefined ? { policy: args.policy } : {}),
+            ...(args.instructions !== undefined ? { instructions: args.instructions } : {}),
+            ...(args.instructionsFile !== undefined ? { instructionsFile: args.instructionsFile } : {}),
+            ...(args.capabilities !== undefined ? { capabilities: args.capabilities } : {}),
+            ...(args.checks !== undefined ? { checks: args.checks } : {}),
+            ...(args.adapter !== undefined ? { adapter: args.adapter } : {}),
+            ...(args.executable !== undefined ? { executable: args.executable } : {}),
+          }),
+        );
       default:
-        throw new CliError(EXIT_CODES.invalidInput, 'unknown_command', `unknown command "${args.command}"`, ['commands: doctor, run, status, watch, resume']);
+        throw new CliError(EXIT_CODES.invalidInput, 'unknown_command', `unknown command "${args.command}"`, ['commands: doctor, run, status, watch, resume, serve, workspace']);
     }
   } catch (error) {
     if (error instanceof CliError) return reporter.failure(command, error);
@@ -348,6 +515,14 @@ async function main(): Promise<void> {
   // leaves an honestly uncertain state behind.
   const interruption = new AbortController();
   let signals = 0;
+  // `serve` starts runs that deliberately outlive it, so the generic "stopping
+  // owned processes" line would tell the user the opposite of what happens.
+  let invoked: string | null = null;
+  try {
+    invoked = parseCliArgs(process.argv.slice(2)).command;
+  } catch {
+    // An invalid invocation reports itself through runCli.
+  }
   process.on('SIGINT', () => {
     // FIRST, before anything is written. Raw mode delivers Ctrl+C as a
     // keystroke that `keys.ts` re-raises as this signal, so by the time we get
@@ -362,7 +537,11 @@ async function main(): Promise<void> {
       process.stderr.write('\nforced termination requested; owned processes and state may be left in an uncertain state\n');
       process.exit(EXIT_CODES.interrupted);
     }
-    process.stderr.write('\ninterrupting: stopping owned processes and persisting what exists\n');
+    process.stderr.write(
+      invoked === 'serve'
+        ? '\nstopping the office server; a run it started keeps going (stop that run with kill -INT <pid>)\n'
+        : '\ninterrupting: stopping owned processes and persisting what exists\n',
+    );
     interruption.abort();
   });
   process.exitCode = await runCli(process.argv.slice(2), process, interruption.signal);

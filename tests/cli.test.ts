@@ -59,6 +59,14 @@ describe('cli argument handling and exit codes', () => {
     expect((await invoke(['--help'])).stdout).toContain('Exit codes: 0 verified candidate');
   });
 
+  it('refuses --port and --open on every command except serve, as it did before serve existed', async () => {
+    for (const argv of [['status', 'nope', '--port', '5'], ['doctor', '--open'], ['run', '--open'], ['--port', '4317']]) {
+      const result = await invoke(argv);
+      expect({ argv, code: result.code }).toEqual({ argv, code: EXIT_CODES.invalidInput });
+      expect(result.stderr).toMatch(/applies only to "workforce serve"/);
+    }
+  });
+
   it('requires --repo, a discoverable agent config, and exactly one task source for run', async () => {
     const repo = scratch();
     expect((await invoke(['run', '--agents', EXAMPLE, '--task', 'x'])).stderr).toMatch(/--repo <path> is required/);

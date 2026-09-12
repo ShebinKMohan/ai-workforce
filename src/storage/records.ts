@@ -111,6 +111,22 @@ export function findRun(db: DatabaseSync, id: string): RunRow | null {
   return (db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as RunRow | undefined) ?? null;
 }
 
+/** The most `listRuns` will return in one call, whatever the caller asks for. */
+export const MAX_LIST_RUNS = 200;
+export const DEFAULT_LIST_RUNS = 50;
+
+/**
+ * Runs, newest first, bounded (FR084's run list).
+ *
+ * Read-only: a reader holding no lock may call it while a coordinator writes.
+ * Run ids are UUIDv7, so `id` breaks a `created_at` tie in creation order too.
+ */
+export function listRuns(db: DatabaseSync, options: { readonly limit?: number } = {}): RunRow[] {
+  const requested = options.limit ?? DEFAULT_LIST_RUNS;
+  const limit = Math.max(1, Math.min(MAX_LIST_RUNS, Number.isFinite(requested) ? Math.floor(requested) : DEFAULT_LIST_RUNS));
+  return db.prepare('SELECT * FROM runs ORDER BY created_at DESC, id DESC LIMIT ?').all(limit) as unknown as RunRow[];
+}
+
 export function transitionRun(db: DatabaseSync, id: string, to: RunState, now: string = nowIso()): RunRow {
   return withTransaction(db, () => {
     const run = getRun(db, id);
@@ -243,6 +259,17 @@ export function getAttempt(db: DatabaseSync, id: string): AttemptRow {
   const row = db.prepare('SELECT * FROM attempts WHERE id = ?').get(id) as AttemptRow | undefined;
   if (row === undefined) throw new RecordNotFoundError('attempt', id);
   return row;
+}
+
+/**
+ * Every attempt of a run, each task's generations in order (FR084's desk state).
+ *
+ * Read-only. A desk says "working" only while the attempt the database holds
+ * for its task is `running`, so the view reads the attempt rows themselves
+ * rather than inferring a live worker from a task state.
+ */
+export function listAttempts(db: DatabaseSync, runId: string): AttemptRow[] {
+  return db.prepare('SELECT * FROM attempts WHERE run_id = ? ORDER BY task_id, generation').all(runId) as unknown as AttemptRow[];
 }
 
 /** The recorded worker process identity of an attempt, when one was recorded. */

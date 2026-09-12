@@ -2,7 +2,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['tests/**/*.test.ts'],
+    // `.test.js`: the office UI's own tests (tests/office), plain JavaScript
+    // like the vendored modules they import from web/office/src.
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.js'],
     environment: 'node',
     testTimeout: 20_000,
     hookTimeout: 20_000,

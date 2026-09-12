@@ -1,7 +1,7 @@
 # AGENTS.md — repository conventions for coding agents
 
 Read `docs/plan.md` in full before changing anything. It is the authoritative specification.
-Feature IDs (FR001–FR079), work packages (WP01–WP13) and acceptance tests (AT01–AT24) in that file are the only scope references.
+Feature IDs (FR001–FR090), work packages (WP01–WP13, plus the WP10b day-one amendment) and acceptance tests (AT01–AT35) in that file are the scope references. Read section 17 for the current local workspace decisions and the features still deferred.
 
 ## What this repository is
 

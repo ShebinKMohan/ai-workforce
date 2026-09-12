@@ -1,0 +1,1255 @@
+{
+  "ok": true,
+  "runId": "01a09578-96fc-73af-8001-f71b72372267",
+  "after": 0,
+  "limit": 5000,
+  "lastSequence": 66,
+  "hasMore": false,
+  "events": [
+    {
+      "sequence": 1,
+      "type": "run.created",
+      "timestamp": "2026-09-12T11:55:03.292Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "repoPath": "/Users/you/code/storefront",
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "agentId": "nova",
+        "path": "planned",
+        "taskCount": null,
+        "checkSource": "cli_flags",
+        "planning": "head"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 2,
+      "type": "head.planning_started",
+      "timestamp": "2026-09-12T11:55:03.294Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "departmentId": "eng",
+        "projectId": "app",
+        "planningId": "01a09578-96fe-734f-ae17-8598f5990ba8",
+        "runtimeId": "fake-local",
+        "adapter": "fake",
+        "maxAttempts": 2,
+        "workers": [
+          "nova",
+          "mira"
+        ]
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 3,
+      "type": "head.workspace_created",
+      "timestamp": "2026-09-12T11:55:03.370Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "planningId": "01a09578-96fe-734f-ae17-8598f5990ba8",
+        "path": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/head/01a09578-96fe-734f-ae17-8598f5990ba8",
+        "branch": "workforce/01a09578-96fc-73af-8001-f71b72372267/head/01a09578-96fe-734f-ae17-8598f5990ba8",
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "readOnly": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 4,
+      "type": "head.session_requested",
+      "timestamp": "2026-09-12T11:55:03.370Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "planningId": "01a09578-96fe-734f-ae17-8598f5990ba8",
+        "adapter": "fake",
+        "runtimeId": "fake-local",
+        "workspacePath": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/head/01a09578-96fe-734f-ae17-8598f5990ba8",
+        "policy": "analysis"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 5,
+      "type": "head.session_opened",
+      "timestamp": "2026-09-12T11:55:03.401Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "processId": 36904
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 6,
+      "type": "head.turn_started",
+      "timestamp": "2026-09-12T11:55:03.402Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "turnId": "01a09578-976a-737b-accb-765a6ee02132",
+        "promptCharacters": 2808
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 7,
+      "type": "runtime.session_started",
+      "timestamp": "2026-09-12T11:55:03.401Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "turnId": null,
+        "spawnToken": "34fb0809dbdeaf34",
+        "runtimeSequence": 1,
+        "rawRef": "fake:fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7:34fb0809dbdeaf34:1",
+        "seq": 1,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 1
+        },
+        "pid": 36904,
+        "resumed": false,
+        "protocol": "fake/1",
+        "cwd": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/head/01a09578-96fe-734f-ae17-8598f5990ba8",
+        "scenario": "/tmp/elsewhere",
+        "model": "fake-default",
+        "effort": "medium"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 8,
+      "type": "runtime.turn_started",
+      "timestamp": "2026-09-12T11:55:03.402Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "turnId": "01a09578-976a-737b-accb-765a6ee02132",
+        "spawnToken": "34fb0809dbdeaf34",
+        "runtimeSequence": 2,
+        "rawRef": "fake:fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7:34fb0809dbdeaf34:2",
+        "seq": 2,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 2
+        },
+        "prompt": "Document the pagination helpers and the search endpoint for the new team members.\n\n--- planning (added by the workforce coordinator; the request above is the user's own wording) ---\nYou are atlas, the head of the Engineering department. You plan this request for one project only: \"Storefront\" (id app).\nYour working directory /Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/head/01a09578-96fe-734f-ae17-8598f5990ba8 is a read-only copy of that project at commit b38aca1037281ff69e5cdc6f79c5e585414d054f. Read whatever helps you plan, and change nothing: you plan, and your workers do the work, each in a copy of their own.\n\nWorkers you can assign. Every task goes to exactly one of these ids, never to you and never to anyone else:\n- nova — Nova; runtime fake-local (fake); capabilities: coding, testing\n- mira — Mira; runtime fake-local (fake); capabilities: coding, testing\n\nDeliver the plan by calling the tool workforce_propose_plan (MCP server \"workforce\"). That call is the only way a plan reaches the coordinator: a plan written as text in your reply creates nothing. The tool answers with any issues it finds; fix them and call it again. The last plan you propose is the one decided on. Then end your turn.\n\nPlan format (planVersion 2):\n{\n  \"planVersion\": 2,\n  \"summary\": \"How you split the request, and why.\",\n  \"tasks\": [\n    {\n      \"id\": \"t1\",\n      \"objective\": \"What this worker must achieve.\",\n      \"assignee\": \"nova\",\n      \"acceptanceCriteria\": [\n        {\n          \"id\": \"c1\",\n          \"description\": \"How the worker knows it is done.\"\n        }\n      ],\n      \"scope\": {\n        \"allowedPaths\": [\n          \"src/feature/\"\n        ]\n      }\n    },\n    {\n      \"id\": \"t2\",\n      \"objective\": \"A second, different piece of work.\",\n      \"assignee\": \"mira\",\n      \"acceptanceCriteria\": [\n        {\n          \"id\": \"c1\",\n          \"description\": \"How the worker knows it is done.\"\n        }\n      ],\n      \"dependencies\": [\n        {\n          \"taskId\": \"t1\"\n        }\n      ]\n    }\n  ]\n}\n\nRules the coordinator checks in code before any worker starts:\n- 1 to 8 task(s), with unique ids and no two tasks repeating the same objective;\n- every task has an assignee from the list above and at least one acceptance criterion;\n- dependencies name tasks of this plan and form no cycle; a task starts only after the tasks it depends on are accepted;\n- no two tasks claim overlapping scope.allowedPaths.\nTasks without dependencies run at the same time, each in its own copy of the project, so split the work along files that do not overlap.\nAcceptance is decided by the coordinator running the project's own checks against the combined result — never by a worker, or by you, saying the work is done.\n",
+        "inbox": [],
+        "turnIndex": 0
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 9,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:03.402Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "turnId": "01a09578-976a-737b-accb-765a6ee02132",
+        "spawnToken": "34fb0809dbdeaf34",
+        "runtimeSequence": 3,
+        "rawRef": "fake:fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7:34fb0809dbdeaf34:3",
+        "seq": 3,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 3
+        },
+        "text": "Reading the project."
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 10,
+      "type": "runtime.tool_call",
+      "timestamp": "2026-09-12T11:55:03.403Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "turnId": "01a09578-976a-737b-accb-765a6ee02132",
+        "spawnToken": "34fb0809dbdeaf34",
+        "runtimeSequence": 4,
+        "rawRef": "fake:fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7:34fb0809dbdeaf34:4",
+        "seq": 4,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 4
+        },
+        "tool": "workforce_propose_plan",
+        "server": "workforce",
+        "arguments": {
+          "planVersion": 2,
+          "summary": "Two independent documents, one per worker.",
+          "tasks": [
+            {
+              "id": "alpha",
+              "objective": "Add docs/alpha.md describing the pagination helpers.",
+              "assignee": "nova",
+              "acceptanceCriteria": [
+                {
+                  "id": "c1",
+                  "description": "docs/alpha.md explains pageCount and paginate"
+                }
+              ],
+              "scope": {
+                "allowedPaths": [
+                  "docs/alpha.md"
+                ]
+              }
+            },
+            {
+              "id": "beta",
+              "objective": "Add docs/beta.md describing the search endpoint.",
+              "assignee": "mira",
+              "acceptanceCriteria": [
+                {
+                  "id": "c1",
+                  "description": "docs/beta.md explains the endpoint"
+                }
+              ],
+              "scope": {
+                "allowedPaths": [
+                  "docs/beta.md"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 11,
+      "type": "plan.proposed",
+      "timestamp": "2026-09-12T11:55:03.485Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "proposal": 1,
+        "artifactId": "01a09578-97bc-70d3-a572-62bd494460bc",
+        "relativePath": "head/01a09578-96fe-734f-ae17-8598f5990ba8/proposal-1.json",
+        "taskCount": 2
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 12,
+      "type": "runtime.tool_result",
+      "timestamp": "2026-09-12T11:55:03.494Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "turnId": "01a09578-976a-737b-accb-765a6ee02132",
+        "spawnToken": "34fb0809dbdeaf34",
+        "runtimeSequence": 5,
+        "rawRef": "fake:fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7:34fb0809dbdeaf34:5",
+        "seq": 5,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 5
+        },
+        "tool": "workforce_propose_plan",
+        "server": "workforce",
+        "status": "ok",
+        "ok": true,
+        "result": {
+          "received": true,
+          "valid": true,
+          "taskCount": 2,
+          "note": "The plan passes validation and is recorded. It is decided on when your turn ends, and then your workers start. End your turn now and change no file."
+        },
+        "error": null
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 13,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:03.494Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "turnId": "01a09578-976a-737b-accb-765a6ee02132",
+        "spawnToken": "34fb0809dbdeaf34",
+        "runtimeSequence": 6,
+        "rawRef": "fake:fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7:34fb0809dbdeaf34:6",
+        "seq": 6,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 6
+        },
+        "text": "Plan proposed.",
+        "claimsDone": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 14,
+      "type": "runtime.turn_completed",
+      "timestamp": "2026-09-12T11:55:03.494Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "turnId": "01a09578-976a-737b-accb-765a6ee02132",
+        "spawnToken": "34fb0809dbdeaf34",
+        "runtimeSequence": 7,
+        "rawRef": "fake:fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7:34fb0809dbdeaf34:7",
+        "seq": 7,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 7
+        },
+        "status": "completed",
+        "stepsExecuted": 3
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 15,
+      "type": "head.session_stopped",
+      "timestamp": "2026-09-12T11:55:03.522Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "sessionId": "fake-a6bc299a-715a-4d9f-a71a-9efa412c35d7",
+        "state": "process_tree_terminated",
+        "detail": null
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 16,
+      "type": "plan.validated",
+      "timestamp": "2026-09-12T11:55:03.532Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "taskCount": 2,
+        "summary": "Two independent documents, one per worker.",
+        "order": [
+          "alpha",
+          "beta"
+        ]
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 17,
+      "type": "head.assigned",
+      "timestamp": "2026-09-12T11:55:03.593Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": null,
+      "payload": {
+        "key": "alpha",
+        "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+        "agentId": "nova",
+        "headAgentId": "atlas",
+        "objective": "Add docs/alpha.md describing the pagination helpers.",
+        "dependencies": [],
+        "attempt": 1,
+        "decidedBy": "head"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 18,
+      "type": "head.assigned",
+      "timestamp": "2026-09-12T11:55:03.593Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": null,
+      "payload": {
+        "key": "beta",
+        "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+        "agentId": "mira",
+        "headAgentId": "atlas",
+        "objective": "Add docs/beta.md describing the search endpoint.",
+        "dependencies": [],
+        "attempt": 1,
+        "decidedBy": "head"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 19,
+      "type": "head.planning_finished",
+      "timestamp": "2026-09-12T11:55:03.593Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "outcome": "planned",
+        "attempts": 1,
+        "taskCount": 2
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 20,
+      "type": "plan.registered",
+      "timestamp": "2026-09-12T11:55:03.594Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "taskCount": 2,
+        "sha256": "490d1694c26af49f21373018c318f28983460a6148a4268599a63084dd02ae24",
+        "keys": [
+          "alpha",
+          "beta"
+        ]
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 21,
+      "type": "task.registered",
+      "timestamp": "2026-09-12T11:55:03.594Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": null,
+      "payload": {
+        "key": "alpha",
+        "agentId": "nova",
+        "objective": "Add docs/alpha.md describing the pagination helpers.\nStay within: docs/alpha.md\nDone when (your department head's criteria; the coordinator runs the project's own checks to accept the work):\n- docs/alpha.md explains pageCount and paginate"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 22,
+      "type": "task.registered",
+      "timestamp": "2026-09-12T11:55:03.594Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": null,
+      "payload": {
+        "key": "beta",
+        "agentId": "mira",
+        "objective": "Add docs/beta.md describing the search endpoint.\nStay within: docs/beta.md\nDone when (your department head's criteria; the coordinator runs the project's own checks to accept the work):\n- docs/beta.md explains the endpoint"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 23,
+      "type": "task.created",
+      "timestamp": "2026-09-12T11:55:03.742Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": null,
+      "payload": {
+        "repoPath": "/Users/you/code/storefront",
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "branch": "main",
+        "dirty": "clean",
+        "uncommittedChangesExcluded": false,
+        "agentId": "nova",
+        "adapter": "fake",
+        "checkSource": "cli_flags"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 24,
+      "type": "operation.intended",
+      "timestamp": "2026-09-12T11:55:03.744Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "operationId": "01a09578-98c0-7050-b95c-fca9f32bcd89",
+        "kind": "dispatch_worker",
+        "generation": 1
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 25,
+      "type": "task.created",
+      "timestamp": "2026-09-12T11:55:03.745Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": null,
+      "payload": {
+        "repoPath": "/Users/you/code/storefront",
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "branch": "main",
+        "dirty": "clean",
+        "uncommittedChangesExcluded": false,
+        "agentId": "mira",
+        "adapter": "fake",
+        "checkSource": "cli_flags"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 26,
+      "type": "operation.intended",
+      "timestamp": "2026-09-12T11:55:03.746Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "operationId": "01a09578-98c2-748c-a898-d2c42febbc5d",
+        "kind": "dispatch_worker",
+        "generation": 1
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 27,
+      "type": "workspace.created",
+      "timestamp": "2026-09-12T11:55:03.789Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "path": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6",
+        "branch": "workforce/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6",
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "excludedUncommittedChanges": false
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 28,
+      "type": "operation.dispatched",
+      "timestamp": "2026-09-12T11:55:03.790Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "operationId": "01a09578-98c0-7050-b95c-fca9f32bcd89",
+        "kind": "dispatch_worker",
+        "generation": 1,
+        "workspacePath": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6",
+        "branch": "workforce/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 29,
+      "type": "coordination.attached",
+      "timestamp": "2026-09-12T11:55:03.790Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "socketPath": "/tmp/elsewhere",
+        "serverName": "workforce",
+        "adapter": "fake",
+        "argumentCount": 0
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 30,
+      "type": "session.opened",
+      "timestamp": "2026-09-12T11:55:03.822Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "processId": 37301
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 31,
+      "type": "turn.started",
+      "timestamp": "2026-09-12T11:55:03.823Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "turnId": "01a09578-990e-7192-84a7-e3cd661e5ef4",
+        "promptCharacters": 2693
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 32,
+      "type": "runtime.session_started",
+      "timestamp": "2026-09-12T11:55:03.822Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "turnId": null,
+        "spawnToken": "ef05aa4d82457785",
+        "runtimeSequence": 1,
+        "rawRef": "fake:fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624:ef05aa4d82457785:1",
+        "seq": 1,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 1
+        },
+        "pid": 37301,
+        "resumed": false,
+        "protocol": "fake/1",
+        "cwd": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6",
+        "scenario": "/tmp/elsewhere",
+        "model": "fake-default",
+        "effort": "medium"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 33,
+      "type": "runtime.turn_started",
+      "timestamp": "2026-09-12T11:55:03.823Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "turnId": "01a09578-990e-7192-84a7-e3cd661e5ef4",
+        "spawnToken": "ef05aa4d82457785",
+        "runtimeSequence": 2,
+        "rawRef": "fake:fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624:ef05aa4d82457785:2",
+        "seq": 2,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 2
+        },
+        "prompt": "Add docs/alpha.md describing the pagination helpers.\nStay within: docs/alpha.md\nDone when (your department head's criteria; the coordinator runs the project's own checks to accept the work):\n- docs/alpha.md explains pageCount and paginate\n\n--- repository context (added by the workforce coordinator; the request above is the user's own wording) ---\nWorking directory: /Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6\nThis is a candidate workspace: a linked Git worktree of /Users/you/code/storefront on the new branch workforce/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6.\nBase revision: b38aca1037281ff69e5cdc6f79c5e585414d054f (committed HEAD of main).\n\n--- coordination ---\nYour task id is 01a09578-9829-75fb-ba2f-7680794679fa (plan key \"alpha\"). The coordinator stamps this identity itself; you cannot send as anyone else.\nOther tasks in this run, and the ids you must use to address them:\n- 01a09578-9829-75fd-b7e1-60265d7ca68e — \"beta\": Add docs/beta.md describing the search endpoint.\nStay within: docs/beta.md\nDone when (your department head's criteria; the coordinator runs the project's own checks to accept the work):\n- docs/beta.md explains the endpoint\nTo ask a peer something, call send_message with `to` set to that task id, then read_inbox for the answer. Peers work at the same time as you, so ask early and keep working while you wait.\n\nChanged-file rules:\n- Edit files under /Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6 only. A write outside it is recorded as out of scope and is not part of the candidate.\n- Do not create commits, branches or tags, and do not touch .git: the coordinator creates the checkpoint commit for the candidate.\n- Do not modify or delete: .git, .workforce/checks.json, test/pagination.test.js. The acceptance criteria execute those files; changing them does not make a criterion pass, it makes the run refuse acceptance. You may add new test files.\n\nAcceptance criteria. The coordinator runs these itself against a frozen copy of your result; reporting success does not mark the task accepted:\n- check-1: --check \"node --version\" — the verifier runs `node --version`\n- Constraint: Do not modify Git administration or create commits; the coordinator owns candidate history.\n",
+        "inbox": [],
+        "turnIndex": 0
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 34,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:03.823Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "turnId": "01a09578-990e-7192-84a7-e3cd661e5ef4",
+        "spawnToken": "ef05aa4d82457785",
+        "runtimeSequence": 3,
+        "rawRef": "fake:fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624:ef05aa4d82457785:3",
+        "seq": 3,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 3
+        },
+        "text": "Writing docs/alpha.md."
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 35,
+      "type": "runtime.tool_call",
+      "timestamp": "2026-09-12T11:55:03.823Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "turnId": "01a09578-990e-7192-84a7-e3cd661e5ef4",
+        "spawnToken": "ef05aa4d82457785",
+        "runtimeSequence": 4,
+        "rawRef": "fake:fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624:ef05aa4d82457785:4",
+        "seq": 4,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 4
+        },
+        "tool": "write_file",
+        "path": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6/docs/alpha.md"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 36,
+      "type": "runtime.file_change",
+      "timestamp": "2026-09-12T11:55:03.824Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "turnId": "01a09578-990e-7192-84a7-e3cd661e5ef4",
+        "spawnToken": "ef05aa4d82457785",
+        "runtimeSequence": 5,
+        "rawRef": "fake:fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624:ef05aa4d82457785:5",
+        "seq": 5,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 5
+        },
+        "itemId": "edit-01a09578-990e-7192-84a7-e3cd661e5ef4-docs/alpha.md",
+        "path": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fb-ba2f-7680794679fa/01a09578-982a-731c-a183-e275953cfaa6/docs/alpha.md",
+        "withinCwd": true,
+        "applied": true,
+        "denied": false,
+        "phase": "completed",
+        "withinAllowedPaths": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 37,
+      "type": "runtime.tool_result",
+      "timestamp": "2026-09-12T11:55:03.824Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "turnId": "01a09578-990e-7192-84a7-e3cd661e5ef4",
+        "spawnToken": "ef05aa4d82457785",
+        "runtimeSequence": 6,
+        "rawRef": "fake:fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624:ef05aa4d82457785:6",
+        "seq": 6,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 6
+        },
+        "tool": "write_file",
+        "status": "ok",
+        "ok": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 38,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:03.824Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "turnId": "01a09578-990e-7192-84a7-e3cd661e5ef4",
+        "spawnToken": "ef05aa4d82457785",
+        "runtimeSequence": 7,
+        "rawRef": "fake:fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624:ef05aa4d82457785:7",
+        "seq": 7,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 7
+        },
+        "text": "Wrote docs/alpha.md.",
+        "claimsDone": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 39,
+      "type": "runtime.turn_completed",
+      "timestamp": "2026-09-12T11:55:03.824Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "turnId": "01a09578-990e-7192-84a7-e3cd661e5ef4",
+        "spawnToken": "ef05aa4d82457785",
+        "runtimeSequence": 8,
+        "rawRef": "fake:fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624:ef05aa4d82457785:8",
+        "seq": 8,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 8
+        },
+        "status": "completed",
+        "stepsExecuted": 3
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 40,
+      "type": "workspace.created",
+      "timestamp": "2026-09-12T11:55:03.836Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "path": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7",
+        "branch": "workforce/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7",
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "excludedUncommittedChanges": false
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 41,
+      "type": "operation.dispatched",
+      "timestamp": "2026-09-12T11:55:03.836Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "operationId": "01a09578-98c2-748c-a898-d2c42febbc5d",
+        "kind": "dispatch_worker",
+        "generation": 1,
+        "workspacePath": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7",
+        "branch": "workforce/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 42,
+      "type": "coordination.attached",
+      "timestamp": "2026-09-12T11:55:03.837Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "socketPath": "/tmp/elsewhere",
+        "serverName": "workforce",
+        "adapter": "fake",
+        "argumentCount": 0
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 43,
+      "type": "runtime.stopped",
+      "timestamp": "2026-09-12T11:55:03.852Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "sessionId": "fake-800fe7dc-8b3d-4bdf-af8e-b62fc5a77624",
+        "state": "process_tree_terminated",
+        "processId": 37301,
+        "signal": "SIGTERM",
+        "at": "2026-09-12T11:55:03.852Z"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 44,
+      "type": "session.opened",
+      "timestamp": "2026-09-12T11:55:03.869Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "processId": 37344
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 45,
+      "type": "turn.started",
+      "timestamp": "2026-09-12T11:55:03.869Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "turnId": "01a09578-993d-70a0-8a4a-2b840602550d",
+        "promptCharacters": 2693
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 46,
+      "type": "runtime.session_started",
+      "timestamp": "2026-09-12T11:55:03.869Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "turnId": null,
+        "spawnToken": "621130ac06dea58c",
+        "runtimeSequence": 1,
+        "rawRef": "fake:fake-95323f11-deee-4168-85e6-bdaa5424f213:621130ac06dea58c:1",
+        "seq": 1,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 1
+        },
+        "pid": 37344,
+        "resumed": false,
+        "protocol": "fake/1",
+        "cwd": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7",
+        "scenario": "/tmp/elsewhere",
+        "model": "fake-default",
+        "effort": "medium"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 47,
+      "type": "runtime.turn_started",
+      "timestamp": "2026-09-12T11:55:03.870Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "turnId": "01a09578-993d-70a0-8a4a-2b840602550d",
+        "spawnToken": "621130ac06dea58c",
+        "runtimeSequence": 2,
+        "rawRef": "fake:fake-95323f11-deee-4168-85e6-bdaa5424f213:621130ac06dea58c:2",
+        "seq": 2,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 2
+        },
+        "prompt": "Add docs/beta.md describing the search endpoint.\nStay within: docs/beta.md\nDone when (your department head's criteria; the coordinator runs the project's own checks to accept the work):\n- docs/beta.md explains the endpoint\n\n--- repository context (added by the workforce coordinator; the request above is the user's own wording) ---\nWorking directory: /Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7\nThis is a candidate workspace: a linked Git worktree of /Users/you/code/storefront on the new branch workforce/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7.\nBase revision: b38aca1037281ff69e5cdc6f79c5e585414d054f (committed HEAD of main).\n\n--- coordination ---\nYour task id is 01a09578-9829-75fd-b7e1-60265d7ca68e (plan key \"beta\"). The coordinator stamps this identity itself; you cannot send as anyone else.\nOther tasks in this run, and the ids you must use to address them:\n- 01a09578-9829-75fb-ba2f-7680794679fa — \"alpha\": Add docs/alpha.md describing the pagination helpers.\nStay within: docs/alpha.md\nDone when (your department head's criteria; the coordinator runs the project's own checks to accept the work):\n- docs/alpha.md explains pageCount and paginate\nTo ask a peer something, call send_message with `to` set to that task id, then read_inbox for the answer. Peers work at the same time as you, so ask early and keep working while you wait.\n\nChanged-file rules:\n- Edit files under /Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7 only. A write outside it is recorded as out of scope and is not part of the candidate.\n- Do not create commits, branches or tags, and do not touch .git: the coordinator creates the checkpoint commit for the candidate.\n- Do not modify or delete: .git, .workforce/checks.json, test/pagination.test.js. The acceptance criteria execute those files; changing them does not make a criterion pass, it makes the run refuse acceptance. You may add new test files.\n\nAcceptance criteria. The coordinator runs these itself against a frozen copy of your result; reporting success does not mark the task accepted:\n- check-1: --check \"node --version\" — the verifier runs `node --version`\n- Constraint: Do not modify Git administration or create commits; the coordinator owns candidate history.\n",
+        "inbox": [],
+        "turnIndex": 0
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 48,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:03.870Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "turnId": "01a09578-993d-70a0-8a4a-2b840602550d",
+        "spawnToken": "621130ac06dea58c",
+        "runtimeSequence": 3,
+        "rawRef": "fake:fake-95323f11-deee-4168-85e6-bdaa5424f213:621130ac06dea58c:3",
+        "seq": 3,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 3
+        },
+        "text": "SLOW-WORK-STARTED"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 49,
+      "type": "runtime.tool_call",
+      "timestamp": "2026-09-12T11:55:03.870Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "turnId": "01a09578-993d-70a0-8a4a-2b840602550d",
+        "spawnToken": "621130ac06dea58c",
+        "runtimeSequence": 4,
+        "rawRef": "fake:fake-95323f11-deee-4168-85e6-bdaa5424f213:621130ac06dea58c:4",
+        "seq": 4,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 4
+        },
+        "tool": "write_file",
+        "path": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7/docs/beta.md"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 50,
+      "type": "runtime.file_change",
+      "timestamp": "2026-09-12T11:55:03.871Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "turnId": "01a09578-993d-70a0-8a4a-2b840602550d",
+        "spawnToken": "621130ac06dea58c",
+        "runtimeSequence": 5,
+        "rawRef": "fake:fake-95323f11-deee-4168-85e6-bdaa5424f213:621130ac06dea58c:5",
+        "seq": 5,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 5
+        },
+        "itemId": "edit-01a09578-993d-70a0-8a4a-2b840602550d-docs/beta.md",
+        "path": "/Users/you/.workforce/projects/app/workspaces/01a09578-96fc-73af-8001-f71b72372267/01a09578-9829-75fd-b7e1-60265d7ca68e/01a09578-982b-7175-aa40-4969db6f9ab7/docs/beta.md",
+        "withinCwd": true,
+        "applied": true,
+        "denied": false,
+        "phase": "completed",
+        "withinAllowedPaths": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 51,
+      "type": "runtime.tool_result",
+      "timestamp": "2026-09-12T11:55:03.871Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "turnId": "01a09578-993d-70a0-8a4a-2b840602550d",
+        "spawnToken": "621130ac06dea58c",
+        "runtimeSequence": 6,
+        "rawRef": "fake:fake-95323f11-deee-4168-85e6-bdaa5424f213:621130ac06dea58c:6",
+        "seq": 6,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 6
+        },
+        "tool": "write_file",
+        "status": "ok",
+        "ok": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 52,
+      "type": "runtime.command_exec",
+      "timestamp": "2026-09-12T11:55:03.871Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "turnId": "01a09578-993d-70a0-8a4a-2b840602550d",
+        "spawnToken": "621130ac06dea58c",
+        "runtimeSequence": 7,
+        "rawRef": "fake:fake-95323f11-deee-4168-85e6-bdaa5424f213:621130ac06dea58c:7",
+        "seq": 7,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 7
+        },
+        "command": "sleep",
+        "ms": 60000
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 53,
+      "type": "candidate.snapshot",
+      "timestamp": "2026-09-12T11:55:03.930Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "candidateRevision": "20c5c04ea1e88046fb9de3730fc9941ad08735fe",
+        "patchHash": "acf7633eeec5eddb73ee25f29c7ef0f1883504d146c292bb8865193c3f6f06e9",
+        "changedFileCount": 1,
+        "checkpointCreated": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 54,
+      "type": "operation.completed",
+      "timestamp": "2026-09-12T11:55:04.028Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "operationId": "01a09578-98c0-7050-b95c-fca9f32bcd89",
+        "kind": "dispatch_worker",
+        "generation": 1
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 55,
+      "type": "run.accepted",
+      "timestamp": "2026-09-12T11:55:04.028Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": "01a09578-982a-731c-a183-e275953cfaa6",
+      "payload": {
+        "outcome": "accepted",
+        "accepted": true,
+        "requiredPassed": 1,
+        "requiredTotal": 1,
+        "candidateRevision": "20c5c04ea1e88046fb9de3730fc9941ad08735fe",
+        "reasons": []
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 56,
+      "type": "task.settled",
+      "timestamp": "2026-09-12T11:55:04.051Z",
+      "taskId": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "attemptId": null,
+      "payload": {
+        "key": "alpha",
+        "accepted": true,
+        "repairsUsed": 0
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 57,
+      "type": "run.interrupt_requested",
+      "timestamp": "2026-09-12T11:55:04.055Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "reason": "signal",
+        "at": "2026-09-12T11:55:04.054Z"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 58,
+      "type": "runtime.turn_interrupted",
+      "timestamp": "2026-09-12T11:55:04.055Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "turnId": "01a09578-993d-70a0-8a4a-2b840602550d",
+        "spawnToken": "621130ac06dea58c",
+        "runtimeSequence": 8,
+        "rawRef": "fake:fake-95323f11-deee-4168-85e6-bdaa5424f213:621130ac06dea58c:8",
+        "seq": 8,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 8
+        },
+        "status": "interrupted"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 59,
+      "type": "run.interrupt_acknowledged",
+      "timestamp": "2026-09-12T11:55:04.056Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "reason": "signal",
+        "acknowledgement": "observed",
+        "detail": null,
+        "at": "2026-09-12T11:55:04.055Z"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 60,
+      "type": "runtime.stopped",
+      "timestamp": "2026-09-12T11:55:04.083Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "sessionId": "fake-95323f11-deee-4168-85e6-bdaa5424f213",
+        "state": "process_tree_terminated",
+        "processId": 37344,
+        "signal": "SIGTERM",
+        "at": "2026-09-12T11:55:04.083Z"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 61,
+      "type": "candidate.snapshot",
+      "timestamp": "2026-09-12T11:55:04.172Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "candidateRevision": "4767c0f19f48096b913ecd284cccc5e264744261",
+        "patchHash": "639f1f6d392a6500683bec9da1351159e6a1851b84fb1ff83739476f2466d6d8",
+        "changedFileCount": 1,
+        "checkpointCreated": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 62,
+      "type": "operation.completed",
+      "timestamp": "2026-09-12T11:55:04.195Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "operationId": "01a09578-98c2-748c-a898-d2c42febbc5d",
+        "kind": "dispatch_worker",
+        "generation": 1
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 63,
+      "type": "run.interrupted",
+      "timestamp": "2026-09-12T11:55:04.195Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "outcome": "interrupted",
+        "accepted": false,
+        "requiredPassed": 0,
+        "requiredTotal": 1,
+        "candidateRevision": "4767c0f19f48096b913ecd284cccc5e264744261",
+        "reasons": [
+          "criterion \"check-1\" has no verifier-executed evidence"
+        ]
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 64,
+      "type": "runtime.failure_classified",
+      "timestamp": "2026-09-12T11:55:04.216Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": "01a09578-982b-7175-aa40-4969db6f9ab7",
+      "payload": {
+        "failureClass": "unknown",
+        "retryable": false,
+        "signal": "none",
+        "userAction": null
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 65,
+      "type": "task.settled",
+      "timestamp": "2026-09-12T11:55:04.216Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "attemptId": null,
+      "payload": {
+        "key": "beta",
+        "accepted": false,
+        "repairsUsed": 0,
+        "interrupted": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 66,
+      "type": "run.interrupted",
+      "timestamp": "2026-09-12T11:55:04.217Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "reason": "the run was interrupted: task(s) \"beta\" stopped before acceptance; nothing was integrated or accepted. Resume continues it.",
+        "interruptedTasks": [
+          "beta"
+        ],
+        "notStarted": []
+      },
+      "payloadRef": null
+    }
+  ]
+}

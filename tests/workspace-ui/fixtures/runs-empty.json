@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "stateFound": false,
+  "limit": 50,
+  "eventCursor": 0,
+  "coordinator": {
+    "lock": {
+      "held": false,
+      "pid": null,
+      "acquiredAt": null,
+      "holder": null
+    }
+  },
+  "runs": [],
+  "mode": "legacy",
+  "projects": [],
+  "earlierHistory": null
+}

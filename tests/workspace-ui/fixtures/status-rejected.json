@@ -1,0 +1,128 @@
+{
+  "ok": true,
+  "command": "status",
+  "exitCode": 0,
+  "stateRoot": "/Users/you/.workforce/projects/app",
+  "readOnly": true,
+  "run": {
+    "id": "01a09578-949e-75e4-88d0-cf3b69936399",
+    "state": "failed",
+    "repoPath": "/Users/you/code/storefront",
+    "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+    "policy": "local-development",
+    "ownershipEpoch": 0,
+    "createdAt": "2026-09-12T11:55:02.686Z",
+    "updatedAt": "2026-09-12T11:55:03.143Z",
+    "endedAt": "2026-09-12T11:55:03.143Z",
+    "request": {
+      "requestVersion": 1,
+      "runId": "01a09578-949e-75e4-88d0-cf3b69936399",
+      "text": "Document the pagination helpers and the search endpoint for the new team members.",
+      "contextRefs": [],
+      "repoPath": "/Users/you/code/storefront",
+      "baseMode": "head",
+      "submittedAt": "2026-09-12T11:55:02.686Z"
+    }
+  },
+  "tasks": [],
+  "checks": [],
+  "requirements": [],
+  "events": [
+    {
+      "sequence": 20,
+      "type": "runtime.turn_started",
+      "timestamp": "2026-09-12T11:55:02.960Z",
+      "taskId": null
+    },
+    {
+      "sequence": 21,
+      "type": "runtime.tool_call",
+      "timestamp": "2026-09-12T11:55:02.960Z",
+      "taskId": null
+    },
+    {
+      "sequence": 22,
+      "type": "plan.proposed",
+      "timestamp": "2026-09-12T11:55:03.043Z",
+      "taskId": null
+    },
+    {
+      "sequence": 23,
+      "type": "runtime.tool_result",
+      "timestamp": "2026-09-12T11:55:03.047Z",
+      "taskId": null
+    },
+    {
+      "sequence": 24,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:03.048Z",
+      "taskId": null
+    },
+    {
+      "sequence": 25,
+      "type": "runtime.turn_completed",
+      "timestamp": "2026-09-12T11:55:03.048Z",
+      "taskId": null
+    },
+    {
+      "sequence": 26,
+      "type": "head.session_stopped",
+      "timestamp": "2026-09-12T11:55:03.075Z",
+      "taskId": null
+    },
+    {
+      "sequence": 27,
+      "type": "plan.rejected",
+      "timestamp": "2026-09-12T11:55:03.084Z",
+      "taskId": null
+    },
+    {
+      "sequence": 28,
+      "type": "head.planning_finished",
+      "timestamp": "2026-09-12T11:55:03.143Z",
+      "taskId": null
+    },
+    {
+      "sequence": 29,
+      "type": "run.failed",
+      "timestamp": "2026-09-12T11:55:03.143Z",
+      "taskId": null
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "01a09578-955b-7189-b2a5-39eabb2219af",
+      "type": "head_plan_proposal",
+      "path": "head/01a09578-94a0-7326-abe1-07c3b3e41c2d/proposal-1.json",
+      "sha256": "1a8d5da3579b7cfaf4b11b6a7999c27aa2ed4d22692b57a5fc3c680eceb52bcb",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09578-958c-7771-8f58-8246fcb09b81",
+      "type": "runtime_event_log",
+      "path": "head/01a09578-94a0-7326-abe1-07c3b3e41c2d/runtime-events-1.jsonl",
+      "sha256": "5ce41b2bf6d22a7cd1768d329da0082e9b31cace51b2e9e4d430106344317bb4",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09578-9602-746d-829b-430a38592f1f",
+      "type": "head_plan_proposal",
+      "path": "head/01a09578-94a0-7326-abe1-07c3b3e41c2d/proposal-2.json",
+      "sha256": "1a8d5da3579b7cfaf4b11b6a7999c27aa2ed4d22692b57a5fc3c680eceb52bcb",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09578-962b-7085-a0d4-995b2be642ea",
+      "type": "runtime_event_log",
+      "path": "head/01a09578-94a0-7326-abe1-07c3b3e41c2d/runtime-events-2.jsonl",
+      "sha256": "9ae7f67ab46964548608960c90bdb951e8319ce385d91f1d21224a9db6087790",
+      "candidateRevision": null
+    }
+  ],
+  "eventCount": 29,
+  "manifestPath": null,
+  "candidate": null,
+  "acceptance": null,
+  "timing": null,
+  "unresolved": []
+}

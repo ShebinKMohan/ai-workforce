@@ -1,0 +1,131 @@
+{
+  "ok": true,
+  "command": "status",
+  "exitCode": 0,
+  "stateRoot": "/Users/you/.workforce/projects/app",
+  "readOnly": true,
+  "run": {
+    "id": "01a09578-9c29-7771-8dc1-21d6070ba381",
+    "state": "running",
+    "repoPath": "/Users/you/code/storefront",
+    "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+    "policy": "local-development",
+    "ownershipEpoch": 0,
+    "createdAt": "2026-09-12T11:55:04.618Z",
+    "updatedAt": "2026-09-12T11:55:04.620Z",
+    "endedAt": null,
+    "request": {
+      "requestVersion": 1,
+      "runId": "01a09578-9c29-7771-8dc1-21d6070ba381",
+      "text": "Add docs for the pagination helpers and the search endpoint.",
+      "contextRefs": [],
+      "repoPath": "/Users/you/code/storefront",
+      "baseMode": "head",
+      "submittedAt": "2026-09-12T11:55:04.618Z"
+    }
+  },
+  "tasks": [
+    {
+      "id": "01a09578-9d58-7433-a80f-93f849b7c8c3",
+      "objective": "Add docs/alpha.md describing the pagination helpers.",
+      "state": "running",
+      "waitReason": null,
+      "generation": 1,
+      "ownerAgentId": "nova"
+    },
+    {
+      "id": "01a09578-9d59-74d3-a9c9-5e309551288c",
+      "objective": "Add docs/beta.md describing the search endpoint.",
+      "state": "running",
+      "waitReason": null,
+      "generation": 1,
+      "ownerAgentId": "mira"
+    }
+  ],
+  "checks": [],
+  "requirements": [],
+  "events": [
+    {
+      "sequence": 33,
+      "type": "runtime.turn_started",
+      "timestamp": "2026-09-12T11:55:05.155Z",
+      "taskId": "01a09578-9d58-7433-a80f-93f849b7c8c3"
+    },
+    {
+      "sequence": 34,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:05.155Z",
+      "taskId": "01a09578-9d58-7433-a80f-93f849b7c8c3"
+    },
+    {
+      "sequence": 35,
+      "type": "runtime.tool_call",
+      "timestamp": "2026-09-12T11:55:05.156Z",
+      "taskId": "01a09578-9d58-7433-a80f-93f849b7c8c3"
+    },
+    {
+      "sequence": 36,
+      "type": "runtime.file_change",
+      "timestamp": "2026-09-12T11:55:05.156Z",
+      "taskId": "01a09578-9d58-7433-a80f-93f849b7c8c3"
+    },
+    {
+      "sequence": 37,
+      "type": "runtime.tool_result",
+      "timestamp": "2026-09-12T11:55:05.156Z",
+      "taskId": "01a09578-9d58-7433-a80f-93f849b7c8c3"
+    },
+    {
+      "sequence": 38,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:05.156Z",
+      "taskId": "01a09578-9d58-7433-a80f-93f849b7c8c3"
+    },
+    {
+      "sequence": 39,
+      "type": "runtime.turn_completed",
+      "timestamp": "2026-09-12T11:55:05.158Z",
+      "taskId": "01a09578-9d58-7433-a80f-93f849b7c8c3"
+    },
+    {
+      "sequence": 40,
+      "type": "workspace.created",
+      "timestamp": "2026-09-12T11:55:05.169Z",
+      "taskId": "01a09578-9d59-74d3-a9c9-5e309551288c"
+    },
+    {
+      "sequence": 41,
+      "type": "operation.dispatched",
+      "timestamp": "2026-09-12T11:55:05.170Z",
+      "taskId": "01a09578-9d59-74d3-a9c9-5e309551288c"
+    },
+    {
+      "sequence": 42,
+      "type": "coordination.attached",
+      "timestamp": "2026-09-12T11:55:05.170Z",
+      "taskId": "01a09578-9d59-74d3-a9c9-5e309551288c"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "01a09578-9cea-7259-9148-89145e4a09bf",
+      "type": "head_plan_proposal",
+      "path": "head/01a09578-9c2d-7247-81dc-2c06b94d0301/proposal-1.json",
+      "sha256": "2f0b0431a8f36c560d9c26e2819044a2368d482318dcee9be6af59a807e9084c",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09578-9d18-7535-ad0a-9fad8e556eba",
+      "type": "runtime_event_log",
+      "path": "head/01a09578-9c2d-7247-81dc-2c06b94d0301/runtime-events-1.jsonl",
+      "sha256": "746a2b858b6bb47506c1e9ab7bd0dfe4e53a729840d78e3ef2e7e3ca1b7c293b",
+      "candidateRevision": null
+    }
+  ],
+  "eventCount": 42,
+  "manifestPath": null,
+  "candidate": null,
+  "acceptance": null,
+  "timing": null,
+  "unresolved": []
+}

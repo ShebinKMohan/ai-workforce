@@ -1,0 +1,43 @@
+{
+  "ok": true,
+  "path": "/Users/you/code/storefront",
+  "note": "read with Git only; nothing was changed and nothing was started",
+  "exists": true,
+  "isDirectory": true,
+  "isGitRepo": true,
+  "repositoryRoot": "/Users/you/code/storefront",
+  "headRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+  "branch": "main",
+  "detachedHead": false,
+  "workingTree": "clean",
+  "dirty": {
+    "clean": true,
+    "staged": 0,
+    "unstaged": 0,
+    "untracked": 0,
+    "conflicted": 0
+  },
+  "diagnostics": [],
+  "checks": {
+    "count": 1,
+    "source": "repository_config",
+    "detail": "1 check(s) from .workforce/checks.json at base b38aca103728",
+    "criteria": [
+      {
+        "criterionId": "node-tests-pass",
+        "description": "node --test reproduces the reported bug and must pass on the candidate",
+        "command": "node",
+        "args": [
+          "--test",
+          "test/"
+        ]
+      }
+    ],
+    "error": null
+  },
+  "suggestedName": "workforce-fixture-ts-bug-WWcc5v",
+  "existingProjectId": null,
+  "overlapsStateRoot": false,
+  "canAdd": true,
+  "reasons": []
+}

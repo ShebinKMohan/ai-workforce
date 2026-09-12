@@ -71,7 +71,13 @@ export type PlanIssueCode =
   | 'task_budget_exceeded'
   | 'missing_acceptance_criteria'
   | 'path_ownership_conflict'
-  | 'planner_error';
+  | 'planner_error'
+  /** Plan v2: a task's assignee is not a worker on the request's roster. */
+  | 'unknown_assignee'
+  /** Plan v2: a task is assigned to the head itself; a head plans, its workers do the work. */
+  | 'assignee_is_head'
+  /** The head's turn ended without a plan delivered through the planning tool (prose creates nothing). */
+  | 'no_plan_proposed';
 
 export interface PlanIssue {
   readonly code: PlanIssueCode;
@@ -92,6 +98,25 @@ export interface PlannerRequest {
   readonly repoPath: string;
   readonly contextRefs: ReadonlyArray<string>;
   readonly limits: Pick<Limits, 'maxTasksPerRun'>;
+  /** Plan v2 (a department head): the one project this request is for. */
+  readonly project?: { readonly id: string; readonly name: string };
+  /** Plan v2: the department the head plans for. */
+  readonly department?: { readonly id: string; readonly name: string };
+  /** Plan v2: the workers a task may be assigned to, and nobody else. */
+  readonly roster?: ReadonlyArray<PlannerRosterEntry>;
+  /** The issues that rejected the previous proposal, for the one retry. */
+  readonly previousIssues?: ReadonlyArray<PlanIssue>;
+  /** 1 for the first proposal, 2 for the retry. */
+  readonly attempt?: number;
+  readonly maxAttempts?: number;
+}
+
+/** One worker a head may assign a task to. */
+export interface PlannerRosterEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly capabilities: ReadonlyArray<string>;
+  readonly runtime: string;
 }
 
 export interface PlannerClient {
@@ -145,7 +170,11 @@ export function validatePlan(proposal: unknown, limits: Pick<Limits, 'maxTasksPe
   if (!parsed.success) {
     return { ok: false, issues: formatZodIssues(parsed.error.issues).map((i) => ({ code: 'schema' as const, path: i.path, message: i.message })) };
   }
-  const plan = parsed.data;
+  return validateProposedTasks(parsed.data, limits);
+}
+
+/** The graph, ownership and budget rules every plan version shares. */
+function validateProposedTasks(plan: ProposedPlan, limits: Pick<Limits, 'maxTasksPerRun'>): PlanValidation {
   const issues: PlanIssue[] = [];
 
   if (plan.tasks.length > limits.maxTasksPerRun) {
@@ -236,6 +265,103 @@ export function validatePlan(proposal: unknown, limits: Pick<Limits, 'maxTasksPe
   }));
 
   return { ok: true, plan: { planVersion: plan.planVersion, summary: plan.summary, tasks, order: topologicalOrder(plan.tasks) } };
+}
+
+// ---------------------------------------------------------------------------
+// Plan v2: a department head's plan, every task assigned to a roster worker
+// ---------------------------------------------------------------------------
+
+export const HEAD_PLAN_VERSION = 2 as const;
+
+export const HeadProposedTaskSchema = z.strictObject({
+  ...ProposedTaskSchema.shape,
+  /** Exactly one worker of the request's roster. Required: a head that does not assign has not planned. */
+  assignee: z.string().min(1).max(64),
+});
+export type HeadProposedTask = z.infer<typeof HeadProposedTaskSchema>;
+
+export const HeadProposedPlanSchema = z.strictObject({
+  planVersion: z.literal(HEAD_PLAN_VERSION),
+  summary: z.string().min(1),
+  tasks: z.array(HeadProposedTaskSchema).min(1),
+});
+export type HeadProposedPlan = z.infer<typeof HeadProposedPlanSchema>;
+
+export interface HeadPlannedTask extends PlannedTask {
+  readonly assignee: string;
+}
+
+export interface ValidatedHeadPlan {
+  readonly planVersion: typeof HEAD_PLAN_VERSION;
+  readonly summary: string;
+  readonly tasks: ReadonlyArray<HeadPlannedTask>;
+  readonly order: ReadonlyArray<string>;
+}
+
+export type HeadPlanValidation =
+  | { readonly ok: true; readonly plan: ValidatedHeadPlan }
+  | { readonly ok: false; readonly issues: ReadonlyArray<PlanIssue> };
+
+export interface HeadPlanRoster {
+  readonly headId: string;
+  readonly workerIds: ReadonlyArray<string>;
+}
+
+/**
+ * Validate a department head's plan: everything `validatePlan` checks, plus
+ * that every task names exactly one worker on this request's roster — never
+ * the head, never anyone outside it. Every issue is returned; nothing is
+ * repaired, and a plan with one bad assignment is rejected whole.
+ */
+export function validateHeadPlan(proposal: unknown, roster: HeadPlanRoster, limits: Pick<Limits, 'maxTasksPerRun'>): HeadPlanValidation {
+  const parsed = HeadProposedPlanSchema.safeParse(proposal);
+  if (!parsed.success) {
+    return { ok: false, issues: formatZodIssues(parsed.error.issues).map((i) => ({ code: 'schema' as const, path: i.path, message: i.message })) };
+  }
+  const plan = parsed.data;
+  const assignment: PlanIssue[] = [];
+  const workers = new Set(roster.workerIds);
+  const known = roster.workerIds.map((id) => `"${id}"`).join(', ') || '(none)';
+  plan.tasks.forEach((task, index) => {
+    if (task.assignee === roster.headId) {
+      assignment.push({
+        code: 'assignee_is_head',
+        path: `tasks[${index}].assignee`,
+        message: `task "${task.id}" is assigned to the head "${task.assignee}"; a head plans and its workers do the work. Assign it to one of: ${known}`,
+      });
+    } else if (!workers.has(task.assignee)) {
+      assignment.push({
+        code: 'unknown_assignee',
+        path: `tasks[${index}].assignee`,
+        message: `task "${task.id}" is assigned to "${task.assignee}", who is not a worker on this request's roster; assign it to one of: ${known}`,
+      });
+    }
+  });
+
+  const { assignees, tasks } = splitAssignees(plan.tasks);
+  const graph = validateProposedTasks({ planVersion: PROPOSED_PLAN_VERSION, summary: plan.summary, tasks }, limits);
+  const issues = [...(graph.ok ? [] : graph.issues), ...assignment];
+  if (!graph.ok || issues.length > 0) return { ok: false, issues };
+  return {
+    ok: true,
+    plan: {
+      planVersion: HEAD_PLAN_VERSION,
+      summary: graph.plan.summary,
+      order: graph.plan.order,
+      tasks: graph.plan.tasks.map((task) => ({ ...task, assignee: assignees.get(task.id)! })),
+    },
+  };
+}
+
+function splitAssignees(tasks: ReadonlyArray<HeadProposedTask>): { assignees: Map<string, string>; tasks: ProposedTask[] } {
+  const assignees = new Map<string, string>();
+  const stripped: ProposedTask[] = [];
+  for (const task of tasks) {
+    const { assignee, ...rest } = task;
+    if (!assignees.has(task.id)) assignees.set(task.id, assignee);
+    stripped.push(rest);
+  }
+  return { assignees, tasks: stripped };
 }
 
 function normalizeObjective(objective: string): string {

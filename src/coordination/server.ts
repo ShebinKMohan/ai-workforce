@@ -26,6 +26,8 @@ import {
   MAX_INBOX_LIMIT,
   MAX_LINE_BYTES,
   WireRequestSchema,
+  isHeadBridgeTool,
+  type BridgeRole,
   type BridgeToolName,
   type WireResponse,
 } from './bridge.js';
@@ -47,7 +49,22 @@ export interface WorkerIdentity {
   readonly runId: string;
   readonly taskId: string;
   readonly attemptId: string;
+  /**
+   * `head` for a department head's planning session, which may only propose a
+   * plan; absent or `worker` for a worker. Minted by the coordinator with the
+   * token, never read from a request.
+   */
+  readonly role?: BridgeRole;
+  /** The configured agent behind the session, when the coordinator recorded one. */
+  readonly agentId?: string;
 }
+
+/**
+ * What the coordinator does with a head's `workforce_propose_plan` call. The
+ * planning code registers it with the head's token; its return value is the
+ * tool result the head reads. It may throw `CoordinationError` to refuse.
+ */
+export type PlanProposalHandler = (identity: WorkerIdentity, params: Record<string, unknown>) => Record<string, unknown>;
 
 /** Upper bound on messages one attempt may produce, so a looping worker cannot flood the store. */
 export const DEFAULT_MAX_MESSAGES_PER_ATTEMPT = 200;
@@ -269,6 +286,8 @@ export interface HandlerOptions {
   readonly receivers?: ReceiverRegistry;
   /** Raised when a message will not reach anyone, so the operator sees it as it happens. */
   readonly onNotice?: (notice: CoordinationNotice) => void;
+  /** The planning session's handler for `workforce_propose_plan`; only a head identity reaches it. */
+  readonly proposePlan?: PlanProposalHandler;
 }
 
 /**
@@ -287,6 +306,22 @@ export function handleCoordinationRequest(
   const now = options.now ?? nowIso;
   const cap = options.maxMessagesPerAttempt ?? DEFAULT_MAX_MESSAGES_PER_ATTEMPT;
   const sender = { runId: identity.runId, taskId: identity.taskId, attemptId: identity.attemptId };
+
+  // Roles are enforced here, from the identity the coordinator minted, not
+  // from which tools a bridge process chose to advertise. A head plans and
+  // does nothing else; a worker can never propose a plan for its department.
+  if (isHeadBridgeTool(op)) {
+    if (identity.role !== 'head') {
+      throw new CoordinationError('forbidden', `"${op}" is offered to a department head's planning session only; a worker cannot propose a plan`);
+    }
+    if (options.proposePlan === undefined) {
+      throw new CoordinationError('planning_closed', 'this planning session is no longer taking proposals');
+    }
+    return options.proposePlan(identity, rawParams);
+  }
+  if (identity.role === 'head') {
+    throw new CoordinationError('forbidden', `a planning session can only call workforce_propose_plan; "${op}" belongs to the workers`);
+  }
 
   const assertUnderCap = (): void => {
     if (countMessagesFromAttempt(db, identity.attemptId) >= cap) {
@@ -542,6 +577,7 @@ export class CoordinationServer {
   readonly #db: DatabaseSync;
   readonly #server: net.Server;
   readonly #tokens = new Map<string, WorkerIdentity>();
+  readonly #planHandlers = new Map<string, PlanProposalHandler>();
   readonly #options: CoordinationServerOptions;
   #closed = false;
 
@@ -572,8 +608,21 @@ export class CoordinationServer {
     return token;
   }
 
+  /**
+   * Issue a token for a department head's planning session. The identity's
+   * role is fixed to `head` here, and proposals made with the token go to
+   * `onProposePlan` and nowhere else.
+   */
+  registerHead(identity: Omit<WorkerIdentity, 'role'>, onProposePlan: PlanProposalHandler): string {
+    const token = randomBytes(32).toString('hex');
+    this.#tokens.set(token, { ...identity, role: 'head' });
+    this.#planHandlers.set(token, onProposePlan);
+    return token;
+  }
+
   revokeWorker(token: string): void {
     this.#tokens.delete(token);
+    this.#planHandlers.delete(token);
   }
 
   identityFor(token: string): WorkerIdentity | null {
@@ -588,6 +637,7 @@ export class CoordinationServer {
     if (this.#closed) return;
     this.#closed = true;
     this.#tokens.clear();
+    this.#planHandlers.clear();
     await new Promise<void>((resolve) => {
       this.#server.close(() => resolve());
     });
@@ -671,6 +721,7 @@ export class CoordinationServer {
         ...(this.#options.maxMessagesPerAttempt === undefined ? {} : { maxMessagesPerAttempt: this.#options.maxMessagesPerAttempt }),
         ...(this.#options.receivers === undefined ? {} : { receivers: this.#options.receivers }),
         ...(this.#options.onNotice === undefined ? {} : { onNotice: this.#options.onNotice }),
+        ...(this.#planHandlers.has(token) ? { proposePlan: this.#planHandlers.get(token)! } : {}),
       });
       this.#options.onRequest?.({ op, identity, ok: true });
       return { v: COORDINATION_PROTOCOL_VERSION, id, ok: true, result };

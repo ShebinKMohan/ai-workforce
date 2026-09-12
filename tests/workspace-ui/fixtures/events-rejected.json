@@ -1,0 +1,700 @@
+{
+  "ok": true,
+  "runId": "01a09578-949e-75e4-88d0-cf3b69936399",
+  "after": 0,
+  "limit": 5000,
+  "lastSequence": 29,
+  "hasMore": false,
+  "events": [
+    {
+      "sequence": 1,
+      "type": "run.created",
+      "timestamp": "2026-09-12T11:55:02.686Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "repoPath": "/Users/you/code/storefront",
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "agentId": "nova",
+        "path": "planned",
+        "taskCount": null,
+        "checkSource": "cli_flags",
+        "planning": "head"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 2,
+      "type": "head.planning_started",
+      "timestamp": "2026-09-12T11:55:02.688Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "departmentId": "eng",
+        "projectId": "app",
+        "planningId": "01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "runtimeId": "fake-local",
+        "adapter": "fake",
+        "maxAttempts": 2,
+        "workers": [
+          "nova",
+          "mira"
+        ]
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 3,
+      "type": "head.workspace_created",
+      "timestamp": "2026-09-12T11:55:02.763Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "planningId": "01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "path": "/Users/you/.workforce/projects/app/workspaces/01a09578-949e-75e4-88d0-cf3b69936399/head/01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "branch": "workforce/01a09578-949e-75e4-88d0-cf3b69936399/head/01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+        "readOnly": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 4,
+      "type": "head.session_requested",
+      "timestamp": "2026-09-12T11:55:02.764Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "planningId": "01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "adapter": "fake",
+        "runtimeId": "fake-local",
+        "workspacePath": "/Users/you/.workforce/projects/app/workspaces/01a09578-949e-75e4-88d0-cf3b69936399/head/01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "policy": "analysis"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 5,
+      "type": "head.session_opened",
+      "timestamp": "2026-09-12T11:55:02.794Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "sessionId": "fake-2fb392ba-bf2b-426e-a5cb-459fb4113407",
+        "processId": 36582
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 6,
+      "type": "head.turn_started",
+      "timestamp": "2026-09-12T11:55:02.794Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "sessionId": "fake-2fb392ba-bf2b-426e-a5cb-459fb4113407",
+        "turnId": "01a09578-950a-756d-8cdb-11d8f1faed9a",
+        "promptCharacters": 2808
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 7,
+      "type": "runtime.session_started",
+      "timestamp": "2026-09-12T11:55:02.794Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-2fb392ba-bf2b-426e-a5cb-459fb4113407",
+        "turnId": null,
+        "spawnToken": "9d417120f5d662ec",
+        "runtimeSequence": 1,
+        "rawRef": "fake:fake-2fb392ba-bf2b-426e-a5cb-459fb4113407:9d417120f5d662ec:1",
+        "seq": 1,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 1
+        },
+        "pid": 36582,
+        "resumed": false,
+        "protocol": "fake/1",
+        "cwd": "/Users/you/.workforce/projects/app/workspaces/01a09578-949e-75e4-88d0-cf3b69936399/head/01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "scenario": "/tmp/elsewhere",
+        "model": "fake-default",
+        "effort": "medium"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 8,
+      "type": "runtime.turn_started",
+      "timestamp": "2026-09-12T11:55:02.795Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-2fb392ba-bf2b-426e-a5cb-459fb4113407",
+        "turnId": "01a09578-950a-756d-8cdb-11d8f1faed9a",
+        "spawnToken": "9d417120f5d662ec",
+        "runtimeSequence": 2,
+        "rawRef": "fake:fake-2fb392ba-bf2b-426e-a5cb-459fb4113407:9d417120f5d662ec:2",
+        "seq": 2,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 2
+        },
+        "prompt": "Document the pagination helpers and the search endpoint for the new team members.\n\n--- planning (added by the workforce coordinator; the request above is the user's own wording) ---\nYou are atlas, the head of the Engineering department. You plan this request for one project only: \"Storefront\" (id app).\nYour working directory /Users/you/.workforce/projects/app/workspaces/01a09578-949e-75e4-88d0-cf3b69936399/head/01a09578-94a0-7326-abe1-07c3b3e41c2d is a read-only copy of that project at commit b38aca1037281ff69e5cdc6f79c5e585414d054f. Read whatever helps you plan, and change nothing: you plan, and your workers do the work, each in a copy of their own.\n\nWorkers you can assign. Every task goes to exactly one of these ids, never to you and never to anyone else:\n- nova — Nova; runtime fake-local (fake); capabilities: coding, testing\n- mira — Mira; runtime fake-local (fake); capabilities: coding, testing\n\nDeliver the plan by calling the tool workforce_propose_plan (MCP server \"workforce\"). That call is the only way a plan reaches the coordinator: a plan written as text in your reply creates nothing. The tool answers with any issues it finds; fix them and call it again. The last plan you propose is the one decided on. Then end your turn.\n\nPlan format (planVersion 2):\n{\n  \"planVersion\": 2,\n  \"summary\": \"How you split the request, and why.\",\n  \"tasks\": [\n    {\n      \"id\": \"t1\",\n      \"objective\": \"What this worker must achieve.\",\n      \"assignee\": \"nova\",\n      \"acceptanceCriteria\": [\n        {\n          \"id\": \"c1\",\n          \"description\": \"How the worker knows it is done.\"\n        }\n      ],\n      \"scope\": {\n        \"allowedPaths\": [\n          \"src/feature/\"\n        ]\n      }\n    },\n    {\n      \"id\": \"t2\",\n      \"objective\": \"A second, different piece of work.\",\n      \"assignee\": \"mira\",\n      \"acceptanceCriteria\": [\n        {\n          \"id\": \"c1\",\n          \"description\": \"How the worker knows it is done.\"\n        }\n      ],\n      \"dependencies\": [\n        {\n          \"taskId\": \"t1\"\n        }\n      ]\n    }\n  ]\n}\n\nRules the coordinator checks in code before any worker starts:\n- 1 to 8 task(s), with unique ids and no two tasks repeating the same objective;\n- every task has an assignee from the list above and at least one acceptance criterion;\n- dependencies name tasks of this plan and form no cycle; a task starts only after the tasks it depends on are accepted;\n- no two tasks claim overlapping scope.allowedPaths.\nTasks without dependencies run at the same time, each in its own copy of the project, so split the work along files that do not overlap.\nAcceptance is decided by the coordinator running the project's own checks against the combined result — never by a worker, or by you, saying the work is done.\n",
+        "inbox": [],
+        "turnIndex": 0
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 9,
+      "type": "runtime.tool_call",
+      "timestamp": "2026-09-12T11:55:02.795Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-2fb392ba-bf2b-426e-a5cb-459fb4113407",
+        "turnId": "01a09578-950a-756d-8cdb-11d8f1faed9a",
+        "spawnToken": "9d417120f5d662ec",
+        "runtimeSequence": 3,
+        "rawRef": "fake:fake-2fb392ba-bf2b-426e-a5cb-459fb4113407:9d417120f5d662ec:3",
+        "seq": 3,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 3
+        },
+        "tool": "workforce_propose_plan",
+        "server": "workforce",
+        "arguments": {
+          "planVersion": 2,
+          "summary": "Two independent documents, one per worker.",
+          "tasks": [
+            {
+              "id": "alpha",
+              "objective": "Add docs/alpha.md describing the pagination helpers.",
+              "assignee": "nova",
+              "acceptanceCriteria": [
+                {
+                  "id": "c1",
+                  "description": "docs/alpha.md explains pageCount and paginate"
+                }
+              ],
+              "scope": {
+                "allowedPaths": [
+                  "docs/alpha.md"
+                ]
+              }
+            },
+            {
+              "id": "beta",
+              "objective": "Add docs/beta.md describing the search endpoint.",
+              "assignee": "mo",
+              "acceptanceCriteria": [
+                {
+                  "id": "c1",
+                  "description": "docs/beta.md explains the endpoint"
+                }
+              ],
+              "scope": {
+                "allowedPaths": [
+                  "docs/beta.md"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 10,
+      "type": "plan.proposed",
+      "timestamp": "2026-09-12T11:55:02.876Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "proposal": 1,
+        "artifactId": "01a09578-955b-7189-b2a5-39eabb2219af",
+        "relativePath": "head/01a09578-94a0-7326-abe1-07c3b3e41c2d/proposal-1.json",
+        "taskCount": 2
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 11,
+      "type": "runtime.tool_result",
+      "timestamp": "2026-09-12T11:55:02.885Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-2fb392ba-bf2b-426e-a5cb-459fb4113407",
+        "turnId": "01a09578-950a-756d-8cdb-11d8f1faed9a",
+        "spawnToken": "9d417120f5d662ec",
+        "runtimeSequence": 4,
+        "rawRef": "fake:fake-2fb392ba-bf2b-426e-a5cb-459fb4113407:9d417120f5d662ec:4",
+        "seq": 4,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 4
+        },
+        "tool": "workforce_propose_plan",
+        "server": "workforce",
+        "status": "ok",
+        "ok": true,
+        "result": {
+          "received": true,
+          "valid": false,
+          "issues": [
+            {
+              "code": "unknown_assignee",
+              "path": "tasks[1].assignee",
+              "message": "task \"beta\" is assigned to \"mo\", who is not a worker on this request's roster; assign it to one of: \"nova\", \"mira\""
+            }
+          ],
+          "note": "This plan would be rejected. Fix every issue and call workforce_propose_plan again in this turn; the last plan you propose is the one decided on."
+        },
+        "error": null
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 12,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:02.885Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-2fb392ba-bf2b-426e-a5cb-459fb4113407",
+        "turnId": "01a09578-950a-756d-8cdb-11d8f1faed9a",
+        "spawnToken": "9d417120f5d662ec",
+        "runtimeSequence": 5,
+        "rawRef": "fake:fake-2fb392ba-bf2b-426e-a5cb-459fb4113407:9d417120f5d662ec:5",
+        "seq": 5,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 5
+        },
+        "text": "Plan proposed.",
+        "claimsDone": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 13,
+      "type": "runtime.turn_completed",
+      "timestamp": "2026-09-12T11:55:02.885Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-2fb392ba-bf2b-426e-a5cb-459fb4113407",
+        "turnId": "01a09578-950a-756d-8cdb-11d8f1faed9a",
+        "spawnToken": "9d417120f5d662ec",
+        "runtimeSequence": 6,
+        "rawRef": "fake:fake-2fb392ba-bf2b-426e-a5cb-459fb4113407:9d417120f5d662ec:6",
+        "seq": 6,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 6
+        },
+        "status": "completed",
+        "stepsExecuted": 2
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 14,
+      "type": "head.session_stopped",
+      "timestamp": "2026-09-12T11:55:02.913Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "sessionId": "fake-2fb392ba-bf2b-426e-a5cb-459fb4113407",
+        "state": "process_tree_terminated",
+        "detail": null
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 15,
+      "type": "plan.rejected",
+      "timestamp": "2026-09-12T11:55:02.925Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 1,
+        "willRetry": true,
+        "delivered": true,
+        "issues": [
+          {
+            "code": "unknown_assignee",
+            "path": "tasks[1].assignee",
+            "message": "task \"beta\" is assigned to \"mo\", who is not a worker on this request's roster; assign it to one of: \"nova\", \"mira\""
+          }
+        ]
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 16,
+      "type": "head.session_requested",
+      "timestamp": "2026-09-12T11:55:02.925Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 2,
+        "planningId": "01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "adapter": "fake",
+        "runtimeId": "fake-local",
+        "workspacePath": "/Users/you/.workforce/projects/app/workspaces/01a09578-949e-75e4-88d0-cf3b69936399/head/01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "policy": "analysis"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 17,
+      "type": "head.session_opened",
+      "timestamp": "2026-09-12T11:55:02.959Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 2,
+        "sessionId": "fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0",
+        "processId": 36598
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 18,
+      "type": "head.turn_started",
+      "timestamp": "2026-09-12T11:55:02.960Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 2,
+        "sessionId": "fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0",
+        "turnId": "01a09578-95b0-7597-ac3d-13845bf995d8",
+        "promptCharacters": 3183
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 19,
+      "type": "runtime.session_started",
+      "timestamp": "2026-09-12T11:55:02.959Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0",
+        "turnId": null,
+        "spawnToken": "e42b491297f7e5f4",
+        "runtimeSequence": 1,
+        "rawRef": "fake:fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0:e42b491297f7e5f4:1",
+        "seq": 1,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 1
+        },
+        "pid": 36598,
+        "resumed": false,
+        "protocol": "fake/1",
+        "cwd": "/Users/you/.workforce/projects/app/workspaces/01a09578-949e-75e4-88d0-cf3b69936399/head/01a09578-94a0-7326-abe1-07c3b3e41c2d",
+        "scenario": "/tmp/elsewhere",
+        "model": "fake-default",
+        "effort": "medium"
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 20,
+      "type": "runtime.turn_started",
+      "timestamp": "2026-09-12T11:55:02.960Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0",
+        "turnId": "01a09578-95b0-7597-ac3d-13845bf995d8",
+        "spawnToken": "e42b491297f7e5f4",
+        "runtimeSequence": 2,
+        "rawRef": "fake:fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0:e42b491297f7e5f4:2",
+        "seq": 2,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 2
+        },
+        "prompt": "Document the pagination helpers and the search endpoint for the new team members.\n\n--- planning (added by the workforce coordinator; the request above is the user's own wording) ---\nYou are atlas, the head of the Engineering department. You plan this request for one project only: \"Storefront\" (id app).\nYour working directory /Users/you/.workforce/projects/app/workspaces/01a09578-949e-75e4-88d0-cf3b69936399/head/01a09578-94a0-7326-abe1-07c3b3e41c2d is a read-only copy of that project at commit b38aca1037281ff69e5cdc6f79c5e585414d054f. Read whatever helps you plan, and change nothing: you plan, and your workers do the work, each in a copy of their own.\n\nWorkers you can assign. Every task goes to exactly one of these ids, never to you and never to anyone else:\n- nova — Nova; runtime fake-local (fake); capabilities: coding, testing\n- mira — Mira; runtime fake-local (fake); capabilities: coding, testing\n\nDeliver the plan by calling the tool workforce_propose_plan (MCP server \"workforce\"). That call is the only way a plan reaches the coordinator: a plan written as text in your reply creates nothing. The tool answers with any issues it finds; fix them and call it again. The last plan you propose is the one decided on. Then end your turn.\n\nPlan format (planVersion 2):\n{\n  \"planVersion\": 2,\n  \"summary\": \"How you split the request, and why.\",\n  \"tasks\": [\n    {\n      \"id\": \"t1\",\n      \"objective\": \"What this worker must achieve.\",\n      \"assignee\": \"nova\",\n      \"acceptanceCriteria\": [\n        {\n          \"id\": \"c1\",\n          \"description\": \"How the worker knows it is done.\"\n        }\n      ],\n      \"scope\": {\n        \"allowedPaths\": [\n          \"src/feature/\"\n        ]\n      }\n    },\n    {\n      \"id\": \"t2\",\n      \"objective\": \"A second, different piece of work.\",\n      \"assignee\": \"mira\",\n      \"acceptanceCriteria\": [\n        {\n          \"id\": \"c1\",\n          \"description\": \"How the worker knows it is done.\"\n        }\n      ],\n      \"dependencies\": [\n        {\n          \"taskId\": \"t1\"\n        }\n      ]\n    }\n  ]\n}\n\nRules the coordinator checks in code before any worker starts:\n- 1 to 8 task(s), with unique ids and no two tasks repeating the same objective;\n- every task has an assignee from the list above and at least one acceptance criterion;\n- dependencies name tasks of this plan and form no cycle; a task starts only after the tasks it depends on are accepted;\n- no two tasks claim overlapping scope.allowedPaths.\nTasks without dependencies run at the same time, each in its own copy of the project, so split the work along files that do not overlap.\nAcceptance is decided by the coordinator running the project's own checks against the combined result — never by a worker, or by you, saying the work is done.\n\n--- your previous proposal was rejected (attempt 1 of 2) ---\nFix every issue below and call workforce_propose_plan again. This is your last attempt: if this plan is rejected too, the request fails and no worker starts.\n- [unknown_assignee] tasks[1].assignee: task \"beta\" is assigned to \"mo\", who is not a worker on this request's roster; assign it to one of: \"nova\", \"mira\"\n",
+        "inbox": [],
+        "turnIndex": 0
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 21,
+      "type": "runtime.tool_call",
+      "timestamp": "2026-09-12T11:55:02.960Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0",
+        "turnId": "01a09578-95b0-7597-ac3d-13845bf995d8",
+        "spawnToken": "e42b491297f7e5f4",
+        "runtimeSequence": 3,
+        "rawRef": "fake:fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0:e42b491297f7e5f4:3",
+        "seq": 3,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 3
+        },
+        "tool": "workforce_propose_plan",
+        "server": "workforce",
+        "arguments": {
+          "planVersion": 2,
+          "summary": "Two independent documents, one per worker.",
+          "tasks": [
+            {
+              "id": "alpha",
+              "objective": "Add docs/alpha.md describing the pagination helpers.",
+              "assignee": "nova",
+              "acceptanceCriteria": [
+                {
+                  "id": "c1",
+                  "description": "docs/alpha.md explains pageCount and paginate"
+                }
+              ],
+              "scope": {
+                "allowedPaths": [
+                  "docs/alpha.md"
+                ]
+              }
+            },
+            {
+              "id": "beta",
+              "objective": "Add docs/beta.md describing the search endpoint.",
+              "assignee": "mo",
+              "acceptanceCriteria": [
+                {
+                  "id": "c1",
+                  "description": "docs/beta.md explains the endpoint"
+                }
+              ],
+              "scope": {
+                "allowedPaths": [
+                  "docs/beta.md"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 22,
+      "type": "plan.proposed",
+      "timestamp": "2026-09-12T11:55:03.043Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 2,
+        "proposal": 2,
+        "artifactId": "01a09578-9602-746d-829b-430a38592f1f",
+        "relativePath": "head/01a09578-94a0-7326-abe1-07c3b3e41c2d/proposal-2.json",
+        "taskCount": 2
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 23,
+      "type": "runtime.tool_result",
+      "timestamp": "2026-09-12T11:55:03.047Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0",
+        "turnId": "01a09578-95b0-7597-ac3d-13845bf995d8",
+        "spawnToken": "e42b491297f7e5f4",
+        "runtimeSequence": 4,
+        "rawRef": "fake:fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0:e42b491297f7e5f4:4",
+        "seq": 4,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 4
+        },
+        "tool": "workforce_propose_plan",
+        "server": "workforce",
+        "status": "ok",
+        "ok": true,
+        "result": {
+          "received": true,
+          "valid": false,
+          "issues": [
+            {
+              "code": "unknown_assignee",
+              "path": "tasks[1].assignee",
+              "message": "task \"beta\" is assigned to \"mo\", who is not a worker on this request's roster; assign it to one of: \"nova\", \"mira\""
+            }
+          ],
+          "note": "This plan would be rejected. Fix every issue and call workforce_propose_plan again in this turn; the last plan you propose is the one decided on."
+        },
+        "error": null
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 24,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-12T11:55:03.048Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0",
+        "turnId": "01a09578-95b0-7597-ac3d-13845bf995d8",
+        "spawnToken": "e42b491297f7e5f4",
+        "runtimeSequence": 5,
+        "rawRef": "fake:fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0:e42b491297f7e5f4:5",
+        "seq": 5,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 5
+        },
+        "text": "Plan proposed.",
+        "claimsDone": true
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 25,
+      "type": "runtime.turn_completed",
+      "timestamp": "2026-09-12T11:55:03.048Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "adapter": "fake",
+        "sessionId": "fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0",
+        "turnId": "01a09578-95b0-7597-ac3d-13845bf995d8",
+        "spawnToken": "e42b491297f7e5f4",
+        "runtimeSequence": 6,
+        "rawRef": "fake:fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0:e42b491297f7e5f4:6",
+        "seq": 6,
+        "fakeExtra": {
+          "ignored": true,
+          "n": 6
+        },
+        "status": "completed",
+        "stepsExecuted": 2
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 26,
+      "type": "head.session_stopped",
+      "timestamp": "2026-09-12T11:55:03.075Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 2,
+        "sessionId": "fake-bfee95fa-36b1-4e8e-9c06-0519c660e8c0",
+        "state": "process_tree_terminated",
+        "detail": null
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 27,
+      "type": "plan.rejected",
+      "timestamp": "2026-09-12T11:55:03.084Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "attempt": 2,
+        "willRetry": false,
+        "delivered": true,
+        "issues": [
+          {
+            "code": "unknown_assignee",
+            "path": "tasks[1].assignee",
+            "message": "task \"beta\" is assigned to \"mo\", who is not a worker on this request's roster; assign it to one of: \"nova\", \"mira\""
+          }
+        ]
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 28,
+      "type": "head.planning_finished",
+      "timestamp": "2026-09-12T11:55:03.143Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "headAgentId": "atlas",
+        "outcome": "plan_rejected",
+        "attempts": 2
+      },
+      "payloadRef": null
+    },
+    {
+      "sequence": 29,
+      "type": "run.failed",
+      "timestamp": "2026-09-12T11:55:03.143Z",
+      "taskId": null,
+      "attemptId": null,
+      "payload": {
+        "reason": "department head \"atlas\" did not produce a valid plan in 2 attempt(s), so no worker was started",
+        "tasksDispatched": 0,
+        "planning": {
+          "headAgentId": "atlas",
+          "code": "plan_rejected",
+          "attempts": 2,
+          "issues": [
+            [
+              {
+                "code": "unknown_assignee",
+                "path": "tasks[1].assignee",
+                "message": "task \"beta\" is assigned to \"mo\", who is not a worker on this request's roster; assign it to one of: \"nova\", \"mira\""
+              }
+            ],
+            [
+              {
+                "code": "unknown_assignee",
+                "path": "tasks[1].assignee",
+                "message": "task \"beta\" is assigned to \"mo\", who is not a worker on this request's roster; assign it to one of: \"nova\", \"mira\""
+              }
+            ]
+          ]
+        }
+      },
+      "payloadRef": null
+    }
+  ]
+}

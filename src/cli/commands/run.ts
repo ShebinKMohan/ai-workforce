@@ -46,8 +46,16 @@ import { ProjectInspectionError } from '../../workspaces/project.js';
 import { CandidateWorkspaceError } from '../../workspaces/candidate.js';
 import { redactedJson } from '../../telemetry/redaction.js';
 import { CliError, EXIT_CODES, statusLabel, type CommandResult, type ExitCode, type Reporter, type Streams } from '../output.js';
+import type { HeadPlanner } from '../../workspace/planning.js';
+import { commandRunProject } from './run-project.js';
 
 export interface RunCommandArgs {
+  /**
+   * `--project <id> --department <id>`: a request to a department of the
+   * workspace. Mutually exclusive with --repo/--agents; see run-project.ts.
+   */
+  readonly project?: string;
+  readonly department?: string;
   readonly repo?: string;
   readonly agents?: string;
   readonly task?: string;
@@ -87,6 +95,11 @@ export interface RunCommandDeps {
   readonly sessionEnv?: Readonly<Record<string, string>>;
   /** stdin, for the live view's keys. Absent means no keys, which is a degrade and not an error. */
   readonly stdin?: NodeJS.ReadStream;
+  /**
+   * The department head's planner for `--project --department`. Absent means
+   * `headPlanningUnavailable`, which refuses rather than guessing a plan.
+   */
+  readonly headPlanner?: HeadPlanner;
 }
 
 function loadConfigOrFail(file: string): LoadedAgentConfig {
@@ -272,6 +285,9 @@ export function withWatchHints(stream: RunStream, keys: ReadonlyArray<string>): 
 }
 
 export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Promise<CommandResult> {
+  // A request to a department is its own path; the single-file form below is
+  // untouched by it.
+  if (args.project !== undefined || args.department !== undefined) return commandRunProject(args, deps);
   // Validate every input before touching state: an invalid invocation must
   // exit 2 without creating a state root or taking the coordinator lock.
   const repo = requireRepo(args.repo);
@@ -567,7 +583,8 @@ export function decomposeRequest(text: string): PlannedTaskInput[] {
   return deliverables.map((objective, index) => ({ key: `t${index + 1}`, objective }));
 }
 
-function plannedCommandResult(planned: RunPlannedResult, stateRoot: string, route: RouteDecision): CommandResult {
+/** `route` is null for a department run, whose path is decided by its head rather than by the router. */
+export function plannedCommandResult(planned: RunPlannedResult, stateRoot: string, route: RouteDecision | null): CommandResult {
   const exitCode: ExitCode =
     planned.outcome === 'accepted' ? EXIT_CODES.verifiedCandidate : planned.outcome === 'interrupted' ? EXIT_CODES.interrupted : EXIT_CODES.executionFailure;
   const combined =
@@ -577,7 +594,7 @@ function plannedCommandResult(planned: RunPlannedResult, stateRoot: string, rout
   const data: Record<string, unknown> = {
     runId: planned.runId,
     path: 'planned',
-    route: { path: route.path, reason: route.reason, signals: route.signals },
+    ...(route !== null ? { route: { path: route.path, reason: route.reason, signals: route.signals } } : {}),
     outcome: planned.outcome,
     runState: planned.runState,
     accepted: planned.accepted,
@@ -606,7 +623,7 @@ function plannedCommandResult(planned: RunPlannedResult, stateRoot: string, rout
   return { command: 'run', exitCode, data, lines };
 }
 
-function toCliError(error: unknown): CliError {
+export function toCliError(error: unknown): CliError {
   if (error instanceof CliError) return error;
   if (error instanceof LockLostError) {
     return new CliError(EXIT_CODES.executionFailure, 'coordinator_ownership_lost', error.message, [

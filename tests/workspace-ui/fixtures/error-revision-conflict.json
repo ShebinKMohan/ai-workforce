@@ -1,0 +1,12 @@
+{
+  "status": 409,
+  "body": {
+    "ok": false,
+    "revision": 1,
+    "error": {
+      "code": "workspace_revision_conflict",
+      "message": "the workspace changed since revision 0: it is now at revision 1. Nothing was written; reload and try again",
+      "details": []
+    }
+  }
+}

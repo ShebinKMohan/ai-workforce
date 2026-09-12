@@ -20,6 +20,31 @@ const dead = () => 'dead' as const;
 const alive = () => 'alive' as const;
 
 describe('workforce resume', () => {
+  it('records interruption when stopped after reconciliation but before any successor dispatch', async () => {
+    const crashed = seedCrashedRun(state, { dispatched: false });
+    state.store.close();
+    const controller = new AbortController();
+    controller.abort();
+    let dispatched = false;
+    const result = await commandResume(
+      { positionals: [crashed.run.id], stateDir: state.root, json: false },
+      { probeProcess: dead, signal: controller.signal, continue: () => {
+        dispatched = true;
+        return { command: 'resume', exitCode: EXIT_CODES.verifiedCandidate, data: {}, lines: [] };
+      } },
+    );
+    expect(result.exitCode).toBe(EXIT_CODES.interrupted);
+    expect(result.data).toMatchObject({ status: 'interrupted', runState: 'interrupted' });
+    expect(dispatched).toBe(false);
+    const store = openStateStore(state.paths, { mode: 'read-only' });
+    try {
+      expect(getRun(store.db, crashed.run.id).state).toBe('interrupted');
+      expect(listRunAttempts(store.db, crashed.run.id)).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
   it('reconciles under exclusive ownership and exits 0 when nothing is blocked', async () => {
     const crashed = seedCrashedRun(state, { dispatched: false });
     state.store.close(); // the crashed coordinator is gone; its lock is released

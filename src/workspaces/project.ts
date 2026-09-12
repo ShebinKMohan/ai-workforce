@@ -12,6 +12,7 @@
  * is a coordinator-side record: it never writes into the repository.
  */
 import { existsSync, realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { newId, nowIso } from '../core/ids.js';
@@ -145,6 +146,13 @@ function identityOf(rootCommits: ReadonlyArray<string>, originUrl: string | null
   };
 }
 
+/** Expand the current user's ~ shorthand only; never interpret shell syntax. */
+export function expandHomePath(value: string): string {
+  if (value === '~') return homedir();
+  if (value.startsWith('~/')) return path.join(homedir(), value.slice(2));
+  return value;
+}
+
 /**
  * Read-only inspection of a repository. Runs no hooks and writes nothing,
  * including the index.
@@ -153,7 +161,7 @@ export async function inspectProject(projectPath: string): Promise<ProjectInspec
   const inspectedAt = nowIso();
   const diagnostics: string[] = [];
 
-  const requested = path.resolve(projectPath);
+  const requested = path.resolve(expandHomePath(projectPath));
   if (!existsSync(requested)) throw new ProjectInspectionError('missing_path', `${requested} does not exist`);
   if (!statSync(requested).isDirectory()) throw new ProjectInspectionError('not_a_directory', `${requested} is not a directory`);
   const canonicalPath = realpathSync(requested);
@@ -190,13 +198,13 @@ export async function inspectProject(projectPath: string): Promise<ProjectInspec
   const originUrl = await gitTextOrNull(['--no-optional-locks', 'config', '--get', 'remote.origin.url'], options);
 
   const statusRun = await git(['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all'], options);
-  let dirty: DirtySummary;
-  if (statusRun.ok) {
-    dirty = parsePorcelainStatus(statusRun.stdout);
-  } else {
-    dirty = { clean: true, staged: EMPTY_GROUP, unstaged: EMPTY_GROUP, untracked: EMPTY_GROUP, conflicted: EMPTY_GROUP };
-    diagnostics.push(`could not read the working tree state: ${statusRun.stderr.trim() || statusRun.spawnError || `git exited ${String(statusRun.exitCode)}`}`);
+  if (!statusRun.ok || statusRun.truncated) {
+    throw new ProjectInspectionError(
+      'working_tree_unreadable',
+      `could not read the complete working tree state: ${statusRun.truncated ? 'Git output exceeded the inspection limit' : statusRun.stderr.trim() || statusRun.spawnError || `git exited ${String(statusRun.exitCode)}`}`,
+    );
   }
+  const dirty = parsePorcelainStatus(statusRun.stdout);
 
   const submodulePaths = await readSubmodulePaths(root);
   if (submodulePaths.length > 0) {

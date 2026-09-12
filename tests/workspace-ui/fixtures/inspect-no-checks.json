@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "path": "/Users/you/code/notes",
+  "note": "read with Git only; nothing was changed and nothing was started",
+  "exists": true,
+  "isDirectory": true,
+  "isGitRepo": true,
+  "repositoryRoot": "/Users/you/code/notes",
+  "headRevision": "430f4ea2fddb716ac70bf1fe0e97f52fbffba2bc",
+  "branch": "main",
+  "detachedHead": false,
+  "workingTree": "clean",
+  "dirty": {
+    "clean": true,
+    "staged": 0,
+    "unstaged": 0,
+    "untracked": 0,
+    "conflicted": 0
+  },
+  "diagnostics": [],
+  "checks": {
+    "count": 0,
+    "source": "none",
+    "detail": "no acceptance checks are configured: add .workforce/checks.json, or pass --check \"<command> [args]\"",
+    "criteria": [],
+    "error": null
+  },
+  "suggestedName": "notes",
+  "existingProjectId": null,
+  "overlapsStateRoot": false,
+  "canAdd": true,
+  "reasons": []
+}

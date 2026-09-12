@@ -1,0 +1,91 @@
+/* User-owned Agent Office image plane, with runtime-derived HTML labels. */
+.raster-office-scene { position: relative; min-width: 0; min-height: 640px; height: max(640px, calc(100dvh - 118px)); overflow: hidden; background: #faf9f5; color: #293d31; }
+.raster-viewport { position: absolute; inset: 0; overflow: hidden; cursor: grab; outline-offset: -5px; }
+.raster-viewport.is-panning { cursor: grabbing; }
+.raster-viewport[hidden], .raster-team-list[hidden], .raster-scene-bottom[hidden] { display: none; }
+.raster-world { position: absolute; width: 1402px; height: 1122px; transform-origin: 0 0; --raster-label-scale: 1; }
+.raster-art { position: absolute; inset: 0; width: 1402px; height: 1122px; user-select: none; pointer-events: none; mix-blend-mode: multiply; }
+.raster-seat-veil { position: absolute; width: 73px; height: 118px; border-radius: 50%; transform: translate(calc(-50% + 4px), calc(-50% + 10px)); background: radial-gradient(closest-side, var(--veil-color) 0 66%, color-mix(in srgb, var(--veil-color) 94%, transparent) 80%, transparent 100%); pointer-events: none; }
+.raster-seat-patch { position: absolute; background-size: 1402px 1122px; background-repeat: no-repeat; pointer-events: none; mask-image: linear-gradient(to right, transparent, #000 5px, #000 calc(100% - 5px), transparent), linear-gradient(to bottom, transparent, #000 5px, #000 calc(100% - 5px), transparent); mask-composite: intersect; }
+.raster-routes { position: absolute; inset: 0; width: 1402px; height: 1122px; overflow: visible; pointer-events: none; opacity: 0; }
+.raster-routes path { fill: none; stroke: #71957c; stroke-width: 1.3; stroke-dasharray: 4 7; vector-effect: non-scaling-stroke; }
+[data-raster-view="connections"] .raster-routes { opacity: .65; }
+.raster-label { position: absolute; transform: translate(-50%, -100%) scale(var(--raster-label-scale)); translate: var(--label-dx, 0px) var(--label-dy, 0px); transform-origin: center bottom; color: #304438; text-decoration: none; z-index: 2; box-shadow: 0 2px 7px #3b50340b; }
+.raster-label:hover, .raster-label:focus-visible { z-index: 4; }
+.raster-department { display: flex; align-items: flex-start; gap: 7px; padding: 8px 10px; border: 1px solid #e1e5da; border-radius: 8px; background: #fdfefbf5; max-width: 238px; }
+.raster-department strong { font-size: 11px; line-height: 14px; font-weight: 650; letter-spacing: .025em; display: block; }
+.raster-department small { font-size: 9px; color: #6f7d6a; line-height: 1.4; display: block; margin-top: 3px; }
+.raster-department .raster-dot { margin-top: 4px; background: var(--island-color); }
+.raster-department-count { margin: 1px 0 0 3px; padding-left: 8px; border-left: 1px solid #e2e6da; color: #7b8576; font-size: 10px; }
+.raster-department.is-unassigned { background: #fdfefbbd; border-style: dashed; box-shadow: none; }
+.raster-department.is-unassigned strong { color: #75806f; font-weight: 500; }
+.raster-department.is-unassigned .raster-dot { opacity: .6; }
+.raster-dot { width: 5px; height: 5px; background: #9cae97; border-radius: 50%; flex-shrink: 0; }
+.raster-person { display: flex; align-items: flex-start; gap: 5px; padding: 4px 6px; border: 1px solid #dce5d7; border-radius: 5px; background: #fdfefbf5; max-width: 183px; }
+.raster-person .raster-dot { margin-top: 4px; }
+.raster-person strong { font-size: 10px; font-weight: 570; line-height: 13px; display: block; overflow-wrap: anywhere; }
+.raster-person small { font-size: 8px; line-height: 11px; color: #72806a; display: block; margin-top: 2px; }
+.raster-person.is-active .raster-dot { background: #5b8daa; }
+.raster-person.tone-failed .raster-dot { background: #b6665d; }
+.raster-person.tone-attention .raster-dot { background: #c19a4b; }
+.raster-person:hover, .raster-person:focus-visible { border-color: #7d9d74; background: #f8fcf2; }
+.raster-open { font-size: 9px; line-height: 12px; padding: 3px 6px; color: #7b8375; background: #f6f8f0e6; border: 1px dashed #dce1d4; box-shadow: none; }
+[data-raster-compact="true"] .raster-open { visibility: hidden; }
+.raster-person-hit { position: absolute; width: 100px; height: 136px; transform: translate(-50%, -30%); border-radius: 45%; z-index: 1; }
+.raster-person-hit:hover { box-shadow: inset 0 0 0 2px #62806666; }
+.raster-control { display: flex; gap: 8px; align-items: center; padding: 9px 10px; background: #fdfff9; border: 1px solid #c9d8c7; border-radius: 8px; max-width: 250px; z-index: 3; }
+.raster-control strong { display: block; font-size: 11px; font-weight: 650; letter-spacing: .05em; }
+.raster-control small { display: block; margin-top: 4px; font-size: 9px; color: #6b7f62; white-space: nowrap; }
+.raster-control-symbol { width: 27px; height: 30px; display: grid; place-items: center; background: #ecf2e5; color: #638362; border-radius: 6px; font-size: 18px; }
+.raster-scene-top { position: absolute; left: 23px; top: 19px; right: 22px; display: flex; justify-content: space-between; align-items: center; gap: 14px; z-index: 5; pointer-events: none; }
+.raster-scene-top > * { pointer-events: auto; }
+.raster-breadcrumb { display: flex; align-items: center; gap: 12px; font-size: 11px; white-space: nowrap; }
+.raster-breadcrumb > span { color: #819076; }
+.raster-breadcrumb > strong { font-weight: 500; }
+.raster-view-switch { display: flex; padding: 3px; gap: 2px; border: 1px solid #e0e5d9; border-radius: 8px; background: #eff1e9; }
+.raster-view-switch button { border: 1px solid transparent; background: transparent; padding: 7px 9px; border-radius: 5px; color: #78876e; font: inherit; font-size: 10px; cursor: pointer; }
+.raster-view-switch button[aria-pressed="true"] { border-color: #e0e3d9; color: #344b39; background: #fcfdf8; box-shadow: 0 1px 3px #32402a08; }
+.raster-scene-bottom { position: absolute; z-index: 5; bottom: 18px; left: 23px; right: 22px; pointer-events: none; }
+.raster-scene-bottom > * { pointer-events: auto; }
+.raster-help { font-size: 10px; color: #839078; margin: 0 0 13px; line-height: 1.5; }
+.raster-help button { font: inherit; background: transparent; border: 0; color: #527255; padding: 0 0 0 10px; cursor: pointer; text-decoration: underline; }
+.raster-footer-row { display: flex; align-items: flex-end; gap: 16px; justify-content: space-between; }
+.raster-tools-link { font-size: 10px; color: #62785c; text-decoration: none; padding: 11px 12px; background: #fdfefbef; border: 1px solid #e1e6da; border-radius: 8px; }
+.raster-camera-controls { display: flex; align-items: center; padding: 4px; border: 1px solid #e2e6dc; border-radius: 9px; background: #fdfefbf5; box-shadow: 0 3px 14px #435c3606; flex-shrink: 0; }
+.raster-camera-controls button { border: 0; background: transparent; color: #4e6c4c; width: 31px; height: 32px; font: inherit; font-size: 20px; cursor: pointer; border-radius: 5px; }
+.raster-camera-controls button:hover { background: #eef3e7; }
+.raster-camera-controls [data-raster-zoom-label] { font-size: 10px; color: #788b6e; width: 39px; text-align: center; }
+.raster-control-divider { width: 1px; height: 17px; background: #e2e6dc; margin: 0 4px; }
+.raster-team-list { position: absolute; inset: 72px 20px 20px; overflow: auto; padding: 0 6px; }
+.raster-team-list header { margin-bottom: 20px; }
+.raster-team-list h2 { font-size: 22px; letter-spacing: -.035em; font-weight: 550; }
+.raster-team-list header p { font-size: 12px; color: #75856c; line-height: 1.6; }
+.raster-team-list section { margin-bottom: 24px; }
+.raster-team-heading { display: flex; align-items: center; gap: 15px; padding: 12px 0; border-bottom: 1px solid #e2e6da; flex-wrap: wrap; }
+.raster-team-heading h3 { margin: 0; font-size: 14px; }
+.raster-team-heading span { margin-left: auto; font-size: 10px; color: #798971; }
+.raster-team-list a { color: inherit; text-decoration: none; }
+.raster-team-list ul { list-style: none; margin: 0; padding: 0; }
+.raster-team-list li > a { display: flex; align-items: center; gap: 13px; padding: 14px 0; border-bottom: 1px solid #e2e6da; font-size: 12px; }
+.raster-team-list li > a:hover strong { text-decoration: underline; }
+.raster-team-avatar { width: 33px; height: 36px; background: #e9eee1; border-radius: 11px; display: grid; place-items: center; flex-shrink: 0; color: #637c57; }
+.raster-team-list li strong { font-weight: 600; }
+.raster-team-list li small { display: block; margin-top: 4px; font-size: 10px; color: #7c8c72; }
+.raster-team-status { font-size: 10px; margin-left: auto; max-width: 185px; text-align: right; }
+.raster-team-empty { font-size: 13px; color: #75856c; margin: 30px 0; }
+.raster-office-scene button:focus-visible, .raster-office-scene a:focus-visible { outline: 2px solid #6d8e61; outline-offset: 3px; }
+@media (max-width: 1100px) { .raster-scene-top { left: 16px; right: 16px; } .raster-view-switch button { padding: 7px; } .raster-breadcrumb { gap: 7px; } .raster-scene-bottom { left: 16px; right: 16px; } .raster-control-symbol { display: none; } }
+@media (max-width: 760px) { .raster-office-scene { min-height: 620px; height: calc(100dvh - 150px); max-height: 900px; } .raster-scene-top { flex-wrap: wrap; gap: 10px; top: 14px; } .raster-breadcrumb { font-size: 10px; } .raster-view-switch button { padding: 6px 7px; font-size: 9px; } .raster-scene-bottom { left: 13px; right: 13px; bottom: 16px; } .raster-footer-row { gap: 8px; } .raster-help { font-size: 9px; max-width: 250px; } .raster-tools-link { font-size: 9px; padding: 10px; max-width: 150px; } .raster-camera-controls button { width: 27px; height: 30px; } .raster-camera-controls [data-raster-zoom-label] { font-size: 9px; width: 31px; } .raster-department { max-width: 200px; } .raster-department strong { font-size: 10px; } .raster-department small { font-size: 8px; } .raster-person { max-width: 150px; } .raster-team-list { inset: 68px 14px 18px; } .raster-team-heading span { flex-basis: 100%; } .raster-team-list li > a { gap: 8px; } .raster-team-status { max-width: 110px; } }
+@media (prefers-reduced-motion: reduce) { .raster-office-scene * { transition: none !important; } }
+@media (max-width: 680px) {
+  .raster-office-scene[data-raster-view="team"] { height: auto; min-height: 0; max-height: none; overflow: visible; padding: 68px 14px 24px; }
+  .raster-office-scene[data-raster-view="team"] .raster-team-list { position: static; inset: auto; max-height: 350px; overflow: auto; padding: 0 2px 0 0; }
+  .raster-team-list header { margin-bottom: 14px; }
+  .raster-team-list header h2 { margin: 5px 0 8px; }
+  .raster-team-list section { margin-bottom: 15px; }
+  [data-raster-compact="true"] .raster-department.is-unassigned { max-width: 130px; padding: 5px 7px; }
+  [data-raster-compact="true"] .raster-department.is-unassigned small { display: none; }
+  [data-raster-compact="true"] .raster-department.is-unassigned strong::after { content: 'Unassigned'; display: block; font-size: 8px; line-height: 12px; margin-top: 2px; }
+  [data-raster-compact="true"] .raster-control { max-width: 200px; padding: 7px 9px; }
+  [data-raster-compact="true"] .raster-control small { font-size: 8px; }
+}

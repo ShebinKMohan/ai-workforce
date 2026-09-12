@@ -10,7 +10,6 @@
  * was accepted: a successful status of a failed run exits 0 and says
  * `failed` in its output.
  */
-import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { listArtifacts } from '../../storage/artifacts.js';
 import { openStateStore, StateNotFoundError } from '../../storage/db.js';
@@ -18,6 +17,7 @@ import { lastEventSequence, listEvents } from '../../storage/events.js';
 import { SchemaTooNewError } from '../../storage/migrations.js';
 import { createStatePaths, resolveStateRoot } from '../../storage/paths.js';
 import { findRun, listTasks } from '../../storage/records.js';
+import { runEvidenceView } from '../../storage/run-evidence.js';
 import { listChecks } from '../../verification/checks.js';
 import { redactValue } from '../../telemetry/redaction.js';
 import { CliError, EXIT_CODES, statusLabel, type CommandResult } from '../output.js';
@@ -57,7 +57,9 @@ export function commandStatus(args: StatusCommandArgs): CommandResult {
     const run = findRun(store.db, runId);
     if (run === null) throw new CliError(EXIT_CODES.invalidInput, 'unknown_run', `run ${runId} not found under ${paths.root}`);
 
-    const tasks = listTasks(store.db, runId).map((task) => ({
+    const taskRows = listTasks(store.db, runId);
+    const evidence = runEvidenceView(store, runId, taskRows);
+    const tasks = taskRows.map((task) => ({
       id: task.id,
       objective: task.objective,
       state: task.state,
@@ -92,14 +94,7 @@ export function commandStatus(args: StatusCommandArgs): CommandResult {
 
     // The manifest is a projection of persisted state; it is read, never rebuilt here.
     const manifestPath = path.join(paths.runArtifactsDir(runId), 'result.json');
-    let manifest: Record<string, unknown> | null = null;
-    if (existsSync(manifestPath)) {
-      try {
-        manifest = redactValue(JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>);
-      } catch {
-        manifest = null;
-      }
-    }
+    const manifest = evidence.manifest === null ? null : redactValue(evidence.manifest);
 
     const requirements = (manifest?.['requirements'] as Array<{ criterionId: string; status: string; required: boolean; detail: string }> | undefined) ?? [];
 
@@ -119,6 +114,11 @@ export function commandStatus(args: StatusCommandArgs): CommandResult {
         request,
       },
       tasks,
+      taskViews: evidence.taskViews,
+      compromisedReceiptIds: evidence.compromisedReceiptIds,
+      unverifiedReceiptIds: evidence.unverifiedReceiptIds,
+      evidenceIssues: evidence.evidenceIssues,
+      outcome: evidence.outcome,
       checks,
       requirements,
       events,
@@ -138,6 +138,7 @@ export function commandStatus(args: StatusCommandArgs): CommandResult {
       ...tasks.map((task) => `  ${task.id} [${task.state}${task.waitReason ? `: ${task.waitReason}` : ''}] gen ${task.generation} — ${task.objective}`),
       `checks: ${checks.length === 0 ? '(none)' : ''}`,
       ...checks.map((check) => `  ${check.criterionIds.join(',')} ${check.outcome}${check.exitCode === null ? '' : ` (exit ${check.exitCode})`} — ${check.evidenceProvenance} against ${check.candidateRevision?.slice(0, 12) ?? 'unknown candidate'}`),
+      ...(evidence.evidenceIssues.length > 0 ? ['evidence unavailable:', ...evidence.evidenceIssues.map((issue) => `  - ${issue}`)] : []),
       ...(requirements.length > 0 ? ['requirements:'] : []),
       ...requirements.map((requirement) => `  ${statusLabel(requirement.status)} ${requirement.criterionId}${requirement.required ? '' : ' (optional)'}: ${requirement.detail}`),
       `events: ${last} recorded; last ${events.length}:`,

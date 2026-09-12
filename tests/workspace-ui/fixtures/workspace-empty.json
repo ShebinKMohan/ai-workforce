@@ -1,0 +1,94 @@
+{
+  "ok": true,
+  "path": "/tmp/fixture/empty-state/workspace.json",
+  "exists": false,
+  "revision": 0,
+  "schemaVersion": 2,
+  "workspace": {
+    "schemaVersion": 2,
+    "revision": 0,
+    "runtimes": {},
+    "projects": [],
+    "departments": [],
+    "agents": [],
+    "limits": {
+      "maxConcurrentProjectRuns": 2,
+      "maxActiveTurns": 2,
+      "maxActiveWriters": 2,
+      "maxTasksPerRun": 8,
+      "maxDelegationDepth": 2,
+      "maxRepairAttempts": 2,
+      "maxTransientRetries": 2,
+      "runTimeoutMinutes": 30
+    },
+    "retiredIds": {
+      "projects": [],
+      "departments": [],
+      "agents": []
+    }
+  },
+  "error": null,
+  "readiness": {
+    "empty": true,
+    "steps": [
+      {
+        "id": "tools",
+        "state": "done",
+        "reason": null
+      },
+      {
+        "id": "project",
+        "state": "current",
+        "reason": "add a project: a Git repository with at least one commit"
+      },
+      {
+        "id": "department",
+        "state": "locked",
+        "reason": "create a department with a head and at least one worker"
+      },
+      {
+        "id": "send",
+        "state": "locked",
+        "reason": "nothing can be sent yet: there is no department and project pair"
+      }
+    ],
+    "eligibility": []
+  },
+  "checks": [],
+  "runtimes": {
+    "passive": true,
+    "checkedAt": "2026-09-12T11:55:00.936Z",
+    "error": null,
+    "reports": [
+      {
+        "adapter": "codex",
+        "displayName": "Codex",
+        "installed": true,
+        "adapterSupported": true,
+        "auth": "logged_in",
+        "authDetail": "Logged in using ChatGPT",
+        "readiness": "controllable",
+        "version": "0.147.0",
+        "loginHint": "codex login",
+        "usable": true,
+        "writeContainment": "verified"
+      },
+      {
+        "adapter": "claude-code",
+        "displayName": "Claude Code",
+        "installed": true,
+        "adapterSupported": true,
+        "auth": "logged_out",
+        "authDetail": "Not logged in",
+        "readiness": "controllable",
+        "version": "2.1.260",
+        "loginHint": "claude auth login",
+        "usable": false,
+        "writeContainment": "unsupported"
+      }
+    ]
+  },
+  "runtimeRules": {},
+  "suggestedStarter": null,
+  "legacyAgents": null
+}

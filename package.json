@@ -13,9 +13,12 @@
   },
   "files": [
     "dist",
+    "web/office",
+    "web/workspace",
     "fixtures/fake-runtime"
   ],
   "scripts": {
+    "start": "npm run build && node dist/cli/index.js serve --open",
     "build": "tsc",
     "typecheck": "tsc -p tsconfig.check.json",
     "test": "vitest run",

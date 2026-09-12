@@ -1,0 +1,386 @@
+{
+  "ok": true,
+  "mode": "workspace",
+  "limit": 50,
+  "stateFound": true,
+  "eventCursor": "~=0,app=222,docs-site=0,notes=0",
+  "runs": [
+    {
+      "id": "01a09578-9c29-7771-8dc1-21d6070ba381",
+      "state": "ready_for_review",
+      "repoPath": "/Users/you/code/storefront",
+      "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+      "policy": "local-development",
+      "createdAt": "2026-09-12T11:55:04.618Z",
+      "updatedAt": "2026-09-12T11:55:17.711Z",
+      "endedAt": "2026-09-12T11:55:17.711Z",
+      "request": {
+        "text": "Add docs for the pagination helpers and the search endpoint."
+      },
+      "tasks": {
+        "total": 2,
+        "byState": {
+          "accepted": 2
+        },
+        "agents": [
+          "nova",
+          "mira"
+        ]
+      },
+      "taskViews": [
+        {
+          "id": "01a09578-9d58-7433-a80f-93f849b7c8c3",
+          "objective": "Add docs/alpha.md describing the pagination helpers.",
+          "state": "accepted",
+          "waitReason": null,
+          "ownerAgentId": "nova",
+          "generation": 1,
+          "attempt": {
+            "id": "01a09578-9d5b-7010-be4d-9896a8de2286",
+            "generation": 1,
+            "state": "completed",
+            "startedAt": "2026-09-12T11:55:05.155Z",
+            "endedAt": "2026-09-12T11:55:05.378Z"
+          },
+          "receipts": {
+            "verifierExecutedPassed": 1,
+            "verifierExecutedCompromised": 0,
+            "verifierExecutedFailed": 0,
+            "verifierExecutedOther": 0,
+            "otherProvenance": 0
+          },
+          "lastEvent": {
+            "type": "task.settled",
+            "timestamp": "2026-09-12T11:55:05.411Z",
+            "sequence": 56
+          }
+        },
+        {
+          "id": "01a09578-9d59-74d3-a9c9-5e309551288c",
+          "objective": "Add docs/beta.md describing the search endpoint.",
+          "state": "accepted",
+          "waitReason": null,
+          "ownerAgentId": "mira",
+          "generation": 1,
+          "attempt": {
+            "id": "01a09578-9d5d-719e-9c40-6bf89ee0cadf",
+            "generation": 1,
+            "state": "completed",
+            "startedAt": "2026-09-12T11:55:05.205Z",
+            "endedAt": "2026-09-12T11:55:17.453Z"
+          },
+          "receipts": {
+            "verifierExecutedPassed": 1,
+            "verifierExecutedCompromised": 0,
+            "verifierExecutedFailed": 0,
+            "verifierExecutedOther": 0,
+            "otherProvenance": 0
+          },
+          "lastEvent": {
+            "type": "task.settled",
+            "timestamp": "2026-09-12T11:55:17.473Z",
+            "sequence": 63
+          }
+        }
+      ],
+      "outcome": null,
+      "compromisedReceiptIds": [],
+      "eventCount": 64,
+      "projectId": "app",
+      "projectLock": {
+        "held": false,
+        "pid": null,
+        "acquiredAt": null,
+        "holder": null
+      }
+    },
+    {
+      "id": "01a09578-96fc-73af-8001-f71b72372267",
+      "state": "interrupted",
+      "repoPath": "/Users/you/code/storefront",
+      "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+      "policy": "local-development",
+      "createdAt": "2026-09-12T11:55:03.292Z",
+      "updatedAt": "2026-09-12T11:55:04.217Z",
+      "endedAt": null,
+      "request": {
+        "text": "Document the pagination helpers and the search endpoint for the new team members."
+      },
+      "tasks": {
+        "total": 2,
+        "byState": {
+          "accepted": 1,
+          "cancelled": 1
+        },
+        "agents": [
+          "nova",
+          "mira"
+        ]
+      },
+      "taskViews": [
+        {
+          "id": "01a09578-9829-75fb-ba2f-7680794679fa",
+          "objective": "Add docs/alpha.md describing the pagination helpers.",
+          "state": "accepted",
+          "waitReason": null,
+          "ownerAgentId": "nova",
+          "generation": 1,
+          "attempt": {
+            "id": "01a09578-982a-731c-a183-e275953cfaa6",
+            "generation": 1,
+            "state": "completed",
+            "startedAt": "2026-09-12T11:55:03.823Z",
+            "endedAt": "2026-09-12T11:55:04.027Z"
+          },
+          "receipts": {
+            "verifierExecutedPassed": 1,
+            "verifierExecutedCompromised": 0,
+            "verifierExecutedFailed": 0,
+            "verifierExecutedOther": 0,
+            "otherProvenance": 0
+          },
+          "lastEvent": {
+            "type": "task.settled",
+            "timestamp": "2026-09-12T11:55:04.051Z",
+            "sequence": 56
+          }
+        },
+        {
+          "id": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+          "objective": "Add docs/beta.md describing the search endpoint.",
+          "state": "cancelled",
+          "waitReason": null,
+          "ownerAgentId": "mira",
+          "generation": 1,
+          "attempt": {
+            "id": "01a09578-982b-7175-aa40-4969db6f9ab7",
+            "generation": 1,
+            "state": "interrupted",
+            "startedAt": "2026-09-12T11:55:03.869Z",
+            "endedAt": null
+          },
+          "receipts": {
+            "verifierExecutedPassed": 0,
+            "verifierExecutedCompromised": 0,
+            "verifierExecutedFailed": 0,
+            "verifierExecutedOther": 0,
+            "otherProvenance": 0
+          },
+          "lastEvent": {
+            "type": "task.settled",
+            "timestamp": "2026-09-12T11:55:04.216Z",
+            "sequence": 65
+          }
+        }
+      ],
+      "outcome": null,
+      "compromisedReceiptIds": [],
+      "eventCount": 66,
+      "projectId": "app",
+      "projectLock": {
+        "held": false,
+        "pid": null,
+        "acquiredAt": null,
+        "holder": null
+      }
+    },
+    {
+      "id": "01a09578-949e-75e4-88d0-cf3b69936399",
+      "state": "failed",
+      "repoPath": "/Users/you/code/storefront",
+      "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+      "policy": "local-development",
+      "createdAt": "2026-09-12T11:55:02.686Z",
+      "updatedAt": "2026-09-12T11:55:03.143Z",
+      "endedAt": "2026-09-12T11:55:03.143Z",
+      "request": {
+        "text": "Document the pagination helpers and the search endpoint for the new team members."
+      },
+      "tasks": {
+        "total": 0,
+        "byState": {},
+        "agents": []
+      },
+      "taskViews": [],
+      "outcome": null,
+      "compromisedReceiptIds": [],
+      "eventCount": 29,
+      "projectId": "app",
+      "projectLock": {
+        "held": false,
+        "pid": null,
+        "acquiredAt": null,
+        "holder": null
+      }
+    },
+    {
+      "id": "01a09578-8fac-77f4-952c-1a6f1c495c21",
+      "state": "ready_for_review",
+      "repoPath": "/Users/you/code/storefront",
+      "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+      "policy": "local-development",
+      "createdAt": "2026-09-12T11:55:01.420Z",
+      "updatedAt": "2026-09-12T11:55:02.541Z",
+      "endedAt": "2026-09-12T11:55:02.541Z",
+      "request": {
+        "text": "Document the pagination helpers and the search endpoint for the new team members."
+      },
+      "tasks": {
+        "total": 2,
+        "byState": {
+          "accepted": 2
+        },
+        "agents": [
+          "mira",
+          "nova"
+        ]
+      },
+      "taskViews": [
+        {
+          "id": "01a09578-90e1-750c-8cfe-05756f86afd7",
+          "objective": "Add docs/beta.md describing the search endpoint.",
+          "state": "accepted",
+          "waitReason": null,
+          "ownerAgentId": "mira",
+          "generation": 1,
+          "attempt": {
+            "id": "01a09578-90e5-737f-85d8-cdc7c05878b3",
+            "generation": 1,
+            "state": "completed",
+            "startedAt": "2026-09-12T11:55:01.967Z",
+            "endedAt": "2026-09-12T11:55:02.182Z"
+          },
+          "receipts": {
+            "verifierExecutedPassed": 1,
+            "verifierExecutedCompromised": 0,
+            "verifierExecutedFailed": 0,
+            "verifierExecutedOther": 0,
+            "otherProvenance": 0
+          },
+          "lastEvent": {
+            "type": "task.settled",
+            "timestamp": "2026-09-12T11:55:02.205Z",
+            "sequence": 59
+          }
+        },
+        {
+          "id": "01a09578-90e0-72fb-abe8-33c7e94dc59b",
+          "objective": "Add docs/alpha.md describing the pagination helpers.",
+          "state": "accepted",
+          "waitReason": null,
+          "ownerAgentId": "nova",
+          "generation": 1,
+          "attempt": {
+            "id": "01a09578-90e3-70ee-96bb-9cf3d1ff273c",
+            "generation": 1,
+            "state": "completed",
+            "startedAt": "2026-09-12T11:55:02.013Z",
+            "endedAt": "2026-09-12T11:55:02.288Z"
+          },
+          "receipts": {
+            "verifierExecutedPassed": 1,
+            "verifierExecutedCompromised": 0,
+            "verifierExecutedFailed": 0,
+            "verifierExecutedOther": 0,
+            "otherProvenance": 0
+          },
+          "lastEvent": {
+            "type": "task.settled",
+            "timestamp": "2026-09-12T11:55:02.306Z",
+            "sequence": 62
+          }
+        }
+      ],
+      "outcome": null,
+      "compromisedReceiptIds": [],
+      "eventCount": 63,
+      "projectId": "app",
+      "projectLock": {
+        "held": false,
+        "pid": null,
+        "acquiredAt": null,
+        "holder": null
+      }
+    }
+  ],
+  "projects": [
+    {
+      "projectId": "app",
+      "project": {
+        "id": "app",
+        "name": "Storefront",
+        "archived": false
+      },
+      "inWorkspace": true,
+      "stateRoot": "/Users/you/.workforce/projects/app",
+      "stateFound": true,
+      "eventCursor": 222,
+      "coordinator": {
+        "lock": {
+          "held": false,
+          "pid": null,
+          "acquiredAt": null,
+          "holder": null
+        }
+      },
+      "runCount": 4
+    },
+    {
+      "projectId": "docs-site",
+      "project": {
+        "id": "docs-site",
+        "name": "docs-site",
+        "archived": false
+      },
+      "inWorkspace": true,
+      "stateRoot": "/Users/you/.workforce/projects/docs-site",
+      "stateFound": false,
+      "eventCursor": 0,
+      "coordinator": {
+        "lock": {
+          "held": false,
+          "pid": null,
+          "acquiredAt": null,
+          "holder": null
+        }
+      },
+      "runCount": 0
+    },
+    {
+      "projectId": "notes",
+      "project": {
+        "id": "notes",
+        "name": "notes",
+        "archived": false
+      },
+      "inWorkspace": true,
+      "stateRoot": "/Users/you/.workforce/projects/notes",
+      "stateFound": false,
+      "eventCursor": 0,
+      "coordinator": {
+        "lock": {
+          "held": false,
+          "pid": null,
+          "acquiredAt": null,
+          "holder": null
+        }
+      },
+      "runCount": 0
+    }
+  ],
+  "earlierHistory": {
+    "note": "runs made before this workspace existed; read-only",
+    "stateRoot": "/Users/you/.workforce",
+    "stateFound": false,
+    "eventCursor": 0,
+    "coordinator": {
+      "lock": {
+        "held": false,
+        "pid": null,
+        "acquiredAt": null,
+        "holder": null
+      }
+    },
+    "runs": []
+  }
+}

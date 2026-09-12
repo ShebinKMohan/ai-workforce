@@ -1,0 +1,220 @@
+{
+  "ok": true,
+  "command": "status",
+  "exitCode": 0,
+  "stateRoot": "/Users/you/.workforce/projects/app",
+  "readOnly": true,
+  "run": {
+    "id": "01a09578-96fc-73af-8001-f71b72372267",
+    "state": "interrupted",
+    "repoPath": "/Users/you/code/storefront",
+    "baseRevision": "b38aca1037281ff69e5cdc6f79c5e585414d054f",
+    "policy": "local-development",
+    "ownershipEpoch": 0,
+    "createdAt": "2026-09-12T11:55:03.292Z",
+    "updatedAt": "2026-09-12T11:55:04.217Z",
+    "endedAt": null,
+    "request": {
+      "requestVersion": 1,
+      "runId": "01a09578-96fc-73af-8001-f71b72372267",
+      "text": "Document the pagination helpers and the search endpoint for the new team members.",
+      "contextRefs": [],
+      "repoPath": "/Users/you/code/storefront",
+      "baseMode": "head",
+      "submittedAt": "2026-09-12T11:55:03.292Z"
+    }
+  },
+  "tasks": [
+    {
+      "id": "01a09578-9829-75fb-ba2f-7680794679fa",
+      "objective": "Add docs/alpha.md describing the pagination helpers.",
+      "state": "accepted",
+      "waitReason": null,
+      "generation": 1,
+      "ownerAgentId": "nova"
+    },
+    {
+      "id": "01a09578-9829-75fd-b7e1-60265d7ca68e",
+      "objective": "Add docs/beta.md describing the search endpoint.",
+      "state": "cancelled",
+      "waitReason": null,
+      "generation": 1,
+      "ownerAgentId": "mira"
+    }
+  ],
+  "checks": [
+    {
+      "id": "01a09578-997a-753b-a546-41c655be5f35",
+      "criterionIds": [
+        "check-1"
+      ],
+      "command": "node --version",
+      "outcome": "passed",
+      "exitCode": 0,
+      "candidateRevision": "20c5c04ea1e88046fb9de3730fc9941ad08735fe",
+      "evidenceProvenance": "verifier_executed"
+    }
+  ],
+  "requirements": [],
+  "events": [
+    {
+      "sequence": 57,
+      "type": "run.interrupt_requested",
+      "timestamp": "2026-09-12T11:55:04.055Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e"
+    },
+    {
+      "sequence": 58,
+      "type": "runtime.turn_interrupted",
+      "timestamp": "2026-09-12T11:55:04.055Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e"
+    },
+    {
+      "sequence": 59,
+      "type": "run.interrupt_acknowledged",
+      "timestamp": "2026-09-12T11:55:04.056Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e"
+    },
+    {
+      "sequence": 60,
+      "type": "runtime.stopped",
+      "timestamp": "2026-09-12T11:55:04.083Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e"
+    },
+    {
+      "sequence": 61,
+      "type": "candidate.snapshot",
+      "timestamp": "2026-09-12T11:55:04.172Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e"
+    },
+    {
+      "sequence": 62,
+      "type": "operation.completed",
+      "timestamp": "2026-09-12T11:55:04.195Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e"
+    },
+    {
+      "sequence": 63,
+      "type": "run.interrupted",
+      "timestamp": "2026-09-12T11:55:04.195Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e"
+    },
+    {
+      "sequence": 64,
+      "type": "runtime.failure_classified",
+      "timestamp": "2026-09-12T11:55:04.216Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e"
+    },
+    {
+      "sequence": 65,
+      "type": "task.settled",
+      "timestamp": "2026-09-12T11:55:04.216Z",
+      "taskId": "01a09578-9829-75fd-b7e1-60265d7ca68e"
+    },
+    {
+      "sequence": 66,
+      "type": "run.interrupted",
+      "timestamp": "2026-09-12T11:55:04.217Z",
+      "taskId": null
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "01a09578-97bc-70d3-a572-62bd494460bc",
+      "type": "head_plan_proposal",
+      "path": "head/01a09578-96fe-734f-ae17-8598f5990ba8/proposal-1.json",
+      "sha256": "2f0b0431a8f36c560d9c26e2819044a2368d482318dcee9be6af59a807e9084c",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09578-97ec-7787-b9d9-46d1d9d39509",
+      "type": "runtime_event_log",
+      "path": "head/01a09578-96fe-734f-ae17-8598f5990ba8/runtime-events-1.jsonl",
+      "sha256": "f8693d3b92662dc45335ca8ed20daaaba8141d086176dd984aa43293de5ab3c2",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09578-99b6-77d5-a568-6a02559b0ef1",
+      "type": "check_stdout",
+      "path": "checks/01a09578-982a-731c-a183-e275953cfaa6/check-1/stdout.log",
+      "sha256": "bd17489adcddbc8ed526bf6dedb22de2e677bbae176b977aa7f7c0408999248c",
+      "candidateRevision": "20c5c04ea1e88046fb9de3730fc9941ad08735fe"
+    },
+    {
+      "id": "01a09578-99c1-727a-aae4-bf8444199b01",
+      "type": "check_stderr",
+      "path": "checks/01a09578-982a-731c-a183-e275953cfaa6/check-1/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "candidateRevision": "20c5c04ea1e88046fb9de3730fc9941ad08735fe"
+    },
+    {
+      "id": "01a09578-99ca-7130-966b-b88f78d4c4e8",
+      "type": "check_receipt",
+      "path": "checks/01a09578-982a-731c-a183-e275953cfaa6/check-1/receipt.json",
+      "sha256": "3ce830c6c1870f41d8599ac4d53c3b6741a228e237b289f9d9943c64e9012c9a",
+      "candidateRevision": "20c5c04ea1e88046fb9de3730fc9941ad08735fe"
+    },
+    {
+      "id": "01a09578-99d4-71fc-8a31-57d2cc9fc739",
+      "type": "candidate_patch",
+      "path": "tasks/01a09578-982a-731c-a183-e275953cfaa6/candidate.patch",
+      "sha256": "acf7633eeec5eddb73ee25f29c7ef0f1883504d146c292bb8865193c3f6f06e9",
+      "candidateRevision": "20c5c04ea1e88046fb9de3730fc9941ad08735fe"
+    },
+    {
+      "id": "01a09578-99db-77ec-bf70-cde9afec0b13",
+      "type": "runtime_event_log",
+      "path": "tasks/01a09578-982a-731c-a183-e275953cfaa6/logs/runtime-events.jsonl",
+      "sha256": "a68cb132ddb5862c96efa6861a9239cf7039428d8395e1c8c9b30b223805ce86",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09578-99e4-751c-bf76-af1a77eed38d",
+      "type": "result",
+      "path": "tasks/01a09578-982a-731c-a183-e275953cfaa6/result.json",
+      "sha256": "a8a1440aa2652cf6d1e8169ad318b9d7e5efec3eff0ebbf085c0c47ee5ab3b89",
+      "candidateRevision": "20c5c04ea1e88046fb9de3730fc9941ad08735fe"
+    },
+    {
+      "id": "01a09578-99f0-7132-b68b-a39481b5f892",
+      "type": "summary",
+      "path": "tasks/01a09578-982a-731c-a183-e275953cfaa6/summary.md",
+      "sha256": "6a23b8711173995a38b224146ada86ff9cfe026a18ffde6b30276a742006b5b5",
+      "candidateRevision": "20c5c04ea1e88046fb9de3730fc9941ad08735fe"
+    },
+    {
+      "id": "01a09578-9a78-73f5-813c-130824f9c768",
+      "type": "candidate_patch",
+      "path": "tasks/01a09578-982b-7175-aa40-4969db6f9ab7/candidate.patch",
+      "sha256": "639f1f6d392a6500683bec9da1351159e6a1851b84fb1ff83739476f2466d6d8",
+      "candidateRevision": "4767c0f19f48096b913ecd284cccc5e264744261"
+    },
+    {
+      "id": "01a09578-9a82-71ec-8c9f-a679725f06f7",
+      "type": "runtime_event_log",
+      "path": "tasks/01a09578-982b-7175-aa40-4969db6f9ab7/logs/runtime-events.jsonl",
+      "sha256": "1d2e8d4f47d11c829a330b24a37cb3c7f5d243a8756c47efbe82cf67958b932d",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09578-9a8b-7173-ac10-c1bd9b8ce330",
+      "type": "result",
+      "path": "tasks/01a09578-982b-7175-aa40-4969db6f9ab7/result.json",
+      "sha256": "e45de3fa2fb35942d60dfd26a48afb26a6aa81bbc116ce70d99b1188487b396c",
+      "candidateRevision": "4767c0f19f48096b913ecd284cccc5e264744261"
+    },
+    {
+      "id": "01a09578-9a96-749b-8be1-ca7493f2e58a",
+      "type": "summary",
+      "path": "tasks/01a09578-982b-7175-aa40-4969db6f9ab7/summary.md",
+      "sha256": "1b1d4a876a3c60714c5fc4d1a0fd3b02092d4b743b5f6181f51c7c08a508aeaa",
+      "candidateRevision": "4767c0f19f48096b913ecd284cccc5e264744261"
+    }
+  ],
+  "eventCount": 66,
+  "manifestPath": null,
+  "candidate": null,
+  "acceptance": null,
+  "timing": null,
+  "unresolved": []
+}

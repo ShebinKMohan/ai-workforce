@@ -11,12 +11,13 @@ import os from 'node:os';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import {
+  BRIDGE_ROLE_ENV,
   BRIDGE_SERVER_NAME,
   BRIDGE_SOCKET_ENV,
   BRIDGE_TOKEN_ENV,
   bridgeEntryPath,
 } from './bridge.js';
-import { CoordinationServer, type CoordinationNotice, type ReceiverRegistry, type WorkerIdentity } from './server.js';
+import { CoordinationServer, type CoordinationNotice, type PlanProposalHandler, type ReceiverRegistry, type WorkerIdentity } from './server.js';
 import {
   acknowledge as acknowledgeMessage,
   deliverableFor as deliverableForTask,
@@ -100,6 +101,13 @@ export interface CoordinationBridge {
   readonly server: CoordinationServer;
   /** Configure the bridge for one attempt; identity is read from the attempt row, never from a caller-supplied name. */
   mcpConfigFor(attemptId: string): AttemptBridgeConfig;
+  /**
+   * Configure the bridge for a department head's planning session. The
+   * session is offered `workforce_propose_plan` alone, and every proposal it
+   * makes is handed to `onProposePlan`. `planningId` names the session in the
+   * identity (a head plans outside any task row, so it is not an attempt id).
+   */
+  headConfigFor(input: { readonly planningId: string; readonly agentId: string; readonly onProposePlan: PlanProposalHandler }): AttemptBridgeConfig;
   /** Coordinator-side write of a message (for example a coordinator answer to a worker). */
   recordMessage(input: RecordMessageInput): RecordMessageResult;
   /** Bounded inbox for a task. */
@@ -162,9 +170,20 @@ export async function createCoordinationBridge(options: CoordinationBridgeOption
     if (row.run_id !== options.runId) throw new Error(`attempt "${attemptId}" belongs to run "${row.run_id}", not "${options.runId}"`);
     const identity: WorkerIdentity = { runId: row.run_id, taskId: row.task_id, attemptId };
     const token = server.registerWorker(identity);
+    return configFor(identity, token, {});
+  };
+
+  const headConfigFor: CoordinationBridge['headConfigFor'] = (input) => {
+    const identity: WorkerIdentity = { runId: options.runId, taskId: `head:${input.agentId}`, attemptId: input.planningId, role: 'head', agentId: input.agentId };
+    const token = server.registerHead(identity, input.onProposePlan);
+    return configFor(identity, token, { [BRIDGE_ROLE_ENV]: 'head' });
+  };
+
+  const configFor = (identity: WorkerIdentity, token: string, extraEnv: Readonly<Record<string, string>>): AttemptBridgeConfig => {
+    const attemptId = identity.attemptId;
     const command = process.execPath;
     const args = [entry];
-    const env = { [BRIDGE_SOCKET_ENV]: socketPath, [BRIDGE_TOKEN_ENV]: token };
+    const env: Record<string, string> = { [BRIDGE_SOCKET_ENV]: socketPath, [BRIDGE_TOKEN_ENV]: token, ...extraEnv };
     const serverConfig: StdioServerConfig = { type: 'stdio', command, args, env };
     const mcpServers = { [BRIDGE_SERVER_NAME]: serverConfig };
     const claudeMcpConfigJson = JSON.stringify({ mcpServers });
@@ -188,7 +207,9 @@ export async function createCoordinationBridge(options: CoordinationBridgeOption
         '-c',
         `${prefix}.args=[${args.map(tomlString).join(', ')}]`,
         '-c',
-        `${prefix}.env={ ${BRIDGE_SOCKET_ENV} = ${tomlString(socketPath)}, ${BRIDGE_TOKEN_ENV} = ${tomlString(token)} }`,
+        `${prefix}.env={ ${Object.entries(env)
+          .map(([key, value]) => `${key} = ${tomlString(value)}`)
+          .join(', ')} }`,
       ],
       revoke: () => server.revokeWorker(token),
     };
@@ -199,6 +220,7 @@ export async function createCoordinationBridge(options: CoordinationBridgeOption
     runId: options.runId,
     server,
     mcpConfigFor,
+    headConfigFor,
     recordMessage: (input) => recordMessageInStore(options.db, input),
     deliverableFor: (taskId, query) =>
       deliverableForTask(options.db, {

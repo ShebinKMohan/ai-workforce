@@ -1,0 +1,179 @@
+{
+  "ok": true,
+  "path": "/tmp/fixture/empty-state/workspace.json",
+  "exists": true,
+  "revision": 1,
+  "schemaVersion": 2,
+  "workspace": {
+    "schemaVersion": 2,
+    "revision": 1,
+    "runtimes": {},
+    "projects": [
+      {
+        "id": "storefront",
+        "name": "Storefront",
+        "repoPath": "/Users/you/code/storefront",
+        "checks": [],
+        "archived": false
+      }
+    ],
+    "departments": [],
+    "agents": [],
+    "limits": {
+      "maxConcurrentProjectRuns": 2,
+      "maxActiveTurns": 2,
+      "maxActiveWriters": 2,
+      "maxTasksPerRun": 8,
+      "maxDelegationDepth": 2,
+      "maxRepairAttempts": 2,
+      "maxTransientRetries": 2,
+      "runTimeoutMinutes": 30
+    },
+    "retiredIds": {
+      "projects": [],
+      "departments": [],
+      "agents": []
+    }
+  },
+  "error": null,
+  "readiness": {
+    "empty": false,
+    "steps": [
+      {
+        "id": "tools",
+        "state": "done",
+        "reason": null
+      },
+      {
+        "id": "project",
+        "state": "done",
+        "reason": null
+      },
+      {
+        "id": "department",
+        "state": "current",
+        "reason": "create a department with a head and at least one worker"
+      },
+      {
+        "id": "send",
+        "state": "locked",
+        "reason": "nothing can be sent yet: there is no department and project pair"
+      }
+    ],
+    "eligibility": []
+  },
+  "checks": [
+    {
+      "projectId": "storefront",
+      "count": 1,
+      "source": "repository_config",
+      "detail": "1 check(s) from .workforce/checks.json at base b38aca103728"
+    }
+  ],
+  "runtimes": {
+    "passive": true,
+    "checkedAt": "2026-09-12T11:55:00.936Z",
+    "error": null,
+    "reports": [
+      {
+        "adapter": "codex",
+        "displayName": "Codex",
+        "installed": true,
+        "adapterSupported": true,
+        "auth": "logged_in",
+        "authDetail": "Logged in using ChatGPT",
+        "readiness": "controllable",
+        "version": "0.147.0",
+        "loginHint": "codex login",
+        "usable": true,
+        "writeContainment": "verified"
+      },
+      {
+        "adapter": "claude-code",
+        "displayName": "Claude Code",
+        "installed": true,
+        "adapterSupported": true,
+        "auth": "logged_out",
+        "authDetail": "Not logged in",
+        "readiness": "controllable",
+        "version": "2.1.260",
+        "loginHint": "claude auth login",
+        "usable": false,
+        "writeContainment": "unsupported"
+      }
+    ]
+  },
+  "runtimeRules": {},
+  "suggestedStarter": {
+    "suggested": true,
+    "saved": false,
+    "note": "A starting point to review. Nothing is saved until you apply it, and you can change anything first.",
+    "apply": {
+      "method": "POST",
+      "path": "/api/workspace/ops",
+      "expectRevision": 1
+    },
+    "ops": [
+      {
+        "op": "department.add",
+        "name": "Engineering",
+        "id": "engineering"
+      },
+      {
+        "op": "agent.add",
+        "id": "engineering-head",
+        "name": "Engineering head",
+        "role": "head",
+        "departmentId": "engineering",
+        "runtime": "codex-local"
+      },
+      {
+        "op": "agent.add",
+        "id": "engineering-worker",
+        "name": "Engineering worker",
+        "role": "worker",
+        "departmentId": "engineering",
+        "runtime": "codex-local",
+        "projectIds": [
+          "storefront"
+        ]
+      }
+    ],
+    "projectId": "storefront",
+    "department": {
+      "id": "engineering",
+      "name": "Engineering",
+      "color": "blue"
+    },
+    "head": {
+      "id": "engineering-head",
+      "name": "Engineering head",
+      "role": "head",
+      "runtime": "codex-local",
+      "adapter": "codex",
+      "policy": "analysis",
+      "projectIds": []
+    },
+    "workers": [
+      {
+        "id": "engineering-worker",
+        "name": "Engineering worker",
+        "role": "worker",
+        "runtime": "codex-local",
+        "adapter": "codex",
+        "policy": "local-development",
+        "projectIds": [
+          "storefront"
+        ]
+      }
+    ],
+    "runtimeChoice": {
+      "tool": "codex",
+      "codexReady": true,
+      "claudeReady": false,
+      "reason": "Codex is installed and signed in. Heads are recommended on Codex: its file boundary is verified, so this department can work beside other projects."
+    },
+    "runsOnItsOwn": false
+  },
+  "legacyAgents": null
+}

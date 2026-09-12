@@ -1,8 +1,14 @@
 # AI Employee System — master product and implementation plan
 
-Version: 1.0 · Prepared: 7 September 2026 · Implementation status: planning only
+Version: 1.1 · Prepared: 7 September 2026 · Day-one workspace amendment: 12 September 2026
 
-This is the standalone handoff specification for coding agents. It incorporates the user's original conversation and subsequent clarifications. It replaces the earlier proposal in this file. No application, runtime integration or performance result is claimed to exist yet.
+Implementation status: the terminal engine and local workspace UI are implemented. Current
+acceptance evidence and remaining limits are recorded in
+[the 12 September integration record](evidence/workspace/2026-09-12-dogfood.md).
+Section 17 amends the original implementation order and workspace defaults; the R2–R4 release
+gates remain requirements, not claims that the stable desktop product is complete.
+
+This is the standalone handoff specification for coding agents. It incorporates the user's original conversation and subsequent clarifications. It replaces the earlier proposal in this file. Sections 1–16 preserve the original planning baseline; proposed behavior there is not by itself evidence of implementation. Section 17 records the later day-one decisions.
 
 **Build the terminal MVP first.** Use installed Codex and Claude Code, Node.js, TypeScript, a small task coordinator, SQLite and isolated candidate workspaces. The finished product is a downloadable local desktop developer tool built over the same core. Product accounts, cloud services and direct model API connections are not prerequisites.
 
@@ -24,6 +30,7 @@ This is the standalone handoff specification for coding agents. It incorporates 
 14. Risks, decisions and optional extensions
 15. Instructions for coding agents
 16. Current reference sources
+17. Day-one workspace amendment — 12 September 2026
 
 ## 1. Problem statement and product objective
 
@@ -91,7 +98,7 @@ These defaults make the plan executable without another design interview. They a
 
 ### Explicit MVP exclusions
 
-No web dashboard, desktop installer, persistent TUI application shell (a single run's live view is FR080), account service, billing, hosted database, remote runners, universal GUI automation, API-key gateway, agent marketplace, avatar office, vector database, automatic runtime installation or production deployment.
+No hosted or remote web dashboard (a loopback-only local office view over the recorded coordinator state is FR084), desktop installer, persistent TUI application shell (a single run's live view is FR080), account service, billing, hosted database, remote runners, universal GUI automation, API-key gateway, agent marketplace, simulated avatar activity (the FR084 view renders recorded state only), vector database, automatic runtime installation or production deployment.
 
 Skipping these features does not remove the core requirements for real handoffs, collaboration, evidence, safe workspace ownership and bounded recovery. A single prompt launcher is an intermediate demonstration, not the complete MVP.
 
@@ -211,6 +218,7 @@ The IDs below are stable implementation and review references. "By" is the first
 | FR081 | Attachable per-task view | R1 | `workforce watch <run-id> [--task <key>]` renders a live or finished run read-only from a second terminal, taking no coordinator lock. |
 | FR082 | Heartbeat status block | R1 | The plain renderer prints a periodic status block while two or more tasks are live, so a pipe, a CI log and a small terminal still say what is alive. |
 | FR083 | Interactive launcher | R1 | `workforce` with no arguments asks, on a TTY, only for what it cannot determine: it defaults the repository to the working directory, discovers runtimes passively, finds or offers to write an agent configuration, shows the resolved acceptance checks before running them, gets an explicit answer to the unconfined-writes question when the binding needs it, and prints the equivalent flag form. Without a TTY it exits 2 naming that flag form; every flag keeps its meaning. |
+| FR084 | Local office view | R1 | `workforce serve` binds 127.0.0.1 only and renders the configured agents, passive runtime readiness, recorded runs, events and evidence from the state store opened read-only, taking no coordinator lock. It refuses a request whose Host is not the bound loopback address, an API request from a foreign Origin, and a start request without this server's Origin and per-process session token; it never sends an `Access-Control-Allow-Origin` header. It starts work only by executing `workforce run --json` with an argument array (never a shell), so the same lock, preflight, containment gate and verifier apply; it holds no task truth of its own, and reloading the page never starts or duplicates work. It is a view over coordinator state, not a second execution authority, and it does not replace the Electron desktop application, which remains WP12/R3 (FR018, FR063, FR071–FR076). Added at the user's request during WP10; it does not displace the R1 real-runtime demonstrations. |
 | FR059 | Artifact manifest | R1 | Export a portable run report containing contract versions, revisions, patches, check results and unresolved issues. |
 | FR060 | Honest timing and usage | R1 | Separate dispatch, startup, model/runtime, validation and integration time; distinguish measured/estimated/unavailable usage. |
 | FR061 | Read-only status inspection | R1 | Another terminal can inspect a run without taking coordinator ownership or creating duplicate execution. |
@@ -259,7 +267,7 @@ The IDs below are stable implementation and review references. "By" is the first
 | Tests | TypeScript tests plus subprocess fixtures and real runtime acceptance runs | Add desktop end-to-end and release tests at R3/R4. |
 | Desktop, later | Electron + React; core runs outside the renderer | Narrow validated IPC, with a separately owned execution service for background work. |
 
-LangGraph, Temporal, Redis, Celery, a hosted gateway and a separate HTTP backend are not MVP dependencies. Reusing runtime agent loops means our system coordinates sessions rather than reimplementing every coding tool. The custom coordinator still requires real persistence and recovery engineering.
+LangGraph, Temporal, Redis, Celery, a hosted gateway and a separate HTTP backend are not MVP dependencies. The FR084 office view is a loopback `node:http` server inside the CLI that reads the state store and invokes the coordinator; nothing in the coordinator depends on it. Reusing runtime agent loops means our system coordinates sessions rather than reimplementing every coding tool. The custom coordinator still requires real persistence and recovery engineering.
 
 LangGraph provides persistent workflows and asynchronous task primitives; it remains a possible replacement if the coordinator becomes complex. Its graph supersteps and Functional API have different scheduling implications, so no inherent speed claim is made. [LangGraph Functional API](https://docs.langchain.com/oss/javascript/langgraph/functional-api), [graph runtime](https://docs.langchain.com/oss/javascript/langgraph/pregel).
 
@@ -595,6 +603,7 @@ The commands below are proposed public contracts, not installed commands. `workf
 | `workforce run --repo <path> --agents <file> --task <text>` | Start a foreground run with explicit configuration; support a task-file input for larger briefs. |
 | `workforce status <run-id> [--json]` | Inspect persisted current/history state without executing work. |
 | `workforce resume <run-id>` | Reconcile and explicitly continue an interrupted or cancelled run under exclusive ownership, creating a new attempt where needed. |
+| `workforce serve [--port <n>] [--state-dir <dir>] [--open]` | Loopback-only local office view over the recorded state (FR084): database opened read-only, no coordinator lock; a start request writes only its launch logs under `<state-root>/serve/launches` and starts the run only by executing `workforce run --json`. |
 
 Ctrl+C is the initial cancellation control. Required questions can be answered in the foreground terminal; persist them and their answers. Noninteractive mode must exit with an explicit waiting-for-input result rather than hang forever. Advanced interactive steering and separate pause/answer commands arrive in R2.
 
@@ -614,7 +623,7 @@ R0 can print one adapter's events and result. R1 must show actual coordination a
 - **History/storage:** reopen work, export reports, view storage and perform eligible cleanup/backup operations.
 - **Settings:** runtime paths, concurrency, budgets, notification preferences, background execution and privacy/update controls.
 
-Use a restrained interface with readable hierarchy; Kanban is an optional view of task state, not the execution engine. Office avatars and visual decoration are not required product features. Keyboard access and readable status text are part of functionality.
+Use a restrained interface with readable hierarchy; Kanban is an optional view of task state, not the execution engine. Office avatars and visual decoration are not required product features. The user has chosen an office presentation, and the loopback FR084 view serves it over the recorded state ahead of the desktop milestone; that view does not replace this section, and the Electron desktop application remains WP12/R3. Keyboard access and readable status text are part of functionality.
 
 In Electron, the renderer is not the trusted execution boundary. Run the core outside it, use context isolation, disable renderer Node access and expose only validated narrow IPC. The desktop UI consumes the same commands/events as the CLI. Electron's renderer sandbox does not sandbox the coding subprocesses; retain their independent execution controls. [Electron process model](https://www.electronjs.org/docs/latest/tutorial/process-model), [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
 
@@ -678,6 +687,7 @@ Use fake runtimes and small fixture repositories for deterministic failure tests
 | AT24 | R4 | External developer onboarding, accessibility, large logs/diffs, compatibility upgrades and signed update checks pass on each declared platform. |
 | AT25 | R1 | A three-task planned run in a 100x30 pty shows three board rows, one per dispatched task; after the view exits, the run's human output is byte for byte what the same run produces under `--view plain`. |
 | AT26 | R1 | A session started with no arguments and answered at the prompt dispatches the same run the printed flag form would; the repository is defaulted rather than asked for, a signed-out runtime is refused with its login command, and a repository with no acceptance check refuses to run. |
+| AT27 | R1 | `workforce serve` over a fixture state root: `/api/runs/<id>` is the document `workforce status <id> --json` prints; the event stream delivers every recorded event in order and, reconnected with `Last-Event-ID`, resumes after it without a repeat; a foreign Host, a foreign or missing Origin on a start request, a missing or wrong session token and a path outside the vendored UI (encoded `..`, a symlink out of the tree) are refused; an invalid start request is refused before any process starts, and a valid one executes `workforce run --json` as an argument array with `shell: false`, whose run then reaches its verified state through the ordinary verifier. |
 
 The R1 demonstration must include AT02, AT04, AT05 and both a failed-check repair and interruption/resume case. The additional deterministic tests protect the coordination boundary. A successful unit suite does not substitute for these real-runtime demonstrations.
 
@@ -827,3 +837,130 @@ Technical references were inspected during this planning session on 7 September 
 Use reference architectures as research. Multica's inspected license adds restrictions on third-party hosting and commercial embedding beyond Apache terms. Munder's code uses MIT terms with separate asset terms. Build our original implementation and resolve any proposed source/asset reuse against the applicable license before copying. [Multica license](https://github.com/multica-ai/multica/blob/7a438bd5b8bf39afd54259a7eb0971390e50a8ef/LICENSE), [Munder code license](https://github.com/chaitanyagiri/munder-difflin/blob/3e4f9f62a0f219b45f6428fd62f1a8a546d0f607/LICENSE), [Munder asset terms](https://github.com/chaitanyagiri/munder-difflin/blob/main/LICENSE-ASSETS).
 
 The implementation target is the user's workflow and acceptance criteria. References and frameworks are replaceable; the requirement to preserve intent, work, ownership and verified outcomes is not.
+
+
+## 17. Day-one workspace amendment — 12 September 2026
+
+### Authority and release boundary
+
+The user requested an assembled, polished local workspace they can use immediately: configure
+projects, departments, heads and workers; send real work through the head; see what every part
+is doing; and dogfood the result. The reviewed redesign and subsequent day-one build decisions
+pull selected workspace and visual configuration features forward from WP11/R2 and WP12/R3.
+This amends the earlier instruction to defer all those screens until the complete release gate.
+It does not declare R2, R3 or R4 complete, nor turn fake-runtime tests into real-runtime evidence.
+
+The day-one implementation is the existing foreground engine plus a loopback page server and
+an isolated state root for each registered project. It replaces the redesign's proposed
+long-lived workspace coordinator for this milestone. No database migration to a single
+multi-project authority, global slot broker, hosted driver lifecycle or control inbox is required
+for day one. Those remain a later architectural option.
+
+The implementation target remains a verified **local candidate**. Automatic checkout application,
+remote publication, merge, deployment and a desktop installer are outside this amendment.
+The [start-here guide](start-here.md) documents ordinary use; the
+[integration record](evidence/workspace/2026-09-12-dogfood.md) is the dated evidence ledger.
+
+### Decisions that govern the implementation
+
+1. **Every workspace request reaches its department head.** The head makes a real planning
+   decision even with one eligible worker. The legacy `run --repo --agents` direct path keeps
+   FR029; the new `run --project --department` path always plans. Workers in one run can still
+   message peers through the existing coordination bridge without a mandatory head relay.
+2. **The project owns its execution state.** `workspace.json` is schema version 2 with a revision
+   counter. Each project gets `<state-root>/projects/<project-id>/` containing an ordinary engine
+   database, coordinator lock, run artifacts and candidate workspace directories. A new task
+   uses the project's committed HEAD; uncommitted source remains excluded.
+3. **Page-managed admission is bounded.** Requests queue in FIFO order per project, one live
+   request per project. Different projects may run together, subject to
+   `maxConcurrentProjectRuns` (default 2), roster worker availability and runtime isolation.
+   The existing engine separately enforces each run's own turn and writer limits. Direct CLI
+   processes remain foreground engine invocations; the page server is not a universal broker
+   for arbitrary independently started processes.
+4. **Unverified containment requires exclusive page admission.** Any roster containing a runtime
+   whose write containment is not verified runs alone, including a Claude Code analysis head.
+   The page requests the relevant explicit consent. Exclusivity is an admission rule, not an
+   OS filesystem boundary. Codex is the suggested head when available.
+5. **Office uses the user-selected original design over real state.** The user explicitly selected
+   the prototype at `127.0.0.1:4318` as the visual reference. The working `#/office` route in
+   `web/workspace` retains that composition, edge-to-edge office shell and Control center
+   structure, with the user's subsequent orientation edit: all 24 department desks face the
+   central Coordinator. The active `office-inward.png` and `office-inward-empty.png` are derivatives
+   of the unchanged original `office-clean.png`. The six drawn islands are visual slots, while
+   saved department/agent IDs remain authoritative. Unoccupied seats use the empty artwork and
+   are labeled open; overflow rosters remain
+   available through the complete Team list. The central Coordinator is the system scheduler,
+   with no invented model. Configured routing lines are distinct from recorded messages.
+   Control center Assign uses the existing project/department/check/consent submission sheet;
+   Tasks shows recorded work; Connections performs passive runtime inspection. Its text input
+   is a task draft, not a simulated chat. Home retains the setup checklist and work overview. The reference remains a read-only static
+   demo on 4318; real requests use the engine-backed app on 4317. No sample activity, model chat
+   or extra universal coordinator is introduced by the visual integration.
+6. **Stopping and restarting keep truthful state.** A queued request becomes held after server
+   restart and never auto-starts. Active tasks remain separate processes when the page server
+   stops. A task stop must settle as interrupted, not failed; Resume reconciles its original
+   project and saved roster before continuing. Stop requests and observed settlement are distinct.
+
+### Added feature rows
+
+FR085–FR090 are new in the authoritative master plan. Their day-one acceptance criteria below
+replace proposals bearing those IDs in the earlier unimplemented redesign draft.
+
+| ID | Feature | Milestone | Acceptance criterion |
+| --- | --- | --- | --- |
+| FR085 | Workspace organization | WP10b, selected R2 scope brought forward | A validated schema-v2 workspace contains user-defined projects, departments, heads, workers, runtime bindings and limits. Empty is valid. Repeated department names need distinguishing notes; a head belongs to one department and uses analysis; a worker with no project assignment gets no work. Saves use revision comparison and atomic replacement; retired IDs are never reused. CLI and UI use the same operations. |
+| FR086 | Department head assignment | WP10b, FR030 extended | Every workspace request plans in a project analysis candidate. A head-only `workforce_propose_plan` tool proposes bounded tasks with assignees. Code validates dependencies, task limits and membership in department ∩ project. Invalid proposals get at most one correction attempt; a plan in prose assigns nothing. Dispatch and resume use the frozen eligible roster. |
+| FR087 | Separate project execution roots | WP10b, selected FR026 scope | Each registered project has a distinct database, execution lock, run directory and candidate workspace root. One existing foreground coordinator mutates each active project root. Different project executions do not share task truth. The page aggregates read-only project status with explicit project identity; removing a registration never deletes source. |
+| FR088 | Project request admission | WP10b, selected FR038 scope | One page queue manager per workspace admits one request per project at a time, respects the concurrent-project cap, refuses overlapping use of a roster worker, and runs unverified-containment rosters alone. Every queued request carries its blocking reason. Restored queued requests are held until Start; Discard starts nothing. |
+| FR089 | Guided workspace setup and editing | WP10b, selected FR016/FR018/FR072 scope | The local page offers passive tool checks, Add project with detected or entered checks, an editable suggested department, project assignments and first-task submission. Ready requires a sendable department/project pair. Configuration operations require the existing Host/Origin/token gate and revision check; malformed files are never silently overwritten. |
+| FR090 | Recorded workspace task view | WP10b, selected FR040/FR057/FR063/FR073 scope | Home, the selected Office composition with the requested inward-facing desks and Control center, Needs you and task history consume recorded state. Each task displays Sent, Department head, Work, Checks and Review, current actors, changes, checks, events and record disclosures. A passing uncompromised verifier receipt is required for green/Verified. Queueing, planning, interruption, failure and missing proof remain visibly distinct; stop/resume controls reflect actual ownership. |
+
+FR084 now serves `web/workspace` by default. Its loopback-only Host/Origin/token and
+`shell:false` launch boundaries remain. It also writes validated workspace configuration and
+its request queue under the state root; project databases are still read-only in the page
+server. Starts and resumes invoke the CLI engine with argument arrays. This is a local browser
+interface, not the WP12 Electron shell.
+
+FR039 covers cancellation while the head is planning as well as while workers execute. A
+validated plan must not be silently replaced during resume. Planning without a validated plan
+can start a replacement head attempt, preserving prior evidence and the original roster.
+
+### Day-one acceptance gates
+
+AT28–AT35 extend AT27. These are required scenarios; only a linked dated receipt establishes
+that a scenario was executed. Deterministic tests and real-runtime variants stay separately
+labelled.
+
+| Test | Scope | Scenario and pass condition |
+| --- | --- | --- |
+| AT28 | Workspace configuration | Empty setup validates and submits nothing. Invalid references, duplicate ambiguous departments and reused retired IDs are refused. Concurrent saves yield one successful revision and one conflict without losing the newer edit. An interrupted atomic write leaves a usable earlier file. Import assigns no worker to a project and starts no model turn. |
+| AT29 | Head and roster authority | Each workspace request records head planning. A real tool proposal assigns only workers in department ∩ project; an off-roster assignee and prose-only plan start no worker. An invalid plan retries at most once and records its rejection. Saved configuration constrains subsequent execution and resume. |
+| AT30 | Project isolation | Two fixture projects use distinct database, lock, run, artifact and candidate paths. Audit task/attempt and artifact identities for cross-project contamination. Original project checkouts remain unchanged by the controlled task. A project path with a Git fsmonitor hook is inspected without executing the hook. |
+| AT31 | Admission and concurrency | Two eligible confined-runtime projects overlap in execution. A second request to one project waits, the concurrent-project limit holds, a shared worker never overlaps, and an unverified-containment roster runs exclusively in both directions. Every waiting request has its actual reason. |
+| AT32 | Stop, resume and held requests | Stop during head planning and during planned worker execution settles interrupted and remains recoverable. Resume preserves the validated plan when one exists, completed work and the saved roster, with no competing writer. Restart holds queued work until Start; Discard starts nothing. Server close and task stop have their documented distinct effects. |
+| AT33 | New-user browser walkthrough | In a real browser, start at an empty state; inspect tools; add projects and checks; review and save the starter department; assign workers; submit work; inspect the five phases, changes and checks; stop/resume. Exercise the Office map, real Control center actions, configured routing view, keyboard pan/zoom/fit and complete team-list/overflow access. Repeat relevant views at 390 px with usable controls and no page clipping. A bounded real Codex task independently proves head planning, worker execution and verifier acceptance on a disposable demo copy. |
+| AT34 | Honest results and regression | False runtime success, rewritten acceptance tests, missing/compromised receipts, stopped tasks and old history never become Verified without valid evidence. Displayed actors/stages trace to stored rows or events. Full typecheck/build and existing tests pass; legacy CLI contracts and exit codes remain unchanged. |
+| AT35 | Local server security | Against the live server, foreign/missing Origin on writes, bad Host/token, stale revisions, oversized/invalid bodies, path traversal and symlink escape attempts are refused without launching work or changing configuration. Task text survives argument-array dispatch literally. A malformed workspace file causes a clear refusal and is preserved. |
+
+The takeover baseline on 12 September 2026 was typecheck and build passing, **1,133 tests
+passing, 32 skipped, 0 failing** on the uncommitted implementation. That baseline established
+component coverage, not completion of AT28–AT35. The dated integration record contains the
+post-repair commands, counts, browser receipts, real runtime version and candidate identity.
+
+### Explicitly deferred after day one
+
+- Concurrent separate requests on the same project; cross-project task graphs and automatic
+  cross-department routing.
+- The long-lived workspace coordinator, global turn/writer broker, hosted-run recovery protocol
+  and associated single-database schema migration from the larger redesign.
+- A workspace project filter, an Import button and detail pages for tasks recorded before
+  workspaces. CLI import and a read-only earlier-history list are present.
+- A real Claude Code department-head acceptance run. Existing worker-adapter evidence is a
+  separate claim and does not validate that head path.
+- Rich requirement steering, human question/answer workflow, dirty-work snapshots and automatic
+  local candidate application from the wider R2 plan.
+- Desktop installers, signed updates, background service management, backup/restore UX and the
+  independent external-user acceptance needed for R3/R4.
+
+The page is intended for local engineering dogfooding with these limits visible. Full stable
+product claims still require the original release checklist and independent user evidence.

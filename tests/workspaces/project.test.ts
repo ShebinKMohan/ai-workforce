@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_DIRTY_PATHS,
   findProjectByPath,
@@ -12,7 +12,7 @@ import { git } from '../../src/workspaces/git.js';
 import { openTempState } from '../helpers/state.js';
 import { cleanupAll, fingerprintCheckout, registerCleanup, tempDir, useFixture } from './support.js';
 
-afterEach(() => cleanupAll());
+afterEach(() => { cleanupAll(); vi.unstubAllEnvs(); });
 
 describe('inspectProject reads a repository without touching it (FR019)', () => {
   it('reports identity, base revision, branch and a clean working tree', async () => {
@@ -85,6 +85,20 @@ describe('inspectProject reads a repository without touching it (FR019)', () => 
     expect(inspection.canonicalPath).toBe(path.join(fixture.path, 'src'));
     expect(inspection.diagnostics.join(' ')).toContain('is inside the repository rooted at');
   });
+
+  it('expands a home-relative folder without shell interpretation', async () => {
+    const fixture = await useFixture('ts-bug');
+    vi.stubEnv('HOME', path.dirname(fixture.path));
+    const inspection = await inspectProject(`~/${path.basename(fixture.path)}/src`);
+    expect(inspection.repositoryRoot).toBe(fixture.path);
+    expect(inspection.canonicalPath).toBe(path.join(fixture.path, 'src'));
+  });
+
+  it('refuses an unreadable index instead of claiming the working tree is clean', async () => {
+    const fixture = await useFixture('ts-bug');
+    writeFileSync(path.join(fixture.path, '.git', 'index'), 'broken index');
+    await expect(inspectProject(fixture.path)).rejects.toMatchObject({ code: 'working_tree_unreadable' });
+  });
 });
 
 describe('parsePorcelainStatus', () => {
@@ -146,6 +160,39 @@ describe('registerProject persists a project without altering the checkout (FR01
 });
 
 describe('inspection never runs repository hooks', () => {
+  it('does not execute a configured fsmonitor command or change the index', async () => {
+    const fixture = await useFixture('ts-bug');
+    const scratch = tempDir('workforce-fsmonitor-');
+    const marker = path.join(scratch, 'executed');
+    const script = path.join(scratch, 'monitor');
+    writeFileSync(script, `#!/bin/sh\nprintf executed > '${marker}'\nprintf '\\0'\n`, { mode: 0o755 });
+    expect((await git(['config', 'core.fsmonitor', script], { cwd: fixture.path })).ok).toBe(true);
+    const index = path.join(fixture.path, '.git', 'index');
+    const before = readFileSync(index);
+
+    const inspection = await inspectProject(fixture.path);
+
+    expect(inspection.dirty.clean).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+    expect(readFileSync(index)).toEqual(before);
+  });
+
+  it('does not execute a configured clean filter while reading changed source', async () => {
+    const fixture = await useFixture('ts-bug');
+    const scratch = tempDir('workforce-filter-');
+    const marker = path.join(scratch, 'executed');
+    const script = path.join(scratch, 'clean');
+    writeFileSync(script, `#!/bin/sh\nprintf executed > '${marker}'\ncat\n`, { mode: 0o755 });
+    expect((await git(['config', 'filter.host-command.clean', script], { cwd: fixture.path })).ok).toBe(true);
+    writeFileSync(path.join(fixture.path, '.gitattributes'), '*.js filter=host-command\n');
+    writeFileSync(path.join(fixture.path, 'src', 'pagination.js'), '// changed source\n');
+
+    const inspection = await inspectProject(fixture.path);
+
+    expect(inspection.dirty.unstaged.paths).toContain('src/pagination.js');
+    expect(existsSync(marker)).toBe(false);
+  });
+
   it('leaves a hook that would create a marker file unexecuted', async () => {
     const fixture = await useFixture('ts-bug');
     const marker = path.join(tempDir('workforce-hook-'), 'hook-ran.txt');

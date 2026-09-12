@@ -1,0 +1,93 @@
+{
+  "ok": true,
+  "accepting": true,
+  "managedElsewhere": null,
+  "notice": null,
+  "limits": {
+    "maxConcurrentProjectRuns": 2
+  },
+  "live": [],
+  "items": [
+    {
+      "id": "01a09578-9ea9-72a4-8dd8-7cf572262f34",
+      "kind": "request",
+      "projectId": "app",
+      "departmentId": "eng",
+      "task": "Add a changelog entry for the pagination fix.",
+      "resumeRunId": null,
+      "allowUnconfinedWrites": true,
+      "state": "discarded",
+      "reason": null,
+      "receivedAt": "2026-09-12T11:55:05.257Z",
+      "startedAt": null,
+      "endedAt": "2026-09-12T11:55:18.485Z",
+      "heldAt": "2026-09-12T11:55:05.279Z",
+      "agentIds": [
+        "atlas",
+        "nova",
+        "mira"
+      ],
+      "workerIds": [
+        "nova",
+        "mira"
+      ],
+      "exclusive": true,
+      "unconfinedRuntimes": [
+        "test runtime"
+      ],
+      "launchId": null,
+      "pid": null,
+      "pidStartedAtMs": null,
+      "stdoutPath": null,
+      "stderrPath": null,
+      "runId": null,
+      "stopRequestedAt": null,
+      "exitCode": null,
+      "signal": null,
+      "result": null
+    },
+    {
+      "id": "01a09578-9aea-73d8-acb4-47ad501f8b78",
+      "kind": "request",
+      "projectId": "app",
+      "departmentId": "eng",
+      "task": "Add docs for the pagination helpers and the search endpoint.",
+      "resumeRunId": null,
+      "allowUnconfinedWrites": true,
+      "state": "ended",
+      "reason": null,
+      "receivedAt": "2026-09-12T11:55:04.298Z",
+      "startedAt": "2026-09-12T11:55:04.311Z",
+      "endedAt": "2026-09-12T11:55:17.964Z",
+      "heldAt": null,
+      "agentIds": [
+        "atlas",
+        "nova",
+        "mira"
+      ],
+      "workerIds": [
+        "nova",
+        "mira"
+      ],
+      "exclusive": true,
+      "unconfinedRuntimes": [
+        "test runtime"
+      ],
+      "launchId": "01a09578-9af0-7414-bf17-23689449b90d",
+      "pid": 37659,
+      "pidStartedAtMs": 1789214104317,
+      "stdoutPath": "/Users/you/.workforce/serve/launches/01a09578-9af0-7414-bf17-23689449b90d.stdout.jsonl",
+      "stderrPath": "/Users/you/.workforce/serve/launches/01a09578-9af0-7414-bf17-23689449b90d.stderr.log",
+      "runId": "01a09578-9c29-7771-8dc1-21d6070ba381",
+      "stopRequestedAt": null,
+      "exitCode": 0,
+      "signal": null,
+      "result": {
+        "exitCode": 0,
+        "code": null,
+        "message": null,
+        "details": []
+      }
+    }
+  ]
+}

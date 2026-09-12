@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "accepting": true,
+  "managedElsewhere": null,
+  "notice": null,
+  "limits": {
+    "maxConcurrentProjectRuns": 2
+  },
+  "live": [],
+  "items": []
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Workforce</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="stylesheet" href="/src/office/spatial.css" />
+    <link rel="stylesheet" href="/src/office/control-center.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="topbar">
+      <a class="wordmark" href="#/office" aria-label="Agent Office home"><span class="ao-brand-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="m5 11 11-6 11 6v11l-11 6-11-6zM5 11l11 6 11-6M16 17v11M11 8l11 6v11"/></svg></span><span>AGENT OFFICE</span></a>
+      <span id="office-count" class="ao-header-count"></span>
+      <div class="topbar-right">
+        <button class="menu-button" type="button" aria-expanded="false" aria-controls="nav">Workspace ▾</button>
+        <a class="ao-header-agents" href="#/departments">Agents <span id="office-agent-count">0</span></a>
+        <button class="ao-add-agent" type="button" data-action="office-add-agent"><span aria-hidden="true">+</span> Add agent</button>
+        <a class="needs-count" id="needs-count" href="#/home" hidden></a>
+        <button class="button button-primary" type="button" id="new-task" data-action="open-sheet" data-sheet="new-task" hidden>New task</button>
+      </div>
+    </header>
+    <div class="shell">
+      <nav id="nav" class="nav" aria-label="Main"></nav>
+      <main id="main" class="main" tabindex="-1">
+        <div id="banner" class="banner-slot"></div>
+        <div id="page" class="page"><p class="muted loading">Reading your workspace…</p></div>
+      </main>
+    </div>
+    <div id="sheet-root"></div>
+    <div id="announcer" class="visually-hidden" role="status" aria-live="polite"></div>
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>

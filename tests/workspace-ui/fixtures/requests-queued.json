@@ -1,0 +1,101 @@
+{
+  "ok": true,
+  "accepting": true,
+  "managedElsewhere": null,
+  "notice": null,
+  "limits": {
+    "maxConcurrentProjectRuns": 2
+  },
+  "live": [
+    {
+      "projectId": "app",
+      "requestId": "01a09578-9aea-73d8-acb4-47ad501f8b78",
+      "startedOutsideThisPage": false,
+      "pid": 37659,
+      "workerIds": [
+        "nova",
+        "mira"
+      ],
+      "runsOnItsOwn": true,
+      "runsOnItsOwnBecause": "test runtime has no verified file boundary"
+    }
+  ],
+  "items": [
+    {
+      "id": "01a09578-9ea9-72a4-8dd8-7cf572262f34",
+      "kind": "request",
+      "projectId": "app",
+      "departmentId": "eng",
+      "task": "Add a changelog entry for the pagination fix.",
+      "resumeRunId": null,
+      "allowUnconfinedWrites": true,
+      "agentIds": [
+        "atlas",
+        "nova",
+        "mira"
+      ],
+      "workerIds": [
+        "nova",
+        "mira"
+      ],
+      "exclusive": true,
+      "unconfinedRuntimes": [
+        "test runtime"
+      ],
+      "state": "queued",
+      "reason": "waiting: another task is running on Storefront",
+      "receivedAt": "2026-09-12T11:55:05.257Z",
+      "startedAt": null,
+      "endedAt": null,
+      "heldAt": null,
+      "launchId": null,
+      "pid": null,
+      "pidStartedAtMs": null,
+      "stdoutPath": null,
+      "stderrPath": null,
+      "runId": null,
+      "stopRequestedAt": null,
+      "exitCode": null,
+      "signal": null,
+      "result": null
+    },
+    {
+      "id": "01a09578-9aea-73d8-acb4-47ad501f8b78",
+      "kind": "request",
+      "projectId": "app",
+      "departmentId": "eng",
+      "task": "Add docs for the pagination helpers and the search endpoint.",
+      "resumeRunId": null,
+      "allowUnconfinedWrites": true,
+      "agentIds": [
+        "atlas",
+        "nova",
+        "mira"
+      ],
+      "workerIds": [
+        "nova",
+        "mira"
+      ],
+      "exclusive": true,
+      "unconfinedRuntimes": [
+        "test runtime"
+      ],
+      "state": "running",
+      "reason": null,
+      "receivedAt": "2026-09-12T11:55:04.298Z",
+      "startedAt": "2026-09-12T11:55:04.311Z",
+      "endedAt": null,
+      "heldAt": null,
+      "launchId": "01a09578-9af0-7414-bf17-23689449b90d",
+      "pid": 37659,
+      "pidStartedAtMs": 1789214104317,
+      "stdoutPath": "/Users/you/.workforce/serve/launches/01a09578-9af0-7414-bf17-23689449b90d.stdout.jsonl",
+      "stderrPath": "/Users/you/.workforce/serve/launches/01a09578-9af0-7414-bf17-23689449b90d.stderr.log",
+      "runId": "01a09578-9c29-7771-8dc1-21d6070ba381",
+      "stopRequestedAt": null,
+      "exitCode": null,
+      "signal": null,
+      "result": null
+    }
+  ]
+}

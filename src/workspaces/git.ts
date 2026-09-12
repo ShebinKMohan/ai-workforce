@@ -3,12 +3,10 @@
  *
  * Rules enforced here rather than at every call site:
  *
- * - Hooks never run. Inspection uses read-only plumbing that has no hooks,
- *   and the commands that would run one (`worktree add` -> post-checkout,
- *   `commit` -> pre-commit/commit-msg/post-commit) are invoked with
- *   `-c core.hooksPath=<empty directory the coordinator owns>`. Repository
- *   hooks are untrusted code; passive inspection and workspace setup must
- *   never execute them.
+ * - Hooks, fsmonitor commands and content filters never run. Repository
+ *   configuration is untrusted code too: even `status` can launch a clean
+ *   filter. Coordinator operations use raw Git content, so LFS pointers are
+ *   kept as pointers; fetching or converting them is not passive inspection.
  * - Inspection never writes. `--no-optional-locks` stops `git status` from
  *   refreshing (and therefore rewriting) the user's index, so registering a
  *   project cannot modify the checkout in any way.
@@ -16,13 +14,14 @@
  *   credential helper cannot open a prompt in the middle of a run.
  */
 import { mkdirSync, realpathSync } from 'node:fs';
+import { devNull } from 'node:os';
 import path from 'node:path';
 import { runCommand, type CommandRun } from './exec.js';
 
 export const DEFAULT_GIT_TIMEOUT_MS = 60_000;
 
 /** Environment variables git may see. Anything else (including credentials) is dropped. */
-const GIT_ENV_WHITELIST = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'SSH_AUTH_SOCK'] as const;
+const GIT_ENV_WHITELIST = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR'] as const;
 
 export interface GitIdentity {
   readonly name: string;
@@ -77,7 +76,49 @@ function gitEnv(extra?: Readonly<Record<string, string>>): Record<string, string
   env['GIT_ASKPASS'] = '';
   env['GIT_PAGER'] = 'cat';
   env['GIT_ADVICE'] = '0';
+  // Reading a missing partial-clone object must not start a remote helper.
+  env['GIT_NO_LAZY_FETCH'] = '1';
   return { ...env, ...extra };
+}
+
+const CONTENT_COMMANDS = new Set(['status', 'add', 'worktree', 'checkout', 'checkout-index', 'commit', 'diff', 'show', 'apply', 'read-tree']);
+
+/** Skip Git's global options, without mistaking a file or message for a command. */
+function subcommandIndex(args: ReadonlyArray<string>): number {
+  const withValue = new Set(['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--config-env', '--attr-source', '--super-prefix']);
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (withValue.has(arg)) { i += 1; continue; }
+    if (!arg.startsWith('-')) return i;
+  }
+  return -1;
+}
+
+/**
+ * Filter driver names are arbitrary, so one fixed -c flag cannot disable
+ * them. Read names only (never config values/credentials), then override the
+ * executable settings for this invocation. Re-read on each content command:
+ * a repository may have changed since registration or the preceding command.
+ */
+async function disabledContentFilters(options: GitOptions, env: Record<string, string>): Promise<string[]> {
+  const args = ['--no-optional-locks', 'config', '--null', '--name-only', '--get-regexp', '^filter\\..*\\.(clean|smudge|process|required)$'];
+  const config = await runCommand({
+    command: 'git', args, cwd: options.cwd, env,
+    timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+    maxOutputBytes: 1024 * 1024,
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
+  });
+  // Exit 1 means there are no matching keys. Any other failure or incomplete
+  // output must fail closed rather than execute a possibly omitted driver.
+  if ((!config.ok && config.exitCode !== 1) || config.truncated) throw new GitError(args, config);
+  const drivers = new Set(config.stdout.split('\0').flatMap((key) => {
+    const match = /^filter\.(.+)\.(clean|smudge|process|required)$/i.exec(key);
+    return match === null ? [] : [match[1]!];
+  }));
+  return [...drivers].flatMap((driver) => [
+    '-c', `filter.${driver}.clean=`, '-c', `filter.${driver}.smudge=`,
+    '-c', `filter.${driver}.process=`, '-c', `filter.${driver}.required=false`,
+  ]);
 }
 
 /**
@@ -105,16 +146,22 @@ function identityEnv(identity: GitIdentity, at?: string): Record<string, string>
   return env;
 }
 
-/** Run git. Returns the outcome for both success and failure; never throws for a non-zero exit. */
+/** Run git. Returns command outcomes; refuses before execution if filter configuration cannot be read safely. */
 export async function git(args: ReadonlyArray<string>, options: GitOptions): Promise<CommandRun> {
-  const prefix: string[] = [];
+  const prefix = ['-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${devNull}`, '-c', 'gc.auto=0', '-c', 'maintenance.auto=false'];
   if (options.noHooksDir !== undefined) prefix.push('-c', `core.hooksPath=${ensureNoHooksDir(options.noHooksDir)}`);
-  const full = [...prefix, ...args];
+  const env = gitEnv({ ...(options.identity !== undefined ? identityEnv(options.identity) : {}), ...options.extraEnv });
+  const commandIndex = subcommandIndex(args);
+  const command = args[commandIndex];
+  if (command !== undefined && CONTENT_COMMANDS.has(command)) prefix.push(...await disabledContentFilters(options, env));
+  const content = [...args];
+  if (command === 'diff' || command === 'show') content.splice(commandIndex + 1, 0, '--no-ext-diff', '--no-textconv');
+  const full = [...prefix, ...content];
   return await runCommand({
     command: 'git',
     args: full,
     cwd: options.cwd,
-    env: gitEnv({ ...(options.identity !== undefined ? identityEnv(options.identity) : {}), ...options.extraEnv }),
+    env,
     timeoutMs: options.timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
     ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
     ...(options.signal !== undefined ? { signal: options.signal } : {}),

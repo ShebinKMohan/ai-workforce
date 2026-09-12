@@ -24,7 +24,8 @@ import { LockHeldError } from '../../storage/lock.js';
 import { openStateStore, StateNotFoundError, type StateStore } from '../../storage/db.js';
 import { SchemaTooNewError } from '../../storage/migrations.js';
 import { createStatePaths, PathsManifestSchema, resolveStateRoot } from '../../storage/paths.js';
-import { findRun } from '../../storage/records.js';
+import { findRun, transitionRun } from '../../storage/records.js';
+import { appendEvent } from '../../storage/events.js';
 import { loadAgentConfigFile, type LoadedAgentConfig } from '../../core/config.js';
 import { reconcileRun } from '../../recovery/reconcile.js';
 import { ResumeError, planSummaryLines, resumeRun, TERMINAL_RUN_STATES, type ResumePlan } from '../../recovery/resume.js';
@@ -155,10 +156,14 @@ export async function commandResume(args: ResumeCommandArgs, options: ResumeComm
     const { plan } = started;
 
     if (options.signal?.aborted === true) {
+      if (!plan.complete && !plan.blocked && findRun(store.db, runId)?.state === 'running') {
+        transitionRun(store.db, runId, 'interrupted');
+        appendEvent(store.db, { runId, type: 'recovery.interrupted', payload: { reason: 'interrupted before continuing; no successor was dispatched' } });
+      }
       return {
         command: 'resume',
         exitCode: EXIT_CODES.interrupted,
-        data: { runId, plan: planData(plan), status: 'interrupted' },
+        data: { runId, plan: planData(plan), status: 'interrupted', runState: findRun(store.db, runId)?.state },
         lines: [...planSummaryLines(plan), 'interrupted before continuing; the reconciled state is persisted'],
       };
     }

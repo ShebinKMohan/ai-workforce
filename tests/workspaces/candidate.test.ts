@@ -14,7 +14,7 @@ import {
   snapshotCandidate,
   type CandidateWorkspace,
 } from '../../src/workspaces/candidate.js';
-import { git, gitTextOrNull } from '../../src/workspaces/git.js';
+import { COORDINATOR_IDENTITY, git, gitTextOrNull } from '../../src/workspaces/git.js';
 import { inspectProject } from '../../src/workspaces/project.js';
 import { cleanupAll, fingerprintCheckout, fixedPaginationSource, registerCleanup, tempDir, useFixture, writeInto } from './support.js';
 
@@ -124,6 +124,32 @@ describe('granted paths never include shared Git administration', () => {
 });
 
 describe('snapshotCandidate freezes the candidate (FR041)', () => {
+  it('materializes and freezes raw content without smudge, clean, process or textconv commands', async () => {
+    const prepared = await prepare();
+    const marker = path.join(prepared.workspaceRoot, 'host-command-ran');
+    const script = path.join(prepared.workspaceRoot, 'host-command');
+    writeFileSync(script, `#!/bin/sh\nprintf executed > '${marker}'\ncat\n`, { mode: 0o755 });
+    const options = { cwd: prepared.repo, identity: COORDINATOR_IDENTITY };
+    writeFileSync(path.join(prepared.repo, '.gitattributes'), '*.js filter=host-command diff=host-command\n');
+    expect((await git(['add', '.gitattributes'], options)).ok).toBe(true);
+    expect((await git(['commit', '--no-gpg-sign', '-m', 'fixture attributes'], options)).ok).toBe(true);
+    const base = await gitTextOrNull(['rev-parse', 'HEAD'], options);
+    for (const key of ['filter.host-command.smudge', 'filter.host-command.clean', 'filter.host-command.process', 'diff.host-command.textconv', 'diff.host-command.command', 'core.fsmonitor']) {
+      expect((await git(['config', key, script], options)).ok).toBe(true);
+    }
+    expect((await git(['config', 'filter.host-command.required', 'true'], options)).ok).toBe(true);
+
+    const workspace = await makeCandidate(prepared, { baseRevision: base! });
+    expect(readFileSync(path.join(workspace.path, 'src', 'pagination.js'), 'utf8')).toContain('Math.floor(total / pageSize)');
+    writeFileSync(path.join(workspace.path, 'src', 'pagination.js'), fixedPaginationSource());
+    const snapshot = await snapshotCandidate(workspace, { message: 'show' });
+
+    expect(existsSync(marker)).toBe(false);
+    expect(snapshot.changedFiles).toEqual(['src/pagination.js']);
+    expect(readFileSync(snapshot.patchPath, 'utf8')).toContain('Math.ceil(total / pageSize)');
+    expect((await git(['show', `${snapshot.candidateRevision}:src/pagination.js`], options)).stdout).toBe(fixedPaginationSource());
+  });
+
   it('creates a checkpoint commit on the candidate branch with a coordinator identity, and a hashed patch', async () => {
     const prepared = await prepare();
     const workspace = await makeCandidate(prepared);

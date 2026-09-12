@@ -143,6 +143,63 @@ export function lastEventSequence(db: DatabaseSync, runId: string): number {
   return (db.prepare('SELECT COALESCE(MAX(sequence), 0) AS last FROM events WHERE run_id = ?').get(runId) as { last: number }).last;
 }
 
+/** One event row together with its position in the whole table. */
+export interface CursoredEvent {
+  /** Monotonic across every run; resume after it with `afterCursor`. */
+  readonly cursor: number;
+  readonly event: EventRecord;
+}
+
+/**
+ * Every run's events after a table-wide cursor, in the order they were written
+ * (FR084's live stream).
+ *
+ * `sequence` is only monotonic within one run, so it cannot order two runs'
+ * rows against each other. The row's `rowid` can: `events` is an ordinary rowid
+ * table, every insert happens inside the single writer's BEGIN IMMEDIATE
+ * transaction, SQLite allocates `max(rowid) + 1`, and nothing in this codebase
+ * deletes an event row — so a row committed later always has a larger rowid,
+ * and a reader that remembers the last one it saw never misses or repeats one.
+ */
+export function listEventsAfterCursor(db: DatabaseSync, options: { readonly afterCursor?: number; readonly limit?: number } = {}): CursoredEvent[] {
+  const rows = db
+    .prepare('SELECT rowid AS event_cursor, * FROM events WHERE rowid > ? ORDER BY rowid ASC LIMIT ?')
+    .all(options.afterCursor ?? 0, options.limit ?? 500) as unknown as Array<EventRow & { event_cursor: number }>;
+  return rows.map((row) => ({ cursor: row.event_cursor, event: toRecord(row) }));
+}
+
+/** The cursor of the newest event row in any run; 0 when there is none. */
+export function lastEventCursor(db: DatabaseSync): number {
+  return (db.prepare('SELECT COALESCE(MAX(rowid), 0) AS last FROM events').get() as { last: number }).last;
+}
+
+/** A task's newest recorded event: when it was last observed doing anything, and what. */
+export interface LastTaskEvent {
+  readonly taskId: string;
+  readonly type: string;
+  readonly timestamp: string;
+  readonly sequence: number;
+}
+
+/**
+ * Each task's newest event in one run (FR084's activity indicator).
+ *
+ * An office desk shows how long ago its task last produced an event instead
+ * of a percentage nobody measured. Uses the `(run_id, sequence)` index.
+ */
+export function lastEventPerTask(db: DatabaseSync, runId: string): LastTaskEvent[] {
+  const rows = db
+    .prepare(
+      `SELECT e.task_id AS task_id, e.type AS type, e.timestamp AS timestamp, e.sequence AS sequence
+         FROM events e
+         JOIN (SELECT task_id, MAX(sequence) AS last FROM events WHERE run_id = ? AND task_id IS NOT NULL GROUP BY task_id) newest
+           ON e.task_id = newest.task_id AND e.sequence = newest.last
+        WHERE e.run_id = ?`,
+    )
+    .all(runId, runId) as unknown as Array<{ task_id: string; type: string; timestamp: string; sequence: number }>;
+  return rows.map((row) => ({ taskId: row.task_id, type: row.type, timestamp: row.timestamp, sequence: row.sequence }));
+}
+
 /**
  * Replay events in order through `handler`, starting after `afterSequence`.
  * Returns the last sequence delivered so callers can persist a cursor and

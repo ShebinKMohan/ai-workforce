@@ -1,0 +1,13 @@
+{
+  "status": 409,
+  "body": {
+    "ok": false,
+    "error": {
+      "code": "runtime_not_ready",
+      "message": "the head's coding tool (claude-local) is not installed or not signed in",
+      "details": [
+        "the head's coding tool (claude-local) is not installed or not signed in"
+      ]
+    }
+  }
+}

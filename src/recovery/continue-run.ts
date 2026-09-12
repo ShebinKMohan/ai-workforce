@@ -42,11 +42,17 @@ import {
   type RunDirectResult,
   type RunStream,
 } from '../core/run-direct.js';
+import { continuePlannedRun, readPlanRecord, runPlanned, type RunPlannedResult } from '../core/run-planned.js';
+import { sha256Hex } from '../core/snapshot.js';
+import { planWithHead } from '../routing/head-planner.js';
+import { readHeadPlanningRecord, type HeadPlanningRecord } from '../routing/head-planning-record.js';
+import { buildRoster } from '../workspace/roster.js';
 import type { StateStore } from '../storage/db.js';
 import { appendEvent } from '../storage/events.js';
 import {
   beginNewGeneration,
   findRun,
+  getAttempt,
   getTask,
   listTasks,
   transitionRun,
@@ -100,6 +106,18 @@ export function prepareRunContinuation(store: StateStore, runId: string, fallbac
   if (run === null) throw new ContinueRunError('unknown_run', `run ${runId} not found under ${store.paths.root}`);
   const request = validateRunRequest(JSON.parse(run.request_json));
   const notes: string[] = [];
+
+  // A missing plan must never turn a planned request into independent direct
+  // tasks: that would skip the required combined-candidate verification.
+  // Validate this before reconciliation reserves any successor generation.
+  const created = store.db.prepare("SELECT payload_json FROM events WHERE run_id = ? AND type = 'run.created' ORDER BY sequence LIMIT 1").get(runId) as { payload_json: string } | undefined;
+  const origin = created === undefined ? null : JSON.parse(created.payload_json) as Record<string, unknown>;
+  if (origin?.['path'] === 'planned' && readPlanRecord(store.paths, runId) === null) {
+    const pendingHead = origin['planning'] === 'head' && listTasks(store.db, runId).length === 0;
+    if (!pendingHead || readHeadPlanningRecord(store.db, store.paths, runId) === null) {
+      throw new ContinueRunError('configuration_unavailable', `run ${runId} has no usable plan or pending head-planning snapshot; it cannot be resumed as independent direct tasks`, ['restore this run\'s recorded planning evidence before resuming']);
+    }
+  }
 
   const snapshotPath = store.paths.runConfigSnapshotPath(runId);
   let recorded: { config: AgentConfigFile; raw: string; path: string; agentId: string | undefined } | null = null;
@@ -220,6 +238,21 @@ export async function continueResumedRun(
   const isolated = new Set(plan.steps.filter((s) => s.action === 'isolate' || s.action === 'refuse').map((s) => s.taskId));
   const reconnecting = new Map(plan.steps.filter((s) => s.action === 'reconnect').map((s) => [s.taskId, s] as const));
   const reserved = new Map(plan.steps.filter((s) => s.action === 'replace' && s.newAttemptId !== null).map((s) => [s.taskId, s] as const));
+
+  // A planned run is continued as the plan it recorded, not task by task: each
+  // task under its own assignee, in dependency order, and accepted only
+  // against the combined candidate, which is checked again.
+  const planRecord = deps.dispatch === undefined ? readPlanRecord(store.paths, plan.runId) : null;
+  if (planRecord !== null) return continuePlanned(plan, store, setup, deps, { isolated, reconnecting, notes, now });
+  if (deps.dispatch === undefined && listTasks(db, plan.runId).length === 0) {
+    try {
+      const headRecord = readHeadPlanningRecord(db, store.paths, plan.runId);
+      if (headRecord !== null) return await continueHeadPlanning(plan, store, setup, deps, headRecord, now);
+    } catch (error) {
+      transitionRunSafely(db, plan.runId, 'interrupted');
+      throw error;
+    }
+  }
 
   const continued: ContinuedTask[] = [];
   const preserved: string[] = [];
@@ -376,6 +409,179 @@ export async function continueResumedRun(
   for (const entry of notContinued) lines.push(`not continued: task ${entry.taskId} — ${entry.reason}`);
   for (const note of notes) lines.push(`note: ${note}`);
   return { runId: plan.runId, outcome, runState, continued, preservedTaskIds: preserved, notContinued, lines, notes };
+}
+
+/**
+ * Continue a planned run from its recorded plan.
+ *
+ * A plan continues whole or not at all: an attempt the reconciliation isolated
+ * (or one that could be rejoined) blocks it, because dispatching its peers and
+ * integrating without it would accept a plan that was not executed.
+ */
+async function continuePlanned(
+  plan: ResumePlan,
+  store: StateStore,
+  setup: RunContinuationSetup,
+  deps: ContinueResumedRunDeps,
+  context: {
+    readonly isolated: ReadonlySet<string>;
+    readonly reconnecting: ReadonlyMap<string, ResumeStep>;
+    readonly notes: ReadonlyArray<string>;
+    readonly now: string;
+  },
+): Promise<ContinueResumedRunResult> {
+  const db = store.db;
+  const { notes, now } = context;
+
+  if (context.isolated.size > 0 || context.reconnecting.size > 0) {
+    const notContinued = [
+      ...[...context.isolated].map((taskId) => ({
+        taskId,
+        reason: 'its attempt is isolated for a human to decide; a planned run continues as one plan, so none of its tasks was dispatched',
+      })),
+      ...[...context.reconnecting.values()].map((step) => ({
+        taskId: step.taskId,
+        reason: `attempt ${step.attemptId} was classified resumable on session ${step.sessionId ?? '(unnamed)'}; rejoining a runtime session is not wired here, so the plan was not continued beside it`,
+      })),
+    ];
+    const runState = transitionRunSafely(db, plan.runId, 'interrupted');
+    appendEvent(db, {
+      runId: plan.runId,
+      type: 'recovery.continued',
+      payload: { outcome: 'blocked', runState, ownershipEpoch: plan.ownershipEpoch, continued: [], preservedTaskIds: [], notContinued },
+      timestamp: now,
+    });
+    const lines = [`run ${plan.runId}: ${runState}`, ...notContinued.map((entry) => `not continued: task ${entry.taskId} — ${entry.reason}`), ...notes.map((note) => `note: ${note}`)];
+    return { runId: plan.runId, outcome: 'blocked', runState, continued: [], preservedTaskIds: [], notContinued, lines, notes };
+  }
+
+  let result: RunPlannedResult;
+  try {
+    result = await continuePlannedRun({
+      runId: plan.runId,
+      repoPath: setup.repoPath,
+      config: setup.config,
+      configRaw: setup.configRaw,
+      configPath: setup.configPath,
+      requestText: setup.requestText,
+      requestSource: `resume of run ${plan.runId}`,
+      contextRefs: setup.contextRefs,
+      paths: store.paths,
+      db,
+      ...(deps.stream !== undefined ? { stream: deps.stream } : {}),
+      ...(setup.agentId !== undefined ? { agentId: setup.agentId } : {}),
+      ...(store.lock !== null ? { ownership: store.lock } : {}),
+      ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+      ...(deps.adapterFactory !== undefined ? { adapterFactory: deps.adapterFactory } : {}),
+      ...(deps.sessionEnv !== undefined ? { sessionEnv: deps.sessionEnv } : {}),
+      ...(deps.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
+    });
+  } catch (error) {
+    // Reconciliation put the run back to `running`, and nothing ran. It is
+    // interrupted again, so it can be resumed once the cause is fixed.
+    transitionRunSafely(db, plan.runId, 'interrupted');
+    throw error;
+  }
+
+  return plannedContinuationResult(plan, store, result, notes, now);
+}
+
+/** Restart only the unfinished planning stage, on the immutable original roster. */
+async function continueHeadPlanning(
+  plan: ResumePlan,
+  store: StateStore,
+  setup: RunContinuationSetup,
+  deps: ContinueResumedRunDeps,
+  record: HeadPlanningRecord,
+  now: string,
+): Promise<ContinueResumedRunResult> {
+  const roster = buildRoster(record.workspace, { projectId: record.projectId, departmentId: record.departmentId });
+  const stream = deps.stream ?? SILENT_STREAM;
+  const common = {
+    repoPath: setup.repoPath,
+    requestText: setup.requestText,
+    requestSource: `resume of run ${plan.runId}`,
+    paths: store.paths,
+    db: store.db,
+    stream,
+    checkFlags: record.checkFlags,
+    ...(store.lock !== null ? { ownership: store.lock } : {}),
+    ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
+    ...(deps.adapterFactory !== undefined ? { adapterFactory: deps.adapterFactory } : {}),
+    ...(deps.sessionEnv !== undefined ? { sessionEnv: deps.sessionEnv } : {}),
+    allowUnconfinedWrites: deps.allowUnconfinedWrites === true,
+  };
+  const outcome = await planWithHead({
+    ...common,
+    baseRevision: setup.run.base_revision ?? '',
+    workspace: record.workspace,
+    roster,
+    snapshot: { config: setup.config, raw: setup.configRaw, path: setup.configPath, sha256: sha256Hex(setup.configRaw) },
+    maxTasksPerRun: setup.config.defaults.maxTasksPerRun,
+  }, { existingRunId: plan.runId });
+  if (!outcome.ok) {
+    const status = outcome.exitCode === 130 ? 'interrupted' : outcome.exitCode === 3 ? 'blocked' : 'failed';
+    // A setup/ownership refusal can occur before the restored run object
+    // exists. Keep that request resumable once its concrete cause is fixed.
+    if (findRun(store.db, plan.runId)?.state === 'running') transitionRunSafely(store.db, plan.runId, 'interrupted');
+    return report(store.db, plan.runId, status, [], [], [], [outcome.reason, ...(outcome.details ?? [])], setup.notes);
+  }
+  const result = await runPlanned({
+    ...common,
+    config: setup.config,
+    configRaw: setup.configRaw,
+    configPath: setup.configPath,
+    tasks: outcome.tasks,
+    ...(outcome.run !== undefined ? { run: outcome.run } : {}),
+  });
+  return plannedContinuationResult(plan, store, result, setup.notes, now);
+}
+
+function plannedContinuationResult(plan: ResumePlan, store: StateStore, result: RunPlannedResult, notes: ReadonlyArray<string>, now: string): ContinueResumedRunResult {
+  const db = store.db;
+  const continued: ContinuedTask[] = [];
+  const preserved: string[] = [];
+  const lines: string[] = [];
+  for (const task of result.tasks) {
+    const last = task.attempts[task.attempts.length - 1];
+    if (last === undefined) {
+      if (task.accepted) {
+        preserved.push(task.taskId);
+        lines.push(`preserved task ${task.taskId} ("${task.key}"): already accepted, so it is neither re-run nor re-judged`);
+      } else {
+        lines.push(`task ${task.taskId} ("${task.key}"): not started`);
+      }
+      continue;
+    }
+    let generation = 0;
+    try {
+      generation = getAttempt(db, last.attemptId).generation;
+    } catch {
+      // The attempt row is the orchestrator's; a missing one leaves the generation unknown, not the result.
+    }
+    continued.push({ taskId: task.taskId, attemptId: last.attemptId, generation, outcome: last.outcome, accepted: task.accepted });
+    lines.push(`task ${task.taskId} ("${task.key}"): ${task.accepted ? 'accepted' : last.outcome} (attempt ${last.attemptId}, generation ${generation})`);
+  }
+  const outcome: ContinueOutcome = result.outcome === 'accepted' ? 'accepted' : result.outcome === 'interrupted' ? 'interrupted' : 'failed';
+  const runState = result.runState as RunRow['state'];
+  appendEvent(db, {
+    runId: plan.runId,
+    type: 'recovery.continued',
+    payload: {
+      outcome,
+      runState,
+      ownershipEpoch: plan.ownershipEpoch,
+      continued: continued.map((entry) => ({ taskId: entry.taskId, attemptId: entry.attemptId, generation: entry.generation, accepted: entry.accepted })),
+      preservedTaskIds: preserved,
+      notContinued: [],
+      path: 'planned',
+    },
+    timestamp: now,
+  });
+  lines.push(`run ${plan.runId}: ${runState} — ${result.reason}`);
+  for (const item of result.unresolved) lines.push(`unresolved: ${item}`);
+  for (const note of notes) lines.push(`note: ${note}`);
+  return { runId: plan.runId, outcome, runState, continued, preservedTaskIds: preserved, notContinued: [], lines, notes };
 }
 
 function report(

@@ -9,8 +9,16 @@
  *                        {"cmd":"interrupt","turnId"} | {"cmd":"shutdown"}
  *   stdout : JSON lines  {"event":<name>, ...fields}
  *
- * Scenario file: {"scenarioVersion":1, "steps":[...], "turns":[[...],[...]]}
+ * Scenario file: {"scenarioVersion":1, "steps":[...], "turns":[[...],[...]], "byPrompt":[{"includes":"...", "steps":[...], "turns":[...]}]}
  *   turn N executes `turns[N]` when present, otherwise `steps`.
+ *   `byPrompt` is checked first: the first entry whose `includes` is a substring
+ *   of the turn's prompt and/or whose `startsWith` begins it supplies the steps
+ *   (its own `turns[N]`, else its `steps`). One scenario file can so script a
+ *   department head and each of its workers, which receive different prompts.
+ *   {"action":"call_tool","tool":"...","arguments":{...},"server":"workforce"}
+ *                                                              call an MCP tool the coordinator provided
+ *     (WORKFORCE_FAKE_MCP_CONFIG holds {"mcpServers":{...}}; the server is spawned and spoken to over stdio,
+ *      exactly as a real runtime would)
  * Steps:
  *   {"action":"edit_file","path":"rel/path","content":"..."}   write a file inside cwd
  *   {"action":"delete_file","path":"rel/path"}                  delete a file inside cwd
@@ -154,6 +162,15 @@ async function runStep(turnId, step) {
       await new Promise(() => {});
       return;
     }
+    case 'call_tool': {
+      const tool = typeof step.tool === 'string' ? step.tool : '';
+      const server = typeof step.server === 'string' ? step.server : 'workforce';
+      const toolArguments = step.arguments && typeof step.arguments === 'object' ? step.arguments : {};
+      emit('tool_call', { turnId, tool, server, arguments: toolArguments });
+      const outcome = await callMcpTool(server, tool, toolArguments);
+      emit('tool_result', { turnId, tool, server, status: outcome.ok ? 'ok' : 'failed', ok: outcome.ok, result: outcome.result, error: outcome.error });
+      return;
+    }
     case 'unknown_event':
       emit('fake_custom_event', { turnId, weird: { nested: [1, 2, 3] }, note: 'adapters must not crash on this' });
       return;
@@ -167,12 +184,115 @@ async function runStep(turnId, step) {
   }
 }
 
+const MCP_CONFIG_ENV = 'WORKFORCE_FAKE_MCP_CONFIG';
+
+/**
+ * Call one tool on an MCP server the coordinator configured for this session:
+ * spawn it (argv array, no shell), initialize, tools/call, close. Returns the
+ * tool's structured result; never throws.
+ */
+async function callMcpTool(serverName, tool, toolArguments) {
+  const raw = process.env[MCP_CONFIG_ENV];
+  if (raw === undefined || raw.length === 0) return { ok: false, result: null, error: `no MCP server was provided to this session (${MCP_CONFIG_ENV} is unset)` };
+  let server;
+  try {
+    server = JSON.parse(raw)?.mcpServers?.[serverName];
+  } catch (err) {
+    return { ok: false, result: null, error: `${MCP_CONFIG_ENV} is not valid JSON: ${String(err)}` };
+  }
+  if (!server || typeof server.command !== 'string') return { ok: false, result: null, error: `no MCP server named "${serverName}" was provided` };
+
+  const env = {};
+  for (const key of ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL']) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  Object.assign(env, server.env ?? {});
+  const child = spawn(server.command, Array.isArray(server.args) ? server.args : [], { env, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+  const pending = new Map();
+  let buffer = '';
+  let nextId = 1;
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    buffer += chunk;
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      try {
+        const message = JSON.parse(line);
+        const resolve = pending.get(message?.id);
+        if (resolve !== undefined) {
+          pending.delete(message.id);
+          resolve(message);
+        }
+      } catch {
+        // Not a frame; ignored like any other noise.
+      }
+      newline = buffer.indexOf('\n');
+    }
+  });
+  child.stderr.resume();
+  const exited = new Promise((resolve) => child.once('exit', resolve));
+  child.once('error', (err) => {
+    for (const [id, resolve] of pending) {
+      pending.delete(id);
+      resolve({ error: { message: `the MCP server could not be started: ${String(err)}` } });
+    }
+  });
+  child.stdin.on('error', () => {});
+  const request = (method, params) =>
+    new Promise((resolve) => {
+      const id = nextId;
+      nextId += 1;
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        resolve({ error: { message: `no answer to ${method} within 15s` } });
+      }, 15_000);
+      pending.set(id, (message) => {
+        clearTimeout(timer);
+        resolve(message);
+      });
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+    });
+  try {
+    const init = await request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake-runtime', version: '1' } });
+    if (init.error !== undefined) return { ok: false, result: null, error: init.error.message };
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
+    const response = await request('tools/call', { name: tool, arguments: toolArguments });
+    if (response.error !== undefined) return { ok: false, result: null, error: response.error.message };
+    const result = response.result ?? {};
+    const structured = result.structuredContent ?? null;
+    return { ok: result.isError !== true, result: structured, error: result.isError === true ? JSON.stringify(structured ?? result.content ?? null) : null };
+  } finally {
+    child.stdin.end();
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 2_000))]);
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
+}
+
+function matchesPrompt(candidate, prompt) {
+  if (candidate === null || typeof candidate !== 'object') return false;
+  const text = String(prompt);
+  const hasIncludes = typeof candidate.includes === 'string';
+  const hasStart = typeof candidate.startsWith === 'string';
+  if (!hasIncludes && !hasStart) return false;
+  return (!hasIncludes || text.includes(candidate.includes)) && (!hasStart || text.startsWith(candidate.startsWith));
+}
+
+function stepsForTurn(index, prompt) {
+  if (Array.isArray(scenario.byPrompt)) {
+    const entry = scenario.byPrompt.find((candidate) => matchesPrompt(candidate, prompt));
+    if (entry !== undefined) return Array.isArray(entry.turns) && entry.turns[index] ? entry.turns[index] : (entry.steps ?? []);
+  }
+  return Array.isArray(scenario.turns) && scenario.turns[index] ? scenario.turns[index] : (scenario.steps ?? []);
+}
+
 async function runTurn(turnId, prompt) {
   activeTurn = turnId;
   interruptRequested = false;
   const index = turnCounter;
   turnCounter += 1;
-  const steps = Array.isArray(scenario.turns) && scenario.turns[index] ? scenario.turns[index] : (scenario.steps ?? []);
+  const steps = stepsForTurn(index, prompt);
   const delivered = inbox.splice(0, inbox.length);
   emit('turn_started', { turnId, prompt, inbox: delivered, turnIndex: index });
   for (const step of steps) {
