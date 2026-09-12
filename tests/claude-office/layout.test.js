@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSceneLayout, OFFICE_METRICS as m } from '../../web/claude-office/src/scene-layout.js';
+import { buildSceneLayout, campusSlots, OFFICE_METRICS as m } from '../../web/claude-office/src/scene-layout.js';
 
 function office(sizes) {
   const departments = sizes.map((_, index) => ({ id: `department-${String(index).padStart(3, '0')}`, name: `Department ${index}`, headAgentId: `head-${index}` }));
@@ -26,8 +26,13 @@ function verifyLayout(layout, input) {
     expect(worldForward.x).toBeCloseTo(-room.x / radius, 8);
     expect(worldForward.z).toBeCloseTo(-room.z / radius, 8);
     expect(room.seats[0].role).toBe('head');
-    expect(room.seats[0].x).toBe(0);
-    const seatBounds = room.seats.map((seat) => ({ minX: seat.x - m.seatHalfWidth, maxX: seat.x + m.seatHalfWidth, minZ: seat.z - m.seatFront, maxZ: seat.z + m.seatBack }));
+    expect(room.floorRotationY).toBe(0);
+    const seatBounds = room.seats.map((seat) => {
+      expect(seat.rotationY).toBe(room.rotationY);
+      const corners = [];
+      for (const x of [-m.seatHalfWidth, m.seatHalfWidth]) for (const z of [-m.seatFront, m.seatBack]) corners.push({ x: seat.x + x * Math.cos(seat.rotationY) + z * Math.sin(seat.rotationY), z: seat.z - x * Math.sin(seat.rotationY) + z * Math.cos(seat.rotationY) });
+      return { minX: Math.min(...corners.map(p => p.x)), maxX: Math.max(...corners.map(p => p.x)), minZ: Math.min(...corners.map(p => p.z)), maxZ: Math.max(...corners.map(p => p.z)) };
+    });
     for (const box of seatBounds) {
       expect(box.minX).toBeGreaterThanOrEqual(-room.width / 2 + m.wallClearance - 1e-8);
       expect(box.maxX).toBeLessThanOrEqual(room.width / 2 - m.wallClearance + 1e-8);
@@ -35,11 +40,12 @@ function verifyLayout(layout, input) {
       expect(box.maxZ).toBeLessThanOrEqual(room.depth / 2 - m.wallClearance + 1e-8);
     }
     for (let i = 0; i < seatBounds.length; i += 1) for (let j = i + 1; j < seatBounds.length; j += 1) expect(separated(seatBounds[i], seatBounds[j], 0.5)).toBe(true);
-    for (const seat of room.seats.slice(1)) expect(seat.z).toBeGreaterThan(room.seats[0].z);
+    const headProjection = room.seats[0].x * worldForward.x + room.seats[0].z * worldForward.z;
+    for (const seat of room.seats.slice(1)) expect(headProjection).toBeGreaterThan(seat.x * worldForward.x + seat.z * worldForward.z);
     // Every rotated floor corner remains in the reported world/camera bounds.
     for (const x of [-room.width / 2, room.width / 2]) for (const z of [-room.depth / 2, room.depth / 2]) {
-      const wx = room.x + x * Math.cos(room.rotationY) + z * Math.sin(room.rotationY);
-      const wz = room.z - x * Math.sin(room.rotationY) + z * Math.cos(room.rotationY);
+      const wx = room.x + x * Math.cos(room.floorRotationY) + z * Math.sin(room.floorRotationY);
+      const wz = room.z - x * Math.sin(room.floorRotationY) + z * Math.cos(room.floorRotationY);
       expect(wx).toBeGreaterThanOrEqual(layout.bounds.minX - 1e-7);
       expect(wx).toBeLessThanOrEqual(layout.bounds.maxX + 1e-7);
       expect(wz).toBeGreaterThanOrEqual(layout.bounds.minZ - 1e-7);
@@ -109,10 +115,62 @@ describe('configured 3D office layout', () => {
     expect(layout.departments.find((room) => room.id === 'empty').seats).toEqual([]);
     expect(layout.departments.find((room) => room.id === 'workers').seats).toEqual([expect.objectContaining({ agentId: 'worker', role: 'worker' })]);
     const room = layout.departments.find((item) => item.id === 'workers');
-    expect(room.seats[0].z - m.seatFront).toBeGreaterThanOrEqual(-room.depth / 2 + m.wallClearance);
-    expect(room.seats[0].z + m.seatBack).toBeLessThanOrEqual(room.depth / 2 - m.wallClearance);
+    expect(room.floorRotationY).toBe(0);
+    expect(room.seats[0].rotationY).toBe(room.rotationY);
     const displayed = buildSceneLayout({ departments: [{ id: 'team' }], agents: [{ id: 'lead', departmentId: 'team', role: 'Department head', workspaceRole: 'head' }] });
-    expect(displayed.departments[0].seats[0]).toMatchObject({ agentId: 'lead', role: 'head', x: 0 });
+    expect(displayed.departments[0].seats[0]).toMatchObject({ agentId: 'lead', role: 'head' });
+  });
+
+  it('uses the reference campus slots and expands onto distinct outer hex rings', () => {
+    expect(campusSlots(6)).toEqual([{ x: -1, z: 0 }, { x: 0, z: -1 }, { x: -1, z: 1 }, { x: 1, z: -1 }, { x: 0, z: 1 }, { x: 1, z: 0 }]);
+    const layout = buildSceneLayout(office(Array(30).fill(3)));
+    expect(new Set(layout.departments.map(room => `${room.campusSlot.x},${room.campusSlot.z}`)).size).toBe(30);
+    verifyLayout(layout, office(Array(30).fill(3)));
+  });
+
+  it('preserves existing campus slots when a department is added or removed', () => {
+    const input = office([1, 2]);
+    const first = buildSceneLayout(input);
+    const added = buildSceneLayout({ departments: [{ id: 'aaa-new' }, ...input.departments], agents: input.agents, previousLayout: first });
+    for (const room of first.departments) expect(added.departments.find(next => next.id === room.id).campusSlot).toEqual(room.campusSlot);
+    const removed = buildSceneLayout({ departments: input.departments.slice(1), agents: input.agents, previousLayout: added });
+    expect(removed.departments[0].campusSlot).toEqual(first.departments[1].campusSlot);
+  });
+
+  it('clips physical walkway endpoints to the center and department floor boundaries', () => {
+    const layout = buildSceneLayout(office(Array(6).fill(3)));
+    expect(layout.paths).toHaveLength(6);
+    for (const path of layout.paths) {
+      const room = layout.departments.find(item => item.id === path.departmentId);
+      expect(Math.max(Math.abs(path.from.x) / 3, Math.abs(path.from.z) / 3)).toBeCloseTo(1);
+      expect(Math.max(Math.abs(path.to.x - room.x) / (room.width / 2), Math.abs(path.to.z - room.z) / (room.depth / 2))).toBeCloseTo(1);
+      expect(Math.hypot(path.to.x, path.to.z)).toBeGreaterThan(Math.hypot(path.from.x, path.from.z));
+      expect(path.width).toBeGreaterThan(1);
+    }
+  });
+
+  it('connects thirty departments through inner neighbours without bridges crossing unrelated floors', () => {
+    const layout = buildSceneLayout(office(Array(30).fill(3)));
+    expect(layout.paths).toHaveLength(30);
+    const ring = (room) => Math.max(Math.abs(room.campusSlot.x), Math.abs(room.campusSlot.z), Math.abs(room.campusSlot.x + room.campusSlot.z));
+    for (const path of layout.paths) {
+      const target = layout.departments.find((room) => room.id === path.departmentId);
+      if (ring(target) === 1) expect(path.fromDepartmentId).toBeNull();
+      else {
+        const parent = layout.departments.find((room) => room.id === path.fromDepartmentId);
+        expect(parent).toBeDefined();
+        expect(ring(parent)).toBeLessThan(ring(target));
+      }
+      const unrelated = [layout.center, ...layout.departments].filter((room) => room.id !== path.departmentId && room.id !== (path.fromDepartmentId ?? 'control'));
+      for (let step = 0; step <= 100; step += 1) {
+        const x = path.from.x + (path.to.x - path.from.x) * step / 100;
+        const z = path.from.z + (path.to.z - path.from.z) * step / 100;
+        for (const room of unrelated) {
+          const bounds = room.worldBounds;
+          expect(x > bounds.minX - .5 && x < bounds.maxX + .5 && z > bounds.minZ - .5 && z < bounds.maxZ + .5).toBe(false);
+        }
+      }
+    }
   });
 
   it('rejects duplicate agent or department identities instead of drawing double occupancy', () => {

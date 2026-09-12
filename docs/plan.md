@@ -891,6 +891,13 @@ The [start-here guide](start-here.md) documents ordinary use; the
    contain its whole roster, with no four-seat limit or fixed six-island template. Department
    IDs govern membership, including departments with repeated names. Desks face toward the
    central control, and pan, zoom, fit and selection operate on actual 3D geometry.
+   The selected Claude visual design also governs the scene: globally aligned rounded
+   pastel department islands, a distinct stepped sage hub with a curved command desk,
+   compact nameplates and solid cream walkways meeting the platform edges. The first six
+   occupied positions surround the hub in the reference arrangement; additional rooms
+   connect through outer campus rings. Only saved departments generate islands or paths.
+   Furniture faces inward independently of floor alignment. Existing department slots
+   persist as a browser layout preference keyed by the workspace path.
    The central Coordinator is the system scheduler, with no invented model. Control center
    Chat holds a task draft and opens a reviewed project/department/check/consent submission;
    Tasks shows recorded work; Connections reports configured bindings and runtime information.

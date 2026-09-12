@@ -247,11 +247,43 @@ export function createWorkstation({ agent = {}, color = '#8ca7b4', index = 0, he
 /** The sole three-monitor desk, reserved for the central coordinator. */
 export function createControlCenter() {
   const group = new THREE.Group(); group.name = 'control-center';
-  desk(group, 2.8, '#aab8ab', true);
-  monitor(group, { width: .86, color: '#9bb4b1', z: -.33 });
-  monitor(group, { x: -.88, z: -.21, angle: .20, width: .79, color: '#9bb4b1' });
-  monitor(group, { x: .88, z: -.21, angle: -.20, width: .79, color: '#9bb4b1' });
-  keyboard(group);
+  // One continuous command desk: a wide outer arc and a concave edge opening
+  // toward the chair on +Z. The center cutout leaves the person's arms visible.
+  const slab = geometry('control-center:curved-command-desk:v1', () => {
+    const outline = new THREE.Shape();
+    outline.moveTo(-1.70, .79);
+    outline.bezierCurveTo(-1.87, .74, -1.92, .50, -1.86, .25);
+    outline.bezierCurveTo(-1.71, -.48, -.93, -.86, 0, -.88);
+    outline.bezierCurveTo(.93, -.86, 1.71, -.48, 1.86, .25);
+    outline.bezierCurveTo(1.92, .50, 1.87, .74, 1.70, .79);
+    outline.bezierCurveTo(1.31, .83, .95, .39, .53, .35);
+    outline.bezierCurveTo(.20, .31, -.20, .31, -.53, .35);
+    outline.bezierCurveTo(-.95, .39, -1.31, .83, -1.70, .79);
+    outline.closePath();
+    const shape = new THREE.ExtrudeGeometry(outline, {
+      depth: .082, steps: 1, curveSegments: 40,
+      bevelEnabled: true, bevelSize: .025, bevelThickness: .014, bevelSegments: 4,
+    });
+    shape.translate(0, 0, -.041);
+    shape.rotateX(Math.PI / 2);
+    shape.computeVertexNormals();
+    return shape;
+  });
+  add(group, slab, [material('#dec09b'), material('#c6a37b')], 0, 1.05, 0, 'curved-command-desk');
+  for (const x of [-1.55, 1.55]) {
+    for (const z of [-.15, .56]) {
+      box(group, .09, .98, .09, '#b8ab98', x, .505, z, .014);
+      cylinder(group, .055, .058, .035, C.dark, x, .027, z);
+    }
+  }
+  box(group, 3.10, .075, .065, C.steel, 0, .78, -.15, .01);
+  monitor(group, { width: 1.02, color: '#9bb4b1', z: -.50 });
+  monitor(group, { x: -1.04, z: -.27, angle: .44, width: .99, color: '#9bb4b1' });
+  monitor(group, { x: 1.04, z: -.27, angle: -.44, width: .99, color: '#9bb4b1' });
+  keyboard(group, 0, .21);
+  // Small papers sit on the outer wings, clear of the chair's open cutout.
+  box(group, .27, .013, .22, C.paper, -1.34, 1.114, .44, .004).rotation.y = -.22;
+  box(group, .26, .013, .22, C.paper, 1.37, 1.114, .47, .004).rotation.y = .20;
   chair(group, '#778f85', true);
   person(group, { id: 'central-coordinator' }, 0, true);
   return group;

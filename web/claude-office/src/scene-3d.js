@@ -1,23 +1,11 @@
 import * as THREE from './vendor/three.module.min.js';
 import { buildSceneLayout } from './scene-layout.js';
-import { createWorkstation, createControlCenter, createPlant } from './scene-furniture.js';
+import { createWorkstation, createControlCenter } from './scene-furniture.js';
+import { createDepartmentIsland, createCentralIsland, createWalkway } from './scene-campus.js';
 
 const esc = (value='') => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const palette = {blue:'#a9c8da',green:'#b9d0bf',pink:'#e1b8c6',purple:'#c8bfdc',amber:'#e3cfab',teal:'#a8cbc8',slate:'#c0c9ce'};
 const activeStatus = agent => ['working','planning','running','checking'].includes(String(agent.status).toLowerCase());
-
-function platform(width, depth, color) {
-  const radius=.45, x=-width/2, y=-depth/2;
-  const shape=new THREE.Shape();
-  shape.moveTo(x+radius,y);shape.lineTo(x+width-radius,y);shape.quadraticCurveTo(x+width,y,x+width,y+radius);
-  shape.lineTo(x+width,y+depth-radius);shape.quadraticCurveTo(x+width,y+depth,x+width-radius,y+depth);
-  shape.lineTo(x+radius,y+depth);shape.quadraticCurveTo(x,y+depth,x,y+depth-radius);
-  shape.lineTo(x,y+radius);shape.quadraticCurveTo(x,y,x+radius,y);
-  const geometry=new THREE.ExtrudeGeometry(shape,{depth:.3,bevelEnabled:true,bevelThickness:.08,bevelSize:.08,bevelSegments:3,steps:1,curveSegments:8});
-  geometry.rotateX(-Math.PI/2);
-  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color,roughness:.87}));
-  mesh.castShadow=true;mesh.receiveShadow=true;return mesh;
-}
 
 function disposeTree(group) {
   const geometry=new Set(),materials=new Set(),textures=new Set();
@@ -26,10 +14,10 @@ function disposeTree(group) {
 }
 
 /** Real, roster-driven 3D scene. No furniture exists without its saved owner. */
-export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCreateDepartment=()=>{}}) {
+export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCreateDepartment=()=>{},layoutKey=null}) {
   element.replaceChildren();element.classList.add('dynamic-canvas');
   const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
-  renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));renderer.setClearColor('#f8f9f4');
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));renderer.setClearColor('#faf9f5');
   renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;
   renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
   renderer.domElement.className='office-webgl';renderer.domElement.setAttribute('aria-hidden','true');element.append(renderer.domElement);
@@ -41,9 +29,19 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
   const fill=new THREE.DirectionalLight(0xd5e7ff,1.1);fill.position.set(12,10,-10);scene.add(fill);
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(2000,2000),new THREE.ShadowMaterial({color:0x778277,opacity:.11}));ground.rotation.x=-Math.PI/2;ground.position.y=-.14;ground.receiveShadow=true;scene.add(ground);
   const camera=new THREE.OrthographicCamera(-10,10,10,-10,.1,2000);
-  const direction=new THREE.Vector3(1,1.3,1.2).normalize();
+  const direction=new THREE.Vector3(1,1,1).normalize();
   let content=new THREE.Group();scene.add(content);let connections=new THREE.Group();scene.add(connections);
   let layout=buildSceneLayout(),data={departments:[],agents:[]},labels=[],pickables=[],selected={type:'office'},showConnections=false;
+  let rememberedLayout=null;
+  if(layoutKey)try{
+    const rows=JSON.parse(localStorage.getItem('workforce.campus.v1:'+layoutKey)||'null');
+    const seen=new Set();
+    if(Array.isArray(rows)&&rows.length<1000&&rows.every(row=>{
+      const p=row?.campusSlot,key=p&&`${p.x},${p.z}`;
+      if(typeof row?.id!=='string'||!p||![p.x,p.z].every(v=>Number.isInteger(v)&&Math.abs(v)<1000)||(!p.x&&!p.z)||seen.has(key))return false;
+      seen.add(key);return true;
+    }))rememberedLayout={departments:rows};
+  }catch{}
   const target=new THREE.Vector3(0,0,0),desiredTarget=new THREE.Vector3(0,0,0);
   let span=14,desiredSpan=14,fitSpan=14,width=1,height=1,frame=0,closed=false,hasData=false,drag=null,moved=false,renderDirty=true;
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),projected=new THREE.Vector3();
@@ -58,8 +56,10 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
     desiredTarget.set((bounds.minX+bounds.maxX)/2,.7,(bounds.minZ+bounds.maxZ)/2);
     cameraUpdate();const right=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0),up=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);
     let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
-    for(const x of [bounds.minX,bounds.maxX])for(const z of [bounds.minZ,bounds.maxZ])for(const y of [0,3.2]){const p=new THREE.Vector3(x,y,z).sub(desiredTarget);const sx=p.dot(right),sy=p.dot(up);minX=Math.min(minX,sx);maxX=Math.max(maxX,sx);minY=Math.min(minY,sy);maxY=Math.max(maxY,sy);}
-    desiredSpan=Math.max(10,(maxY-minY)*1.55,(maxX-minX)/(width/height)*1.3);
+    const floors=bounds===layout.bounds?[layout.center.worldBounds,...layout.departments.map(room=>room.worldBounds)]:[bounds];
+    for(const floor of floors)for(const x of [floor.minX,floor.maxX])for(const z of [floor.minZ,floor.maxZ])for(const y of [0,3.2]){const p=new THREE.Vector3(x,y,z).sub(desiredTarget);const sx=p.dot(right),sy=p.dot(up);minX=Math.min(minX,sx);maxX=Math.max(maxX,sx);minY=Math.min(minY,sy);maxY=Math.max(maxY,sy);}
+    desiredTarget.addScaledVector(right,(minX+maxX)/2).addScaledVector(up,(minY+maxY)/2);
+    desiredSpan=Math.max(10,(maxY-minY)*1.35,(maxX-minX)/(width/height)*1.3);
     // Leave a clear lower area for the first-department invitation.
     if(!layout.departments.length){desiredSpan=Math.max(17,desiredSpan);desiredTarget.y=-3;}
     if(instant){span=desiredSpan;target.copy(desiredTarget);}
@@ -68,13 +68,13 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
   function label(position,type,id,title,detail,head=false) {
     const button=document.createElement('button');button.type='button';button.className=`scene-label scene-label-${type}${head?' scene-head':''}`;
     button.dataset.sceneType=type;button.dataset.sceneId=id;button.setAttribute('aria-label',`${title}. ${detail}. Select ${type==='control'?'Control center':type}`);
-    button.innerHTML=`${type==='employee'?'<span class="scene-status-dot"></span>':''}<span><strong>${esc(title)}</strong><small>${esc(detail)}</small></span>`;
+    button.innerHTML=`${(type==='employee'||type==='department')?'<span class="scene-status-dot"></span>':''}<span><strong>${esc(title)}</strong><small>${esc(detail)}</small></span>`;
     const leader=document.createElement('span');leader.className='scene-label-leader';leader.setAttribute('aria-hidden','true');leader.hidden=true;
     button.addEventListener('click',()=>choose({type:type==='employee'?'employee':type,id}));overlay.append(leader,button);
     labels.push({element:button,leader,position,type,id,head});return button;
   }
   function mark(group,selection) {group.traverse(object=>{if(object.isMesh){object.userData.officeSelection=selection;pickables.push(object);}});}
-  function worldPosition(room,x,z,y=.35) {return new THREE.Vector3(x,y,z).applyAxisAngle(new THREE.Vector3(0,1,0),room.rotationY).add(new THREE.Vector3(room.x,0,room.z));}
+  function worldPosition(room,x,z,y=.35) {return new THREE.Vector3(room.x+x,y,room.z+z);}
   function route(from,to,color,dashed=false) {
     const middle=from.clone().lerp(to,.5);middle.y=1.2;
     const points=new THREE.QuadraticBezierCurve3(from,middle,to).getPoints(28);
@@ -96,30 +96,40 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
   }
   function choose(next) {select(next,{notify:true});}
   function setData(next) {
-    const prior=selected;data={departments:next.departments||[],agents:next.agents||[]};layout=buildSceneLayout(data);
+    const prior=selected;data={departments:next.departments||[],agents:next.agents||[]};layout=buildSceneLayout({...data,previousLayout:layout.departments.length?layout:rememberedLayout});
+    if(layoutKey&&layout.departments.length)try{
+      rememberedLayout={departments:layout.departments.map(({id,campusSlot})=>({id,campusSlot}))};
+      localStorage.setItem('workforce.campus.v1:'+layoutKey,JSON.stringify(rememberedLayout.departments));
+    }catch{}
     scene.remove(content,connections);disposeTree(content);disposeTree(connections);content=new THREE.Group();connections=new THREE.Group();scene.add(content,connections);connections.visible=showConnections;
     overlay.replaceChildren();labels=[];pickables=[];roomGroups.clear();agentGroups.clear();
-    const central=new THREE.Group();central.add(platform(6,6,'#c2d4c3'));const command=createControlCenter();command.position.y=.36;central.add(command);mark(central,{type:'control',id:'control'});content.add(central);
+    for(const path of layout.paths||[]){
+      const direction=new THREE.Vector2(path.to.x-path.from.x,path.to.z-path.from.z).normalize();
+      // Bridge decks tuck under beveled/notched edges so no visible gaps remain.
+      const from={x:path.from.x-direction.x*1.5,z:path.from.z-direction.y*1.5};
+      const to={x:path.to.x+direction.x*.55,z:path.to.z+direction.y*.55};
+      content.add(createWalkway(from,to,path.width));
+    }
+    const central=new THREE.Group();central.add(createCentralIsland());const command=createControlCenter();command.position.y=.36;command.rotation.y=Math.PI/4;central.add(command);mark(central,{type:'control',id:'control'});content.add(central);
     label(new THREE.Vector3(0,3.4,0),'control','control','CONTROL CENTER','Orchestrator · your workspace');
     const byAgent=new Map(data.agents.map(a=>[a.id,a]));
     for(const room of layout.departments) {
       const department=data.departments.find(d=>d.id===room.id);const color=department.color?.startsWith('#')?department.color:(palette[department.color]||'#b8cdd3');
-      const group=new THREE.Group();group.position.set(room.x,0,room.z);group.rotation.y=room.rotationY;content.add(group);roomGroups.set(room.id,group);
-      const floor=platform(room.width,room.depth,color);floor.userData.officeSelection={type:'department',id:room.id};pickables.push(floor);group.add(floor);
+      const group=new THREE.Group();group.position.set(room.x,0,room.z);group.rotation.y=room.floorRotationY??0;content.add(group);roomGroups.set(room.id,group);
+      const floor=createDepartmentIsland(room.width,room.depth,color);mark(floor,{type:'department',id:room.id});group.add(floor);
       const border=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(room.width+.15,.42,room.depth+.15)),new THREE.LineBasicMaterial({color:'#527d68',transparent:true,opacity:.75}));border.position.y=.2;group.add(border);group.userData.border=border;
-      // Plants live within the room corners, outside every padded workstation footprint.
-      for(const sx of [-1,1]){const plant=createPlant();plant.position.set(sx*(room.width/2-.45),.35,room.depth/2-.45);plant.scale.setScalar(.65);group.add(plant);}
       const headSeat=room.seats.find(s=>s.role==='head');
       for(const seat of room.seats) {
         const agent=byAgent.get(seat.agentId);const workstation=createWorkstation({agent,color,index:room.seats.indexOf(seat),head:seat.role==='head'});
-        workstation.position.set(seat.x,.35,seat.z);group.add(workstation);agentGroups.set(agent.id,workstation);mark(workstation,{type:'employee',id:agent.id});
-        const at=worldPosition(room,seat.x,seat.z+.75,2.65);
+        workstation.position.set(seat.x,.35,seat.z);workstation.rotation.y=seat.rotationY??room.rotationY;group.add(workstation);agentGroups.set(agent.id,workstation);mark(workstation,{type:'employee',id:agent.id});
+        const at=worldPosition(room,seat.x+Math.sin(seat.rotationY??room.rotationY)*.75,seat.z+Math.cos(seat.rotationY??room.rotationY)*.75,2.35);
         const nameplate=label(at,'employee',agent.id,agent.name,seat.role==='head'?'Department head':agent.statusLabel||'Worker',seat.role==='head');
         nameplate.classList.toggle('is-working',activeStatus(agent));
         if(headSeat&&seat!==headSeat)route(worldPosition(room,headSeat.x,headSeat.z,.8),worldPosition(room,seat.x,seat.z,.8),'#719c88',true);
       }
       const count=room.seats.filter(s=>s.role!=='head').length;
-      label(worldPosition(room,0,-room.depth/2-.5,.55),'department',room.id,department.name,`${headSeat?'1 head':'No head'} · ${count} ${count===1?'worker':'workers'}`);
+      const roomLabel=label(worldPosition(room,-room.width/2+.3,-room.depth/2+.3,1.7),'department',room.id,department.name,`${headSeat?'1 head':'No head'} · ${count} ${count===1?'worker':'workers'}`);
+      roomLabel.dataset.count=String(room.seats.length);roomLabel.style.setProperty('--department-color',color);
       const to=headSeat?worldPosition(room,headSeat.x,headSeat.z,.7):new THREE.Vector3(room.x,.7,room.z);
       route(new THREE.Vector3(0,.7,0),to,'#638773',true);
     }
@@ -175,6 +185,6 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
     renderer.render(scene,camera);renderDirty=false;onCamera({zoom:fitSpan/span,span});
   }
   resize();setData(data);animate();
-  const api={setData,select,fit,zoomBy,setConnections(value){renderDirty=true;showConnections=value;connections.visible=value;},getSnapshot(){return {departmentCount:layout.departments.length,agentCount:data.agents.length,workstationCount:agentGroups.size,avatarCount:agentGroups.size,coordinatorCount:1,departments:layout.departments.map(room=>({...room,seatCount:room.seats.length})),bounds:layout.bounds,selected,zoom:fitSpan/span,renderer:'three-webgl',canvas:{width,height}};},destroy(){closed=true;cancelAnimationFrame(frame);observer.disconnect();element.removeEventListener('keydown',keyboard);disposeTree(content);disposeTree(connections);renderer.dispose();element.replaceChildren();}};
+  const api={setData,select,fit,zoomBy,setConnections(value){renderDirty=true;showConnections=value;connections.visible=value;},getSnapshot(){return {departmentCount:layout.departments.length,agentCount:data.agents.length,workstationCount:agentGroups.size,avatarCount:agentGroups.size,coordinatorCount:1,walkwayCount:(layout.paths||[]).length,paths:layout.paths||[],departments:layout.departments.map(room=>({...room,seatCount:room.seats.length})),bounds:layout.bounds,selected,zoom:fitSpan/span,renderer:'three-webgl',canvas:{width,height}};},destroy(){closed=true;cancelAnimationFrame(frame);observer.disconnect();element.removeEventListener('keydown',keyboard);disposeTree(content);disposeTree(connections);renderer.dispose();element.replaceChildren();}};
   return api;
 }

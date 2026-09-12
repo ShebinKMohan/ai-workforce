@@ -45,7 +45,7 @@ sidebar.updateData(live);
 manager=createAgentManager({element:$('agent-manager'),store,onFocus:next=>{closeManagers();focusSelection(next);},onSaved:async saved=>{await refreshLive(true);focusSelection({type:'employee',id:saved.id});notice(saved.name+' saved to your workspace.');},onClose:closeManagers});
 departmentManager=createDepartmentManager({element:$('department-manager'),getWorkspace:()=>live.workspaceDoc,onSaved:async saved=>{closeManagers();await refreshLive(true);focusSelection({type:'department',id:saved.department.id});notice(saved.department.name+' created. Add workers to grow this team.');},onClose:closeManagers});
 try{
-  scene=createOfficeScene({element:$('canvas'),onSelect:next=>focusSelection(next),onCamera:state=>{$('zoom-value').textContent=Math.round(state.zoom*100)+'%';},onCreateDepartment:showDepartment});
+  scene=createOfficeScene({element:$('canvas'),layoutKey:live.workspaceDoc?.path||location.origin,onSelect:next=>focusSelection(next),onCamera:state=>{$('zoom-value').textContent=Math.round(state.zoom*100)+'%';},onCreateDepartment:showDepartment});
   scene.setData({departments,agents:employees});window.officeScene=scene;
 }catch(error){$('canvas').innerHTML='<div class="scene-empty"><h2>The 3D office could not start.</h2><p>'+esc(error.message)+'</p><button class="add-agent-button" id="fallback-team">Open your team</button></div>';$('fallback-team').onclick=()=>showAgentManager('directory');console.error(error);}
 updateHeader();

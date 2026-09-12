@@ -7,7 +7,11 @@ focus, directory and settings interactions retain the original Claude design, wi
 for real workspace configuration and task submission.
 
 The current office is an original procedural Three.js scene, implemented in `src/scene-3d.js`,
-`src/scene-layout.js` and `src/scene-furniture.js`. It replaces the fixed raster scene and the
+`src/scene-layout.js`, `src/scene-campus.js` and `src/scene-furniture.js`. The campus module
+recreates the selected illustration's rounded pastel islands, stepped central hub and
+solid cream walkways. The coordinator uses a curved desk. Floors remain parallel while
+individual workstations face inward, and compact nameplates follow the original styling.
+The scene replaces the fixed raster scene and the
 intermediate inward-facing artwork. The original `public/assets/office-clean.png` is retained
 as source history; it is not the active scene background.
 
