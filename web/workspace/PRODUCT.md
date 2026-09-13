@@ -26,10 +26,11 @@ Do not simulate activity, invent progress percentages, or treat a runtime saying
 - Make the next useful action easy to find.
 - Keep settings and raw technical records behind clear disclosures.
 - Preserve entered work and the current task during live updates.
-- Use the same five task phases in onboarding and task details.
+- Keep recorded route, planning, work, checks, head review and reply phases available inside the execution trace.
 - Keep Chat, Activity and Runtimes in the Control center. Every message enters one Control Center conversation. The composer shows project context; Control Center chooses the department and records its route, then the head delegates within the available reserved roster. Canvas selection only changes inspection context.
 - Return the Control Center response after the department head has reviewed the combined result and independent checks have passed. Negative reviews and missing evidence remain explicit. Worker output is available through execution details.
-- Preserve drafts, reading position and panel width during live updates and responsive changes.
+- Put the main Control Center answer first in the reading hierarchy. Group operational detail into one collapsed execution trace, retaining open and closed choices across live updates and tab changes. Long user requests can expand; failures and actions remain visible.
+- Preserve drafts, reading position and panel width during live updates and desktop window changes.
 - Separate installation, sign-in, execution compatibility, active work and verified results. A green login indicator is not an execution receipt.
 - Make agent archive, head replacement, project assignment and runtime configuration discoverable without crowding the conversation.
 - Animate meaningful selection, camera and recorded activity transitions; honor reduced motion and pause idle rendering.

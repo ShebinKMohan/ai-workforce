@@ -39,7 +39,8 @@ function inline(source) {
 /** Bounded by characters and lines; malformed syntax remains readable escaped text. */
 export function renderRecordedMarkdown(value, maxCharacters = 12_000) {
   const text = String(value ?? '').slice(0, Math.max(1, Math.min(Number(maxCharacters) || 12_000, 32_000)));
-  const lines = text.replace(/\r\n?/g, '\n').split('\n').slice(0, 600);
+  const normalizedLines = text.replace(/\r\n?/g, '\n').split('\n');
+  const lines = normalizedLines.slice(0, 600);
   const blocks = [];
   let paragraph = [];
   let list = [];
@@ -65,13 +66,17 @@ export function renderRecordedMarkdown(value, maxCharacters = 12_000) {
     flushList(); paragraph.push(line);
   }
   flushParagraph(); flushList(); if (fence) flushCode();
-  if (String(value ?? '').length > text.length || text.split('\n').length > 600) blocks.push('<p class="recorded-output-limit">Preview shortened. The original output is below.</p>');
+  if (String(value ?? '').length > text.length || normalizedLines.length > 600) blocks.push('<p class="recorded-output-limit">Preview shortened. The original output is below.</p>');
   return blocks.join('');
 }
 
 /** Keep the source available without treating runtime prose as markup or task authority. */
-export function renderRecordedOutput(value) {
+export function renderRecordedSource(value) {
   const text = String(value ?? '');
   const source = text.slice(0, 64_000);
-  return `<div class="recorded-markdown">${renderRecordedMarkdown(text)}</div><details class="recorded-original"><summary>Original output${text.length > source.length ? ' · first 64,000 characters' : ''}</summary><pre>${esc(source)}</pre>${text.length > source.length ? '<p>Open task evidence for the complete recorded output.</p>' : ''}</details>`;
+  return `<details class="recorded-original"><summary>Original output${text.length > source.length ? ' · first 64,000 characters' : ''}</summary><pre>${esc(source)}</pre>${text.length > source.length ? '<p>Open task evidence for the complete recorded output.</p>' : ''}</details>`;
+}
+
+export function renderRecordedOutput(value) {
+  return `<div class="recorded-markdown">${renderRecordedMarkdown(value)}</div>${renderRecordedSource(value)}`;
 }

@@ -975,6 +975,26 @@ This is a PC workspace. Further visual verification targets desktop use. The
 [Control Center flow](control-center-flow.md) records component responsibilities, performance
 boundaries, concurrency limits and the primary orchestration references.
 
+### Chat readability refinement — 13 September 2026
+
+The user's follow-up refines FR090–FR092 presentation for desktop use. Chat prioritizes the
+user's message and the recorded Control Center response. Each executed request has one
+collapsed trace containing the route, actors, phases, agent output, checks, usage, original
+output and evidence link. Expanding records is optional; failures, live overlays, permission
+requests and task controls remain visible. Long user requests can expand without losing their
+exact text. Simple direct replies have no fabricated execution trace. Legacy checks-only
+history must state that no head review or final reply was recorded.
+
+Disclosure choices survive live transcript rebuilds and tab changes during the current page
+session; a page reload returns to collapsed defaults. Drafts and reading position retain their
+existing behavior. Opening an older trace fetches that run's records on demand. The composer
+keeps only project context and automatic routing beside the send action. Each message still
+creates a new request; conversation continuation semantics are unchanged.
+
+Desktop screenshots, behavioral tests and the verification scope are recorded in
+`docs/evidence/chat-refinement-2026-09-13/README.md`. This presentation refinement does not
+claim a new paid-runtime execution or change coordinator routing and acceptance authority.
+
 ### Added feature rows
 
 FR085–FR093 are new in the authoritative master plan. Their day-one acceptance criteria below
