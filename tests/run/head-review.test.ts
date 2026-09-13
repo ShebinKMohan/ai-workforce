@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AdapterError, FAKE_SCENARIO_ENV, FakeAdapter, type RuntimeEvent, type SessionHandle, type SessionInput, type StopReceipt, type TurnHandle, type TurnInput } from '../../src/adapters/index.js';
@@ -90,6 +90,11 @@ describe('department head reviews the checked combined candidate', () => {
     const before = await fingerprintCheckout(input.repoPath);
     let opened: SessionInput | undefined;
     let prompt = '';
+    let forwarded: TurnInput['attachments'];
+    const attachmentPath = path.join(tempDir('head-review-attachment-'), 'reference.txt');
+    const attachmentBytes = 'Expected pagination documentation and error handling.';
+    writeFileSync(attachmentPath, attachmentBytes);
+    const attachments = [{ path: attachmentPath, name: 'reference.txt', mimeType: 'text/plain', sizeBytes: Buffer.byteLength(attachmentBytes), sha256: sha256Hex(attachmentBytes) }];
     class InspectingHead extends FakeAdapter {
       override async openSession(value: SessionInput): Promise<SessionHandle> {
         opened = value;
@@ -99,12 +104,15 @@ describe('department head reviews the checked combined candidate', () => {
       }
       override async startTurn(session: SessionHandle, turn: TurnInput): Promise<TurnHandle> {
         prompt = turn.prompt;
+        forwarded = turn.attachments;
         return super.startTurn(session, turn);
       }
     }
-    const outcome = await reviewWithHead({ ...input, ...scenario([submit(), { action: 'claim_done', message: 'Review submitted.' }]), adapterFactory: () => new InspectingHead() });
+    const outcome = await reviewWithHead({ ...input, attachments, ...scenario([submit(), { action: 'claim_done', message: 'Review submitted.' }]), adapterFactory: () => new InspectingHead() });
     expect(outcome).toMatchObject({ verdict: 'passed', candidateRevision: decision.candidateRevision, diffHash: decision.diffHash, summary: decision.summary, findings: [], sessionStopped: true, interrupted: false });
     expect(opened).toMatchObject({ policy: 'analysis', allowedWritePaths: [] });
+    expect(forwarded).toEqual(attachments);
+    expect(prompt).toContain(JSON.stringify(attachmentPath));
     for (const content of [REQUEST, 'docs/alpha.md', 'docs/beta.md', 'pageCount', 'GET /search', 'nova', 'mira', decision.candidateRevision, decision.diffHash, ...input.receipts.map((receipt) => receipt.id)]) expect(prompt).toContain(content);
     expect(events('head.review_submitted')).toHaveLength(1);
     const order = ['head.review_session_requested', 'head.review_session_opened', 'head.review_submitted', 'head.review_session_stopped', 'head.review_finished'].map((type) => events(type)[0]!.sequence);
@@ -121,6 +129,20 @@ describe('department head reviews the checked combined candidate', () => {
     expect(await callCoordinator(bridge.socketPath, token, HEAD_REVIEW_TOOL, decision)).toMatchObject({ ok: false, error: { code: 'unauthenticated' } });
     expect(await fingerprintCheckout(input.repoPath)).toEqual(before);
   }, 60_000);
+
+  it('blocks review before a session when attachment context no longer matches its recorded identity', async () => {
+    const attachmentPath = path.join(tempDir('head-review-changed-attachment-'), 'reference.txt');
+    writeFileSync(attachmentPath, 'modified');
+    let opened = false;
+    class UnstartedHead extends FakeAdapter {
+      override async openSession(value: SessionInput): Promise<SessionHandle> { opened = true; return super.openSession(value); }
+    }
+    const outcome = await reviewWithHead({ ...input, attachments: [{ path: attachmentPath, name: 'reference.txt', mimeType: 'text/plain', sizeBytes: 8, sha256: sha256Hex('original') }], adapterFactory: () => new UnstartedHead() });
+    expect(outcome.verdict).toBe('blocked');
+    expect(outcome.summary).toContain('SHA-256');
+    expect(opened).toBe(false);
+    expect(events('head.review_session_requested')).toEqual([]);
+  });
 
   it('records substantive changes requested despite passing independent checks', async () => {
     const rejected: HeadReviewResult = { ...decision, verdict: 'changes_requested', summary: 'The search documentation omits its error responses.', findings: [{ summary: 'Document invalid page handling.', file: 'docs/beta.md', line: 3 }] };

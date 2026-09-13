@@ -40,6 +40,9 @@ import { renderNewTaskSheet, sheetDefaults } from './sheets/new-task.js';
 import { addProjectDefaults, renderAddProjectSheet } from './sheets/add-project.js';
 import { buildRuntimeSettingsOp } from './runtime-settings.js';
 import { buildControlCenterOp, controlCenterDefaults } from './control-center-settings.js';
+import { catalogForRuntime, effortChoices, reconcileModelSelection } from './runtime-model-options.js';
+import { createModelCatalogStore } from './runtime-model-catalogs.js';
+import { createFolderPicker } from './folder-picker.js';
 import { ERRORS } from './words.js';
 
 // ---- browser-only conveniences (never records) ------------------------------------
@@ -86,6 +89,7 @@ const state = {
     projectForms: new Map(),
     projectWorkerDrafts: new Map(),
     runtimeDrafts: new Map(),
+    modelCatalogs: new Map(),
     controlCenterDraft: null,
     confirm: null,
     actionError: null,
@@ -98,6 +102,34 @@ const state = {
   },
   announce: { taskKey: null, signature: null, needs: null, last: 0, timer: null },
 };
+
+const modelCatalogStore = createModelCatalogStore({ load: (id, refresh) => api.runtimeModels(id, refresh), onChange: () => queueMicrotask(() => render()) });
+state.ui.modelCatalogs = modelCatalogStore.catalogs;
+const projectFolderPicker = createFolderPicker({ id: 'project-folder', onSelect: (path) => {
+  if (state.ui.sheet?.name !== 'add-project') return;
+  setSheet('path', path);
+  render({ force: true });
+  void inspectFolder();
+} });
+
+function ensureVisibleModelCatalogs(refresh = false) {
+  if (!state.loaded) return;
+  const bindings = state.workspaceDoc?.workspace?.runtimes || {};
+  const draft = currentDraft();
+  const ids = state.route.name === 'settings' ? Object.keys(bindings) : state.route.name === 'department' && draft ? [draft.head.tool, ...draft.workers.map((worker) => worker.tool)] : [];
+  for (const id of new Set(ids)) void modelCatalogStore.ensure(id, bindings[id], { refresh });
+}
+
+function selectionForRuntime(runtimeId, values, changed) {
+  const binding = state.workspaceDoc?.workspace?.runtimes?.[runtimeId];
+  return reconcileModelSelection({ catalog: catalogForRuntime(state.ui.modelCatalogs, runtimeId, binding), model: values.model, effort: values.effort, inheritedModel: binding?.model, changed });
+}
+
+function assertInheritedEffort(runtimeId, values) {
+  const binding = state.workspaceDoc?.workspace?.runtimes?.[runtimeId];
+  const choices = effortChoices(catalogForRuntime(state.ui.modelCatalogs, runtimeId, binding), values.model, values.effort, { inheritedModel: binding?.model, inheritedEffort: binding?.effort });
+  if (!values.effort && choices.inheritedUnavailable) throw new Error(choices.hint);
+}
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -126,7 +158,7 @@ function taskView(ctx) {
 
 function unreachableHtml() {
   const tried = state.lastTried ? formatTime(new Date(state.lastTried).toISOString()) : '';
-  return keyed('section', 'unreachable', 'class="section"', `<h1 tabindex="-1">Workforce is not answering</h1><p class="lede">${esc(ERRORS.unreachable)}</p><p class="muted">${tried ? `Last tried ${esc(tried)}. ` : ''}Trying again every 5 seconds.</p><button type="button" class="button" data-action="reload-all">Try again</button>`);
+  return keyed('section', 'unreachable', 'class="section"', `<h1 tabindex="-1">AI Workforce is not answering</h1><p class="lede">${esc(ERRORS.unreachable)}</p><p class="muted">${tried ? `Last tried ${esc(tried)}. ` : ''}Trying again every 5 seconds.</p><button type="button" class="button" data-action="reload-all">Try again</button>`);
 }
 
 function pageHtml(ctx) {
@@ -232,6 +264,7 @@ function replacePreservingFocus(container, html) {
 
 let focusoutPending = false;
 function render({ force = false, focus = null } = {}) {
+  ensureVisibleModelCatalogs();
   const ctx = context();
   renderChrome(ctx);
   const page = $('#page');
@@ -243,7 +276,7 @@ function render({ force = false, focus = null } = {}) {
     page.innerHTML = html;
     state.renderedRoute = key;
     const title = state.route.name === 'task' && ctx.taskView?.detail ? ctx.taskView.detail.title : routeTitle(state.route);
-    document.title = `${title} · Workforce`;
+    document.title = `${title} · AI Workforce`;
     if (state.loaded && !(firstLoad && sameRoute && state.route.name === 'home' && !location.hash)) {
       if (!sameRoute) window.scrollTo(0, 0);
       page.querySelector('h1')?.focus({ preventScroll: true });
@@ -263,7 +296,7 @@ function render({ force = false, focus = null } = {}) {
   }
   if (state.route.name === 'task' && ctx.taskView?.detail) {
     const title = String(ctx.taskView.detail.title);
-    document.title = `${title.length > 100 ? `${title.slice(0, 97)}…` : title} · Workforce`;
+    document.title = `${title.length > 100 ? `${title.slice(0, 97)}…` : title} · AI Workforce`;
   }
   page.classList.toggle('page-office', state.route.name === 'office');
   if (state.route.name === 'office') activateOffice(page);
@@ -292,12 +325,17 @@ function renderSheet(ctx, force) {
     root.innerHTML = `<div class="sheet-backdrop" data-action="backdrop"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1">${inner}</div></div>`;
     renderedSheet = sheet.name;
     // The field the person most likely wants: the task text, else the first text field, else the chosen option.
-    const first = root.querySelector('.sheet-body textarea:not([disabled])') ?? root.querySelector('.sheet-body input[type="text"]:not([disabled])') ?? root.querySelector('.sheet-body input:not([disabled]):checked');
+    const first = sheet.name === 'add-project' ? root.querySelector('[data-action="browse-project-folders"]') : root.querySelector('.sheet-body textarea:not([disabled])') ?? root.querySelector('.sheet-body input[type="text"]:not([disabled])') ?? root.querySelector('.sheet-body input:not([disabled]):checked');
     (first ?? root.querySelector('.sheet')).focus();
+    if (sheet.name === 'add-project') projectFolderPicker.mount(root.querySelector('[data-project-folder-picker]'));
     return;
   }
   const dialog = root.querySelector('.sheet');
-  if (force) return replacePreservingFocus(dialog, inner);
+  if (force) {
+    replacePreservingFocus(dialog, inner);
+    if (sheet.name === 'add-project') projectFolderPicker.mount(root.querySelector('[data-project-folder-picker]'));
+    return;
+  }
   // A data refresh touches only the passive "Before it starts" block, never typed values.
   const template = document.createElement('template');
   template.innerHTML = inner;
@@ -341,11 +379,13 @@ async function loadAll({ refreshTools = false } = {}) {
   try {
     const [workspace, runs, requests] = await Promise.all([api.workspace(refreshTools), api.runs(), api.requests()]);
     Object.assign(state, { workspaceDoc: workspace, runsDoc: runs, requestsDoc: requests, loadError: null, loaded: true, lastWorkspaceRead: Date.now() });
+    if (refreshTools) for (const id of modelCatalogStore.catalogs.keys()) modelCatalogStore.invalidate(id);
     if ((!location.hash || location.hash === '#/') && setupModel(indexWorkspace(workspace), requests, runs).allDone) {
       history.replaceState(null, '', '#/office');
       state.route = parseRoute('#/office');
     }
     syncDraft();
+    if (refreshTools) ensureVisibleModelCatalogs(true);
     if (state.route.name === 'task') await loadTask();
   } catch (error) {
     state.loadError = error;
@@ -526,6 +566,7 @@ function onRoute() {
 
 // ---- actions --------------------------------------------------------------------------
 function closeSheet() {
+  projectFolderPicker.close();
   state.ui.sheet = null;
   render();
 }
@@ -595,6 +636,12 @@ const handlers = {
     try { await loadAll({ refreshTools: true }); }
     finally { target.disabled = false; render({ force: true }); }
   },
+  'refresh-models': async (target) => {
+    const id = target.dataset.runtime;
+    const binding = state.workspaceDoc?.workspace?.runtimes?.[id];
+    await modelCatalogStore.ensure(id, binding, { refresh: true });
+    render({ force: true });
+  },
   'save-runtime': async (target) => {
     const key = target.dataset.runtime;
     const ws = indexWorkspace(state.workspaceDoc);
@@ -610,7 +657,7 @@ const handlers = {
       await writeOps([op]);
       state.ui.runtimeDrafts.delete(key);
       await loadAll({ refreshTools: true });
-      state.ui.notice = { key: `runtime:${key}`, text: 'Runtime settings saved and executable rescanned. Model and effort are checked at task start. Existing runs keep their saved configuration.' };
+      state.ui.notice = { key: `runtime:${key}`, text: 'Runtime settings saved and executable rescanned. Reported model choices are being refreshed. Existing runs keep their saved configuration.' };
     } catch (error) {
       state.ui.actionError = { key: `runtime:${key}`, error };
       if (['workspace_revision_conflict', 'workspace_changed_on_disk'].includes(error.code)) await refreshWorkspace();
@@ -624,6 +671,7 @@ const handlers = {
     state.ui.notice = null;
     target.disabled = true;
     try {
+      if (draft.runtime) assertInheritedEffort(draft.runtime, draft);
       await writeOps([buildControlCenterOp(ws.config, draft)]);
       state.ui.controlCenterDraft = null;
       state.ui.notice = { key: 'control-center', text: 'Control Center settings saved for new requests.' };
@@ -740,7 +788,7 @@ const handlers = {
     const draft = currentDraft();
     if (!draft) return;
     const ws = indexWorkspace(state.workspaceDoc);
-    draft.workers.push({ id: null, key: `w${Date.now()}`, name: '', tool: draft.workers[draft.workers.length - 1]?.tool ?? draft.head.tool, model: '', instructions: '', policy: 'local-development', projectIds: ws.liveProjects.length === 1 ? [ws.liveProjects[0].id] : [] });
+    draft.workers.push({ id: null, key: `w${Date.now()}`, name: '', tool: draft.workers[draft.workers.length - 1]?.tool ?? draft.head.tool, model: '', effort: '', instructions: '', policy: 'local-development', projectIds: ws.liveProjects.length === 1 ? [ws.liveProjects[0].id] : [] });
     render({ force: true, focus: `#worker-${draft.workers.length - 1}-name` });
   },
   'remove-worker': (target) => {
@@ -779,6 +827,7 @@ const handlers = {
     state.ui.editorError = null;
     render({ force: true });
     try {
+      for (const agent of [draft.head, ...draft.workers]) assertInheritedEffort(agent.tool, agent);
       await writeOps(ops);
       state.ui.drafts.delete(key);
       state.ui.saving = false;
@@ -801,6 +850,10 @@ const handlers = {
     }
   },
   'inspect-folder': () => inspectFolder(),
+  'browse-project-folders': () => {
+    const sheet = state.ui.sheet;
+    if (sheet?.name === 'add-project') void projectFolderPicker.open(sheet.path);
+  },
   'add-check-row': () => {
     state.ui.sheet.checks.push('');
     render({ force: true, focus: `#project-check-${state.ui.sheet.checks.length - 1}` });
@@ -895,7 +948,7 @@ async function projectOp(projectId, op, leave) {
 async function inspectFolder() {
   const sheet = state.ui.sheet;
   if (!sheet || sheet.name !== 'add-project') return;
-  const folder = sheet.path.trim();
+  const folder = sheet.path;
   if (!folder) return;
   if (!/^(\/|~(?:\/|$)|[A-Za-z]:[\\/])/.test(folder)) {
     sheet.error = { code: 'path_not_absolute', message: 'Use a full folder path, or start with ~/ for your home folder.', details: [] };
@@ -904,12 +957,18 @@ async function inspectFolder() {
     return;
   }
   sheet.inspecting = true;
+  const inspectionRequest = {};
+  sheet.inspectionRequest = inspectionRequest;
   sheet.error = null;
   render({ force: true });
   try {
-    sheet.inspection = await api.inspect(folder);
+    const result = await api.inspect(folder);
+    if (state.ui.sheet !== sheet || sheet.inspectionRequest !== inspectionRequest) return;
+    if (sheet.path !== folder) { sheet.inspecting = false; render({ force: true }); return; }
+    sheet.inspection = result;
     sheet.projectName = sheet.inspection.suggestedName ?? '';
   } catch (error) {
+    if (state.ui.sheet !== sheet || sheet.inspectionRequest !== inspectionRequest) return;
     sheet.inspection = null;
     sheet.error = error;
   }
@@ -927,16 +986,37 @@ function setDraft(path, element, value) {
     if (parts[2] === 'projects') {
       const id = element.dataset.project;
       worker.projectIds = value ? [...new Set([...worker.projectIds, id])] : worker.projectIds.filter((entry) => entry !== id);
-    } else worker[parts[2]] = value;
-  } else if (parts[0] === 'head') draft.head[parts[1]] = value;
+    } else {
+      const changed = worker[parts[2]] !== value;
+      worker[parts[2]] = value;
+      if (changed && ['tool', 'model'].includes(parts[2])) Object.assign(worker, selectionForRuntime(worker.tool, worker, parts[2] === 'tool' ? 'runtime' : 'model'));
+    }
+  } else if (parts[0] === 'head') {
+    const changed = draft.head[parts[1]] !== value;
+    draft.head[parts[1]] = value;
+    if (changed && ['tool', 'model'].includes(parts[1])) Object.assign(draft.head, selectionForRuntime(draft.head.tool, draft.head, parts[1] === 'tool' ? 'runtime' : 'model'));
+  }
   else draft[parts[0]] = value;
+}
+
+function setRuntimeDraft(key, field, value) {
+  const binding = state.workspaceDoc?.workspace?.runtimes?.[key];
+  const draft = { ...(state.ui.runtimeDrafts.get(key) || {}) };
+  const previous = draft[field] ?? binding?.[field] ?? '';
+  draft[field] = value;
+  if (previous !== value && ['executable', 'adapter'].includes(field)) Object.assign(draft, { model: '', effort: '' });
+  if (previous !== value && field === 'model') Object.assign(draft, reconcileModelSelection({ catalog: catalogForRuntime(state.ui.modelCatalogs, key, binding), model: value, effort: draft.effort ?? binding?.effort ?? '', changed: 'model' }));
+  state.ui.runtimeDrafts.set(key, draft);
 }
 
 function setSheet(path, value) {
   const sheet = state.ui.sheet;
   if (!sheet) return;
   const ws = indexWorkspace(state.workspaceDoc);
-  if (path === 'projectId') {
+  if (path === 'path' && sheet.name === 'add-project') {
+    if (sheet.path !== value) { sheet.inspection = null; sheet.error = null; }
+    sheet.path = value;
+  } else if (path === 'projectId') {
     sheet.projectId = value;
     if (!pairSendable(ws, sheet.departmentId, value)) sheet.departmentId = ws.liveDepartments.find((department) => pairSendable(ws, department.id, value))?.id ?? null;
     sheet.consent = false;
@@ -973,14 +1053,19 @@ function onBind(event) {
     return;
   } else if (bind === 'runtime') {
     const key = element.dataset.runtime;
-    state.ui.runtimeDrafts.set(key, { ...(state.ui.runtimeDrafts.get(key) || {}), [element.dataset.field]: value });
+    setRuntimeDraft(key, element.dataset.field, value);
+    if (['executable', 'adapter', 'model', 'effort'].includes(element.dataset.field)) render({ force: true });
     return;
   } else if (bind === 'control-center' || bind === 'control-center-route') {
     const draft = state.ui.controlCenterDraft || controlCenterDefaults(state.workspaceDoc?.workspace);
     if (bind === 'control-center-route') draft.routes = { ...draft.routes, [element.dataset.project]: value };
-    else draft[element.dataset.field] = value;
+    else {
+      const changed = draft[element.dataset.field] !== value;
+      draft[element.dataset.field] = value;
+      if (changed && ['runtime', 'model'].includes(element.dataset.field)) Object.assign(draft, selectionForRuntime(draft.runtime, draft, element.dataset.field));
+    }
     state.ui.controlCenterDraft = draft;
-    if (element.dataset.field === 'runtime') render({ force: true });
+    if (['runtime', 'model', 'effort'].includes(element.dataset.field)) render({ force: true });
     return;
   } else if (bind === 'limit') {
     state.ui.limitsDraft = { ...(state.ui.limitsDraft ?? {}), [element.dataset.field]: value };
@@ -1028,7 +1113,7 @@ function syncBoundFields() {
       state.ui.projectForms.set(element.dataset.project, { ...form, newCheck: value });
     } else if (bind === 'runtime') {
       const key = element.dataset.runtime;
-      state.ui.runtimeDrafts.set(key, { ...(state.ui.runtimeDrafts.get(key) || {}), [element.dataset.field]: value });
+      setRuntimeDraft(key, element.dataset.field, value);
     } else if (bind === 'control-center') {
       const draft = state.ui.controlCenterDraft || controlCenterDefaults(state.workspaceDoc?.workspace);
       draft[element.dataset.field] = value;

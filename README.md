@@ -1,13 +1,16 @@
-# Workforce
+# AI Workforce
 
-A local AI employee workspace for engineering work. Add your projects, create departments with
-heads and workers, and send a task to a department. Its head plans the work, the assigned workers
-change isolated copies, and an independent verifier runs your checks before the result can be
-shown as **Verified**.
+A local harness for your coding agents. Add projects, create departments with heads and workers,
+and send a message to **Control Center**, your AI orchestrator. It answers from the supplied
+context, asks a focused question, or routes project work to the responsible department. The head
+plans the work, workers change isolated copies, and an independent verifier checks the candidate.
+The head reviews the checked result before Control Center returns the final response.
 
-Home, the isometric Office, Tasks, Projects and Departments show your saved configuration and
-real execution records. Codex and Claude Code use their installed CLIs and existing sign-ins; Workforce
-has no product account or API key setup. Sending a task uses your coding runtime's model allowance.
+The desktop workspace combines a readable task conversation, an interactive 3D Office, project
+and agent management, and real execution records. Codex and Claude Code use their installed CLIs
+and configured provider authentication; AI Workforce has no separate product account. Sending a
+message that needs AI uses the selected runtime's model allowance. The CLI command and data
+directory retain the name `workforce` for compatibility.
 
 ## Start here
 
@@ -24,11 +27,14 @@ the current source and opens the workspace. For the `workforce` commands in this
 `npm link` once from the checkout; then `workforce serve --open` starts the last build directly.
 `node dist/cli/index.js serve --open` is the equivalent without a global link.
 
-A new workspace opens an empty Office with only its central system Coordinator. To get started:
+A new workspace opens an empty Office with only Control Center. To get started:
 
 1. **Check your coding tools.** The page detects installed Codex and Claude Code without a model
    turn. If a tool is signed out, Settings gives its login command. Check again after signing in.
-2. **Add a project.** Choose an existing Git repository with at least one commit. Review the
+   Control Center, runtime defaults and agent editors offer the models and reasoning efforts
+   reported by each installed runtime; unavailable choices remain visible.
+2. **Add a project.** Click **Browse folders** to choose an existing Git repository with at least
+   one commit, then **Use this folder** to inspect it. Review the
    detected checks, or enter a check such as `npm test`. Work starts from its last commit;
    uncommitted edits stay in your original folder and are excluded from the task. Adding a project
    creates no department or employee.
@@ -36,42 +42,59 @@ A new workspace opens an empty Office with only its central system Coordinator. 
    Both are saved together. Use **Add agent** to add workers and select their projects. Each worker
    gets a workstation inside the same growing department room. A worker with no project assignment
    receives no work.
-4. **Send your first task.** Choose a project and department, describe a bounded change, review
-   who will take it and which checks will run, then send it to the head.
+4. **Send your first task.** In **Chat**, choose the project, describe a bounded change and click
+   **Send to Control Center**. Optionally select its runtime, model and effort for this message.
+   Control Center chooses the department; selecting a room or agent only changes inspection
+   context. Department heads and workers keep their own runtime settings.
+
+Use the attachment button or drag files into Chat to include documents, source files or images.
+You can remove individual files before sending. A message accepts up to **8 files**, **5 MiB per
+supported native image**, **10 MiB per other file**, and **25 MiB total**. Delivery depends on the
+runtime: supported images use native image input, Claude also accepts native PDFs, and other
+files are supplied as staged references with bounded text excerpts where applicable. Uploading
+a binary file does not imply the selected model can interpret its format.
 
 Start with a small change in a demo or development repository whose tests you can interpret.
 For the full walkthrough, troubleshooting and repeat-use commands, read **[Start here](docs/start-here.md)**.
 
 ## Follow the work
 
-**Office** combines the selected Claude-designed shell, sidebar and employee directory with an
-original procedural Three.js scene. It shows only saved departments and employees. A department's
+**Office** shows your saved departments and employees in an interactive 3D scene. A department's
 room grows around its full roster, including the fifth worker and beyond; there is no fixed set
 of islands or four-seat limit. Pan, zoom or select a room or employee to inspect its real context.
-The central Coordinator represents the system scheduler, with no additional model assigned.
+The central **Control Center** represents the AI intake agent. Its chosen runtime interprets
+requests; coordinator code enforces scheduling, worker capacity and execution boundaries.
 
-The **Control center** has three tabs: **Chat** holds a task draft and opens **Review task** before
-you send it; **Tasks** shows recorded work and links to its evidence; **Connections** shows runtime
-information and configured agent bindings. **Projects** opens the workspace pages at `/workspace/`,
+The **Control Center** has three tabs: **Chat** keeps your message and the main response readable,
+with execution traces collapsed until you expand them; **Activity** shows recorded work and links
+to its evidence; **Runtimes** shows runtime information and configured agent bindings.
+**Projects** opens the workspace pages at `/workspace/`,
 where Home/setup, Departments, Tasks and Settings remain available. **Agents** opens the full
-directory and **Add agent** opens the worker editor. Typing a draft starts no model task.
+directory and **Add agent** opens the worker editor. Typing a draft starts no model task. Drag
+the right panel's divider to resize it. Scene packets and phase labels reflect recorded intake,
+delegation, work and review; idle agents do not simulate tasks. Scene motion can be paused and
+respects reduced motion. Opt-in browser notifications report completion or work needing attention
+while the page is running, subject to browser support and permission.
 
-Use **4317** for the working application. The original prototype on **4318** is a visual reference
-with static demo data; it is not the place to submit real tasks.
+The default application port is **4317**; use the URL printed by your server if you choose another
+port. The original prototype on **4318** is a visual reference with static demo data. The dated
+13 September live checks used a separate workspace at **4421**.
 
 Open a task to see who is acting now and its five recorded phases:
 
 | Phase | What it means |
 | --- | --- |
-| **Sent** | Your request was recorded; any queue wait has a reason. |
+| **Sent** | Your request was recorded and Control Center selects its route; any queue wait has a reason. |
 | **Department head** | The head reads this project and submits a plan for eligible workers. |
 | **Work** | Each assigned worker changes its own project copy. |
 | **Checks** | The verifier checks a frozen copy and records the outcome. |
-| **Review** | Inspect the result, changes and check receipts. |
+| **Review** | The head reviews the checked candidate; Control Center returns the recorded result. |
 
-Expand **Changes**, **Checks**, **All events** or **Show record** for the evidence. A worker saying
-“done” does not verify anything. **Verified means the configured checks passed on the recorded
-candidate**; it does not mean that the change has been applied to your checkout, merged or deployed.
+Expand the chat trace or open a task's **Changes**, **Checks**, **All events** and **Show record**
+for evidence. A worker saying “done” does not verify anything. New department tasks require
+passing independent checks and an approved head review of the recorded candidate before the
+final verified reply. A direct Control Center answer has no invented worker trace. **Verified**
+does not mean the change has been applied to your checkout, merged or deployed.
 
 Use **Stop this task** on an active task. Wait for it to show **Stopped**, then use **Resume** to
 continue. Held requests have **Start** and **Discard** controls. Closing the browser does not stop
@@ -87,6 +110,8 @@ and requests still queued are held on the next start until you choose Start.
   page requires explicit consent. Codex is the suggested department-head runtime.
 - A request targets one department on one project. Cross-project or cross-department work needs
   separate requests. The coordinator enforces the department's project roster.
+- Each ordinary chat send creates an independent request. Control Center uses one bounded AI
+  intake turn when needed; previous chat answers are not automatically included as context.
 - Results are local candidates for review. Applying a change remains a separate deliberate action.
 - Repository Git hooks, fsmonitor and content filters are disabled during coordinator Git
   operations. Git LFS files remain pointer files; this version does not fetch their contents.
@@ -104,6 +129,11 @@ browser walkthroughs, deterministic tests, real runtime results and remaining li
 suite leaves 32 opt-in real-runtime tests skipped; that is not a claim that every historical
 paid-runtime scenario was rerun. [Manual result review and application](docs/start-here.md#review-and-apply-a-result-deliberately)
 explains how to inspect or apply a candidate in a separate review worktree.
+
+The **[13 September harness evidence](docs/evidence/harness-experience-2026-09-13/README.md)** records
+the current UI, model selection, folder browser, live Codex image/text intake and validation
+boundaries. The **[harness research](docs/harness-research-2026-09-13.md)** compares first-party
+runtime integrations and explains the remaining follow-up, skills and delivery gaps.
 
 ## Terminal workflow
 

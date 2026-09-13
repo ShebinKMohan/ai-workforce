@@ -301,12 +301,22 @@ export type TaskContractInput = z.input<typeof TaskContractSchema>;
 
 export const RUN_REQUEST_VERSION = 1 as const;
 
+export const RuntimeAttachmentSchema = z.strictObject({
+  path: z.string().min(1).max(4096).refine((value) => !value.includes('\0')),
+  name: z.string().trim().min(1).max(255),
+  mimeType: z.string().min(1).max(128),
+  sizeBytes: z.number().int().nonnegative().max(10 * 1024 * 1024).optional(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  mode: z.enum(['auto', 'native', 'reference']).optional(),
+});
+
 export const RunRequestSchema = z.strictObject({
   requestVersion: z.literal(RUN_REQUEST_VERSION),
   runId: IdSchema,
   /** The user's original wording, never rewritten. */
   text: z.string().min(1),
   contextRefs: z.array(z.string().min(1)).default([]),
+  attachments: z.array(RuntimeAttachmentSchema).max(8).optional(),
   repoPath: z.string().min(1),
   baseMode: z.enum(['head']).default('head'),
   submittedAt: z.string().datetime(),

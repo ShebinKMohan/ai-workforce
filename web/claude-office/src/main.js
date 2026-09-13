@@ -7,6 +7,7 @@ import { createDepartmentManager } from './department-manager.js';
 import { createProjectManager } from './project-manager.js';
 import { createPanelResizer } from './panel-resizer.js';
 import { reviewTask } from './task-bridge.js';
+import { createTaskNotifications } from './task-notifications.js';
 import { subscribeEvents } from '/workspace/src/api.js';
 
 const $ = id => document.getElementById(id);
@@ -20,6 +21,26 @@ const sceneKey = () => JSON.stringify([departments.map(({id,name,headAgentId,col
 let lastKey = stateKey(live), lastSceneKey = sceneKey();
 const store = createAgentStore({ employees, departments, runtimes });
 store.setWorkspace(live.workspaceDoc);
+const notifications = createTaskNotifications({
+  storageKey:'workforce:task-notifications:v1:'+(live.workspaceDoc?.path||location.origin),
+  onOpenTask:task=>{closeManagers();if(sidebar?.showTask(task.id)){openMobilePanel();}else if(task.href){location.href=task.href;}}
+});
+const notificationButton = document.createElement('button');
+notificationButton.type='button';notificationButton.id='task-notifications';notificationButton.className='icon-button task-notification-toggle';
+notificationButton.innerHTML='<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8a5 5 0 0 1 10 0v4l1.5 2H3.5L5 12V8Zm3 9h4M10 2v1"/></svg>';
+$('review-button').before(notificationButton);
+function updateNotificationButton() {
+  const status=notifications.getStatus();
+  const label=!status.supported?'Task notifications unavailable in this browser':status.permission==='denied'?'Task notifications blocked in browser settings':status.requesting?'Waiting for notification permission':status.enabled?'Turn off task notifications':'Enable task notifications while this workspace is open';
+  notificationButton.setAttribute('aria-label',label);notificationButton.title=status.error||label;notificationButton.setAttribute('aria-pressed',String(status.enabled));notificationButton.disabled=!status.supported||status.permission==='denied'||status.requesting;
+}
+notificationButton.onclick=async event=>{
+  if(notifications.getStatus().enabled){notifications.disable();updateNotificationButton();return;}
+  const request=notifications.enableFromUserGesture(event);updateNotificationButton();await request;updateNotificationButton();
+  const status=notifications.getStatus();if(status.error)notice(status.error);
+};
+if(!live.error)notifications.observe(live.tasks);
+updateNotificationButton();
 
 function notice(text) {
   clearTimeout(noticeTimer);
@@ -96,6 +117,8 @@ async function refreshLive(force = false) {
   pendingRefresh = (async () => {
     const next = await loadLiveData();
     live = next;
+    if(!live.error)notifications.observe(live.tasks);
+    updateNotificationButton();
     const key = stateKey(next);
     if (!force && key === lastKey) return;
     lastKey = key;
@@ -105,6 +128,7 @@ async function refreshLive(force = false) {
     updateHeader();
     const nextSceneKey = sceneKey();
     if (nextSceneKey !== lastSceneKey) { lastSceneKey = nextSceneKey; scene?.setData({departments,agents:employees}); }
+    scene?.setActivity({tasks:live.tasks,connected:!live.error});
     sidebar.updateData(live);
     if (invalid) focusSelection(selection); else updateSelectionName();
   })();
@@ -132,8 +156,8 @@ departmentManager = createDepartmentManager({element:$('department-manager'),get
 projectManager = createProjectManager({element:$('project-manager'),getWorkspace:()=>live.workspaceDoc,onSaved:async saved=>{closeManagers();await refreshLive(true);focusSelection({type:'office'});sidebar.showTab('chat');notice(saved.project.name+' connected. Describe a task in chat.');},onClose:closeManagers});
 const resizer = createPanelResizer($('panel-resizer'));
 try {
-  scene = createOfficeScene({element:$('canvas'),layoutKey:live.workspaceDoc?.path||location.origin,onSelect:next=>focusSelection(next),onCamera:state=>{$('zoom-value').textContent=Math.round(state.zoom*100)+'%';},onCreateDepartment:showDepartment});
-  scene.setData({departments,agents:employees}); window.officeScene=scene;
+  scene = createOfficeScene({element:$('canvas'),layoutKey:live.workspaceDoc?.path||location.origin,onSelect:next=>focusSelection(next),onCamera:state=>{$('zoom-value').textContent=Math.round(state.zoom*100)+'%';},onCreateDepartment:showDepartment,onOpenTask:id=>{closeManagers();if(sidebar.showTask(id))openMobilePanel();}});
+  scene.setData({departments,agents:employees});scene.setActivity({tasks:live.tasks,connected:!live.error}); window.officeScene=scene;
 } catch(error) {
   $('canvas').innerHTML='<div class="scene-empty"><h2>The office could not start.</h2><p>'+esc(error.message)+'</p><button class="add-agent-button" id="fallback-team">Open your team</button></div>';
   $('fallback-team').onclick=()=>showAgentManager('directory'); console.error(error);
@@ -160,5 +184,5 @@ addEventListener('workforce-task-changed',refreshAfterAction);
 const timer=setInterval(()=>refreshLive().catch(error=>notice(error.message)),4000);
 const stream=subscribeEvents('',{onEvent:()=>{clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>refreshLive().catch(error=>notice(error.message)),180);}});
 addEventListener('resize',syncMobilePanel);
-addEventListener('pagehide',()=>{removeEventListener('resize',syncMobilePanel);removeEventListener('workforce-task-changed',refreshAfterAction);clearInterval(timer);clearTimeout(refreshTimer);clearTimeout(noticeTimer);stream.close();resizer.destroy();sidebar.destroy?.();scene?.destroy();},{once:true});
+addEventListener('pagehide',()=>{removeEventListener('resize',syncMobilePanel);removeEventListener('workforce-task-changed',refreshAfterAction);clearInterval(timer);clearTimeout(refreshTimer);clearTimeout(noticeTimer);stream.close();resizer.destroy();sidebar.destroy?.();scene?.destroy();notifications.destroy();},{once:true});
 if(live.error)notice(live.error.message||String(live.error));

@@ -33,6 +33,7 @@ import { headTaskIssues, type HeadPlanner } from '../../workspace/planning.js';
 import { buildRoster, rosterAgentConfig, writeRosterSnapshot, type Roster } from '../../workspace/roster.js';
 import { loadWorkspace } from '../../workspace/store.js';
 import { inspectProject, ProjectInspectionError } from '../../workspaces/project.js';
+import { AttachmentIdsSchema, resolveAttachments } from '../../server/attachments.js';
 import { CliError, EXIT_CODES, type CommandResult } from '../output.js';
 import { createRenderer, plannedCommandResult, requireTaskText, toCliError, withWatchHints, type RunCommandArgs, type RunCommandDeps } from './run.js';
 
@@ -66,6 +67,8 @@ export async function commandRunProject(args: RunCommandArgs, deps: RunCommandDe
   const task = requireTaskText(args);
 
   const stateRoot = resolveStateRoot(args.stateDir);
+  const uploaded = args.attachmentIds?.length ? await resolveAttachments(stateRoot, AttachmentIdsSchema.parse(args.attachmentIds)) : [];
+  const attachments = uploaded.map((file) => ({ path: file.path, name: file.name, mimeType: file.mimeType, sizeBytes: file.size, sha256: file.sha256 }));
   let roster: Roster;
   let workspace;
   try {
@@ -165,6 +168,7 @@ export async function commandRunProject(args: RunCommandArgs, deps: RunCommandDe
       outcome = await planner({
         requestText: task.text,
         requestSource: task.source,
+        ...(attachments.length ? { attachments } : {}),
         repoPath: repoRoot,
         baseRevision,
         workspace: workspace.config,
@@ -216,6 +220,7 @@ export async function commandRunProject(args: RunCommandArgs, deps: RunCommandDe
         configPath: snapshot.path,
         requestText: task.text,
         requestSource: task.source,
+        ...(attachments.length ? { attachments } : {}),
         headReview: { headAgentId: roster.head.id, required: true },
         tasks,
         paths,

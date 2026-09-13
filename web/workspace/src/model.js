@@ -205,7 +205,7 @@ const STEP_ORDER = ['tools', 'project', 'department', 'send'];
 /** Rows for "Check your coding tools". */
 export function toolRows(ws) {
   if (ws.toolsError) return [{ tone: 'failed', line: `Could not check for coding tools: ${ws.toolsError}. Nothing was started.` }];
-  if (ws.reports.length === 0) return [{ tone: 'attention', line: 'No coding tool was reported. Workforce works with Codex and Claude Code.' }];
+  if (ws.reports.length === 0) return [{ tone: 'attention', line: 'No coding tool was reported. AI Workforce works with Codex and Claude Code.' }];
   return [...ws.reportByAdapter.values()].map((report) => {
     const fact = toolFact(ws, report.adapter);
     const title = `${fact.name}${fact.version ? ` ${fact.version}` : ''}`;
@@ -213,7 +213,7 @@ export function toolRows(ws) {
     if (fact.word === 'signed out' && fact.loginHint) line += `. To use it, run: ${fact.loginHint}`;
     const notes = [];
     if (fact.ready && report.writeContainment && report.writeContainment !== 'verified') {
-      notes.push(`Workforce cannot keep ${fact.name}'s changes inside its own copy, so a task that uses it runs on its own and asks you first.`);
+      notes.push(`AI Workforce cannot keep ${fact.name}'s changes inside its own copy, so a task that uses it runs on its own and asks you first.`);
     }
     return { tone: fact.ready ? 'neutral' : 'attention', line, notes, adapter: report.adapter };
   });
@@ -339,7 +339,7 @@ export function taskStatus(ws, { item, run, resumes }) {
     if (item.state === 'queued') return status('waiting', plainReason(item.reason) ?? 'Waiting to start.');
     if (item.state === 'held') return status('held', 'It was still waiting when the page server stopped, so it was not started. Start it or discard it.');
     if (item.state === 'discarded') return status('discarded', 'Discarded before it started. Nothing ran.');
-    if (item.state === 'failed_to_start') return status('notStarted', resultLine(item.result) ?? 'Workforce could not start it.');
+    if (item.state === 'failed_to_start') return status('notStarted', resultLine(item.result) ?? 'AI Workforce could not start it.');
     if (item.state === 'starting' || item.state === 'running') return item.stopRequestedAt ? status('stopping', plainReason(item.reason) ?? 'A stop was requested.') : status('starting', 'Starting. The department head plans first.');
     if (item.state === 'ended') {
       if (item.result?.code === 'plan_rejected') return status('noPlan', resultLine(item.result));
@@ -658,14 +658,14 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
     if (item.state === 'queued') send.push(stage('waiting', plainReason(item.reason) ?? 'Waiting to start.', item.receivedAt, { reason: item.reason }));
     if (item.state === 'held') send.push(stage('held', 'Held: it was still waiting when the page server stopped, so it was not started. Start it or discard it.', item.heldAt, { reason: item.reason }));
     if (item.state === 'discarded') send.push(stage('discarded', 'Discarded. Nothing ran.', item.endedAt, {}));
-    if (item.startedAt) send.push(stage('started', 'Workforce started it.', item.startedAt, { launch: item.launchId, pid: item.pid, stdout: item.stdoutPath, stderr: item.stderrPath }));
+    if (item.startedAt) send.push(stage('started', 'AI Workforce started it.', item.startedAt, { launch: item.launchId, pid: item.pid, stdout: item.stdoutPath, stderr: item.stderrPath }));
     if (!entry.runId && ['ended', 'failed_to_start'].includes(item.state)) {
       send.push(Object.assign(stage('not-started', resultLine(item.result) ?? 'It ended before anything was recorded.', item.endedAt, { result: item.result, exitCode: item.exitCode }), { tone: 'failed' }));
     }
   } else if (created) {
     send.push(stage('started-elsewhere', 'Started outside this page, from a terminal.', created.timestamp, { run: entry.runId }, eventIds([created])));
   }
-  if (created) send.push(stage('recorded', `Workforce recorded it and took your last commit on ${project} as the starting point.`, created.timestamp, { run: entry.runId, baseRevision: created.payload?.baseRevision, repoPath: created.payload?.repoPath, checkSource: created.payload?.checkSource }, eventIds([created])));
+  if (created) send.push(stage('recorded', `AI Workforce recorded it and took your last commit on ${project} as the starting point.`, created.timestamp, { run: entry.runId, baseRevision: created.payload?.baseRevision, repoPath: created.payload?.repoPath, checkSource: created.payload?.checkSource }, eventIds([created])));
 
   // ---- phase 2: the department head decides -----------------------------------------
   const decide = [];
@@ -685,10 +685,10 @@ export function taskDetailModel({ ws, entry, status: statusDoc = null, events = 
       let line = `Try ${attempt} of ${maxAttempts}: ${head} is reading the project.`;
       let tone = 'neutral';
       if (proposed.length > 0 && !validated && !rejected) line = `Try ${attempt} of ${maxAttempts}: ${head} proposed a plan with ${plural(proposed[proposed.length - 1].payload?.taskCount ?? 0, 'part')}.`;
-      if (validated) line = `Try ${attempt} of ${maxAttempts}: ${head} split it into ${plural(validated.payload?.taskCount ?? 0, 'part')}. Workforce checked that every part has a worker on ${project} and a clear finish.`;
+      if (validated) line = `Try ${attempt} of ${maxAttempts}: ${head} split it into ${plural(validated.payload?.taskCount ?? 0, 'part')}. AI Workforce checked that every part has a worker on ${project} and a clear finish.`;
       if (rejected) {
         const issue = list(rejected.payload?.issues)[0];
-        line = `Try ${attempt} of ${maxAttempts}: Workforce returned the plan${issue ? `: ${clip(issueWords(issue, { project, department: departmentId ? departmentLabel(ws, departmentId) : 'this department', head }), 180)}` : ''}.${rejected.payload?.willRetry ? ' Asking again.' : ''}`;
+        line = `Try ${attempt} of ${maxAttempts}: AI Workforce returned the plan${issue ? `: ${clip(issueWords(issue, { project, department: departmentId ? departmentLabel(ws, departmentId) : 'this department', head }), 180)}` : ''}.${rejected.payload?.willRetry ? ' Asking again.' : ''}`;
         tone = 'attention';
         if (proposed.length === 0 && list(rejected.payload?.issues).some((entryIssue) => entryIssue.code === 'no_plan_proposed')) line = `Try ${attempt} of ${maxAttempts}: ${head} wrote a plan as text instead of proposing one, and a plan written as text creates nothing.${rejected.payload?.willRetry ? ' Asking again.' : ''}`;
       }
@@ -1055,8 +1055,8 @@ export function newDepartmentDraft(ws) {
     color: starter?.department?.color ?? nextColor(ws),
     suggested: Boolean(starter) || name.length > 0,
     suggestionNote: starter?.runtimeChoice?.reason ?? null,
-    head: { id: null, name: starter?.head?.name ?? `${name || 'Department'} head`, tool: starter?.head?.adapter ?? tool, model: '', instructions: '' },
-    workers: [{ id: null, key: 'w1', name: starter?.workers?.[0]?.name ?? `${name || 'Department'} worker`, tool: starter?.workers?.[0]?.adapter ?? tool, model: '', instructions: '', policy: 'local-development', projectIds: starter?.workers?.[0]?.projectIds ?? (lastProject ? [lastProject.id] : []) }],
+    head: { id: null, name: starter?.head?.name ?? `${name || 'Department'} head`, tool: draftRuntime(ws, starter?.head?.runtime ?? starter?.head?.adapter ?? tool), model: '', effort: '', instructions: '' },
+    workers: [{ id: null, key: 'w1', name: starter?.workers?.[0]?.name ?? `${name || 'Department'} worker`, tool: draftRuntime(ws, starter?.workers?.[0]?.runtime ?? starter?.workers?.[0]?.adapter ?? tool), model: '', effort: '', instructions: '', policy: 'local-development', projectIds: starter?.workers?.[0]?.projectIds ?? (lastProject ? [lastProject.id] : []) }],
     archivedWorkers: [],
   };
 }
@@ -1073,8 +1073,8 @@ export function editDepartmentDraft(ws, departmentId) {
     color: department.color,
     suggested: false,
     suggestionNote: null,
-    head: head ? { id: head.id, name: head.name, tool: adapterOf(ws, head.runtime), model: head.model ?? '', instructions: head.instructions } : { id: null, name: `${department.name} head`, tool: 'codex', model: '', instructions: '' },
-    workers: departmentWorkers(ws, departmentId).map((worker) => ({ id: worker.id, key: worker.id, name: worker.name, tool: adapterOf(ws, worker.runtime), model: worker.model ?? '', instructions: worker.instructions, policy: worker.policy, projectIds: [...worker.projectIds] })),
+    head: head ? { id: head.id, name: head.name, tool: head.runtime, model: head.model ?? '', effort: head.effort ?? '', instructions: head.instructions } : { id: null, name: `${department.name} head`, tool: draftRuntime(ws, 'codex'), model: '', effort: '', instructions: '' },
+    workers: departmentWorkers(ws, departmentId).map((worker) => ({ id: worker.id, key: worker.id, name: worker.name, tool: worker.runtime, model: worker.model ?? '', effort: worker.effort ?? '', instructions: worker.instructions, policy: worker.policy, projectIds: [...worker.projectIds] })),
     archivedWorkers: [],
   };
 }
@@ -1099,9 +1099,9 @@ export function draftNotes(ws, draft) {
   for (const worker of draft.workers) {
     if (worker.name.trim() && worker.projectIds.length === 0) notes.push(`${worker.name.trim()} is not on any project, so it gets no tasks until you tick one.`);
   }
-  const headTool = toolFact(ws, draft.head.tool);
+  const headTool = agentTool(ws, { runtime: draft.head.tool });
   if (headTool.ready === false) notes.push(`${draft.head.name.trim() || 'The department head'} uses ${headTool.name}, which is ${headTool.word}${headTool.loginHint && headTool.word === 'signed out' ? `. Run ${headTool.loginHint} in a terminal, or choose another tool` : ''}.`);
-  if (draft.head.tool !== 'codex') notes.push(`The department head on ${toolName(draft.head.tool)} has no verified file boundary, so this department's tasks run on their own. Codex is recommended for department heads.`);
+  if (!runtimeBoundary(ws, draft.head.tool).verified) notes.push(`The department head on ${headTool.name} has no verified file boundary, so this department's tasks run on their own.`);
   return notes;
 }
 
@@ -1122,7 +1122,22 @@ export function draftPreview(ws, draft) {
   });
 }
 
-const std = (tool) => (tool === 'codex' ? 'codex' : tool === 'claude-code' ? 'claude-code' : tool);
+const std = (tool) => (tool === 'codex' ? 'codex-local' : tool === 'claude-code' ? 'claude-local' : tool);
+
+/** Keep configured installations distinct; the first-run standard binding is created by the save operation. */
+function draftRuntime(ws, preferred) {
+  const runtimes = Object.entries(ws.config?.runtimes ?? {});
+  if (runtimes.some(([id]) => id === preferred)) return preferred;
+  const adapter = adapterOf(ws, preferred);
+  const matching = runtimes.filter(([, binding]) => binding.adapter === adapter);
+  return matching.find(([id]) => agentTool(ws, { runtime: id }).ready === true)?.[0] ?? matching[0]?.[0] ?? std(preferred);
+}
+
+function draftAgentOverrides(agent) {
+  const model = (agent.model ?? '').trim();
+  const effort = (agent.effort ?? '').trim();
+  return { ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(agent.instructions.trim() ? { instructions: agent.instructions } : {}) };
+}
 
 /** The workspace operations that turn the draft into what is saved. */
 export function draftOps(ws, draft) {
@@ -1133,11 +1148,11 @@ export function draftOps(ws, draft) {
     ops.push({ op: 'department.add', id: departmentId, name: draft.name.trim(), ...(draft.note.trim() ? { note: draft.note.trim() } : {}), color: draft.color });
     const headId = freshId(ws, 'agents', draft.head.name, 'head', reserved);
     reserved.add(headId);
-    ops.push({ op: 'agent.add', id: headId, name: draft.head.name.trim(), role: 'head', departmentId, runtime: std(draft.head.tool), ...(draft.head.model.trim() ? { model: draft.head.model.trim() } : {}), ...(draft.head.instructions.trim() ? { instructions: draft.head.instructions } : {}) });
+    ops.push({ op: 'agent.add', id: headId, name: draft.head.name.trim(), role: 'head', departmentId, runtime: std(draft.head.tool), ...draftAgentOverrides(draft.head) });
     for (const worker of draft.workers) {
       const workerId = freshId(ws, 'agents', worker.name, 'worker', reserved);
       reserved.add(workerId);
-      ops.push({ op: 'agent.add', id: workerId, name: worker.name.trim(), role: 'worker', departmentId, runtime: std(worker.tool), policy: worker.policy, projectIds: worker.projectIds, ...(worker.model.trim() ? { model: worker.model.trim() } : {}), ...(worker.instructions.trim() ? { instructions: worker.instructions } : {}) });
+      ops.push({ op: 'agent.add', id: workerId, name: worker.name.trim(), role: 'worker', departmentId, runtime: std(worker.tool), policy: worker.policy, projectIds: worker.projectIds, ...draftAgentOverrides(worker) });
     }
     return ops;
   }
@@ -1150,8 +1165,9 @@ export function draftOps(ws, draft) {
   const agentEdit = (current, next, extra = {}) => {
     const change = { ...extra };
     if (current.name !== next.name.trim()) change.name = next.name.trim();
-    if (adapterOf(ws, current.runtime) !== next.tool) change.runtime = std(next.tool);
+    if (current.runtime !== std(next.tool)) change.runtime = std(next.tool);
     if ((current.model ?? '') !== next.model.trim()) change.model = next.model.trim() ? next.model.trim() : null;
+    if ((current.effort ?? '') !== (next.effort ?? '').trim()) change.effort = (next.effort ?? '').trim() || null;
     if (next.instructions.trim() && current.instructions !== next.instructions) change.instructions = next.instructions;
     return change;
   };
@@ -1162,13 +1178,13 @@ export function draftOps(ws, draft) {
   } else if (draft.head.name.trim()) {
     const headId = freshId(ws, 'agents', draft.head.name, 'head', reserved);
     reserved.add(headId);
-    ops.push({ op: 'agent.add', id: headId, name: draft.head.name.trim(), role: 'head', departmentId: draft.id, runtime: std(draft.head.tool) });
+    ops.push({ op: 'agent.add', id: headId, name: draft.head.name.trim(), role: 'head', departmentId: draft.id, runtime: std(draft.head.tool), ...draftAgentOverrides(draft.head) });
   }
   for (const worker of draft.workers) {
     if (worker.id === null) {
       const workerId = freshId(ws, 'agents', worker.name, 'worker', reserved);
       reserved.add(workerId);
-      ops.push({ op: 'agent.add', id: workerId, name: worker.name.trim(), role: 'worker', departmentId: draft.id, runtime: std(worker.tool), policy: worker.policy, projectIds: worker.projectIds, ...(worker.model.trim() ? { model: worker.model.trim() } : {}), ...(worker.instructions.trim() ? { instructions: worker.instructions } : {}) });
+      ops.push({ op: 'agent.add', id: workerId, name: worker.name.trim(), role: 'worker', departmentId: draft.id, runtime: std(worker.tool), policy: worker.policy, projectIds: worker.projectIds, ...draftAgentOverrides(worker) });
       continue;
     }
     const current = ws.agentById.get(worker.id);

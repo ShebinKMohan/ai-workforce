@@ -1,0 +1,11 @@
+> workforce@0.1.0 test
+> vitest run
+
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+
+ Test Files  147 passed | 2 skipped (149)
+      Tests  1626 passed | 32 skipped (1658)
+   Start at  12:54:39
+   Duration  53.71s (tests 95%, import 3%, transform 2%)

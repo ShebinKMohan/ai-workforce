@@ -1,11 +1,13 @@
-import { api } from '../../workspace/src/api.js';
+import { api, getJson } from '../../workspace/src/api.js';
 import { indexWorkspace, taskDetailModel, isDirectControlReply } from '../../workspace/src/model.js';
 import { checkView, describeEvent } from '../../workspace/src/truth.js';
-import { chatRoute, controlCenterRoute, controlFlowModel, conversationEntries, readChatState } from './chat-model.js';
+import { chatRoute, controlCenterRoute, controlCenterBinding, controlSubmissionFingerprint, consentRetryBinding, controlFlowModel, conversationEntries, readChatState } from './chat-model.js';
+import { catalogForRuntime, reconcileModelSelection } from '../../workspace/src/runtime-model-options.js';
 import { renderRecordedOutput } from './recorded-output.js';
 import { usageSummary } from './usage-model.js';
 import { renderChatResponse, renderUserMessage } from './chat-presentation.js';
 import { createChatDisclosures } from './chat-disclosures.js';
+import { ATTACHMENT_LIMITS, attachmentDescriptors, attachmentSelectionError, formatAttachmentSize, persistDraftAttachments, restoreDraftAttachments, consentRetryAttachmentIds } from './attachment-model.js';
 
 const icon = (name, size = 18) => {
   const paths = {
@@ -17,6 +19,7 @@ const icon = (name, size = 18) => {
     focus: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><circle cx="12" cy="12" r="3"/>',
     terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3m6 0h4"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    attach: '<path d="m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9m-6 9 7-7a1 1 0 0 1 2 2l-7 7"/>',
   };
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.center}</svg>`;
 };
@@ -32,6 +35,7 @@ export function createSidebar({ element, departments = [], employees = [], runti
   let activeTab = 'chat';
   let taskFilter = 'all';
   let expandedTask = null;
+  let focusedChatTask = null;
   let expandedRuntime = null;
   let liveData = { tasks: [], projects: [], reports: [], error: null };
   let tasks = [];
@@ -45,13 +49,21 @@ export function createSidebar({ element, departments = [], employees = [], runti
   let storageKey = '';
   let state = { version: 1, contexts: {}, messages: [] };
   let draft = '';
+  let draftAttachments = [];
+  let attachmentError = '';
+  const attachmentFiles = new Map();
+  const attachmentUploads = new Map();
   let routePreferences = {};
+  let orchestratorPreferences = { runtime: '', model: '', effort: '' };
   let submission = null;
   let consentSubmissions = {};
   let detailPending = false;
   let composerReady = false;
   let composerRouteSignature = '';
   const details = new Map();
+  const modelCatalogs = new Map();
+  const catalogSignatures = new Map();
+  const catalogRequests = new Map();
   const disclosureState = createChatDisclosures();
   const viewportStates = new Map();
   let renderedViewport = '';
@@ -64,7 +76,11 @@ export function createSidebar({ element, departments = [], employees = [], runti
   const selectedDepartment = () => selection.type === 'department' ? selection.id : selection.type === 'employee' ? employeeById(selection.id)?.departmentId : null;
   const contextKey = () => 'control';
   const contextName = () => selection.type === 'employee' ? employeeById(selection.id)?.name || 'Agent' : selection.type === 'department' ? departmentById(selection.id)?.name || 'Department' : 'Control center';
-  const route = () => controlCenterRoute(workspaceDocument(), routePreferences.projectId);
+  const route = () => controlCenterRoute(workspaceDocument(), routePreferences.projectId, orchestratorPreferences);
+  const binding = () => {
+    const initial = controlCenterBinding(workspaceDocument(), orchestratorPreferences);
+    return controlCenterBinding(workspaceDocument(), orchestratorPreferences, catalogForRuntime(modelCatalogs, initial.runtimeId, initial.runtime));
+  };
   const scopedTasks = () => tasks.filter(task => !isDirectControlReply(task.entry?.item));
   const roleLabel = agent => agent.workspaceRole === 'head' || /head|lead/i.test(agent.role || '') ? 'Department head' : 'Worker';
   const taskKey = task => `${task.projectId}:${task.runId}`;
@@ -72,13 +88,16 @@ export function createSidebar({ element, departments = [], employees = [], runti
 
   function persist() {
     if (!storageKey) return;
-    state.contexts[contextKey()] = { draft, ...routePreferences, submission, consentSubmissions };
+    state.contexts[contextKey()] = { draft, attachments: persistDraftAttachments(draftAttachments), ...routePreferences, controlCenter: orchestratorPreferences, submission, consentSubmissions };
     try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* Storage can be disabled; coordinator records remain authoritative. */ }
   }
   function restoreContext() {
     const saved = state.contexts[contextKey()] || {};
     draft = typeof saved.draft === 'string' ? saved.draft : '';
+    draftAttachments = restoreDraftAttachments(saved.attachments);
+    attachmentError = '';
     routePreferences = { projectId: saved.projectId || '', departmentId: saved.departmentId || '' };
+    orchestratorPreferences = Object.fromEntries(['runtime', 'model', 'effort'].map(key => [key, typeof saved.controlCenter?.[key] === 'string' ? saved.controlCenter[key] : '']));
     submission = saved.submission || null;
     consentSubmissions = saved.consentSubmissions && typeof saved.consentSubmissions === 'object' ? saved.consentSubmissions : {};
     submitError = '';
@@ -90,6 +109,8 @@ export function createSidebar({ element, departments = [], employees = [], runti
     if (!path) return;
     const key = `workforce:chat:v1:${path}`;
     if (key === storageKey) return;
+    attachmentFiles.clear();
+    attachmentUploads.clear();
     storageKey = key;
     try { state = readChatState(localStorage, key); } catch { state = { version: 1, contexts: {}, messages: [] }; }
     restoreContext();
@@ -97,7 +118,7 @@ export function createSidebar({ element, departments = [], employees = [], runti
 
   element.classList.add('office-sidebar');
   element.setAttribute('aria-label', 'Control center');
-  element.innerHTML = `<header class="sidebar-heading"><div class="sidebar-title-row"><span class="coordinator-mark">${icon('terminal', 18)}</span><div><h1>Control Center</h1></div><button type="button" class="sidebar-icon-button" data-manage-agents title="Manage agents" aria-label="Manage agents">${icon('center', 17)}</button></div></header>
+  element.innerHTML = `<header class="sidebar-heading"><div class="sidebar-title-row"><span class="coordinator-mark">${icon('terminal', 18)}</span><div class="sidebar-title-copy"><h1>Control Center</h1><p class="sidebar-orchestrator-binding" title="The AI orchestrator for your next message. Department agents retain their own settings.">AI orchestrator</p></div><button type="button" class="sidebar-icon-button" data-manage-agents title="Manage agents" aria-label="Manage agents">${icon('center', 17)}</button></div></header>
     <div class="sidebar-context-row"><span class="context-icon">${icon('focus', 14)}</span><label class="sr-only" for="office-context-select">Inspect an agent or team</label><select id="office-context-select" class="sidebar-context-select"></select><button class="sidebar-icon-button context-focus" aria-label="Focus selected area on canvas" title="Focus selected area on canvas">${icon('arrow', 14)}</button></div>
     <div class="sidebar-tabs" role="tablist" aria-label="Control center views"><button class="sidebar-tab is-active" type="button" role="tab" id="office-tab-chat" aria-controls="office-panel" aria-selected="true" data-tab="chat">Chat</button><button class="sidebar-tab" type="button" role="tab" id="office-tab-tasks" aria-controls="office-panel" aria-selected="false" tabindex="-1" data-tab="tasks">Activity <span class="tab-task-count">0</span></button><button class="sidebar-tab" type="button" role="tab" id="office-tab-connections" aria-controls="office-panel" aria-selected="false" tabindex="-1" data-tab="connections">Runtimes</button></div>
     <section class="sidebar-scroll" id="office-panel" role="tabpanel" aria-labelledby="office-tab-chat" tabindex="0"></section><div class="chat-jump-wrap" hidden><button type="button" class="chat-jump-latest" data-jump-latest><span>Jump to latest</span><span aria-hidden="true">↓</span></button></div><div class="sidebar-composer-wrap"></div><div class="sidebar-demo-note"><span class="sidebar-sync-dot"></span><span data-sync-note>Connecting to local coordinator</span></div>`;
@@ -220,14 +241,170 @@ export function createSidebar({ element, departments = [], employees = [], runti
 
   function renderChat() {
     const entries = conversationEntries(state.messages, tasks);
-    return `${renderSelection()}${liveData.error ? `<p class="sidebar-error" role="status">${esc(liveData.error)}. Showing the last received records.</p>` : ''}<div class="chat-conversation" role="log" aria-label="Task conversation">${entries.length ? entries.map(message => `<article class="chat-turn" data-request-id="${esc(message.requestId || message.id)}">${renderUserMessage({ id: message.requestId || message.id, text: message.text, project: liveData.projects?.find(project => project.id === message.projectId)?.name || message.projectId || '', at: time(message.at) })}${message.task ? renderTaskProgress(message.task) : '<p class="chat-response-status">Control Center is reading your request…</p>'}</article>`).join('') : `<div class="chat-empty"><span class="chat-empty-icon">${icon('terminal', 25)}</span><h2>What are we building?</h2><p>Send a task or ask a question. Your team’s progress and reviewed response will appear here.</p><div class="chat-empty-actions">${!liveData.projects?.length ? `<button type="button" data-add-project>${icon('plus', 14)}Add project</button>` : ''}${!departments.length ? `<button type="button" data-add-department>${icon('plus', 14)}Create department</button>` : ''}</div></div>`}</div>`;
+    const focused = taskById(focusedChatTask);
+    if (focused && !entries.some(message => message.task?.id === focused.id)) {
+      entries.push(...conversationEntries([], [focused]));
+      entries.sort((a, b) => Date.parse(a.at || 0) - Date.parse(b.at || 0));
+    }
+    return `${renderSelection()}${liveData.error ? `<p class="sidebar-error" role="status">${esc(liveData.error)}. Showing the last received records.</p>` : ''}<div class="chat-conversation" role="log" aria-label="Task conversation">${entries.length ? entries.map(message => `<article class="chat-turn" data-request-id="${esc(message.requestId || message.id)}">${renderUserMessage({ id: message.requestId || message.id, text: message.text, attachments: message.attachments, project: liveData.projects?.find(project => project.id === message.projectId)?.name || message.projectId || '', at: time(message.at) })}${message.task ? renderTaskProgress(message.task) : '<p class="chat-response-status">Control Center is reading your request…</p>'}</article>`).join('') : `<div class="chat-empty"><span class="chat-empty-icon">${icon('terminal', 25)}</span><h2>What are we building?</h2><p>Send a task or ask a question. Your team’s progress and reviewed response will appear here.</p><div class="chat-empty-actions">${!liveData.projects?.length ? `<button type="button" data-add-project>${icon('plus', 14)}Add project</button>` : ''}${!departments.length ? `<button type="button" data-add-department>${icon('plus', 14)}Create department</button>` : ''}</div></div>`}</div>`;
+  }
+
+  function catalogSignature(runtimeId) {
+    const document = workspaceDocument();
+    const runtime = document?.workspace?.runtimes?.[runtimeId];
+    const report = document?.runtimes?.reports?.find(row => row.runtimeId === runtimeId);
+    return JSON.stringify([document?.path, runtimeId, runtime?.adapter, runtime?.executable, report?.version || runtimeById(runtimeId)?.version]);
+  }
+  function ensureModels(force = false) {
+    const selected = controlCenterBinding(workspaceDocument(), orchestratorPreferences);
+    if (!selected.runtime || !selected.runtimeId) return;
+    const runtimeId = selected.runtimeId;
+    const signature = catalogSignature(runtimeId);
+    if (!force && catalogSignatures.get(runtimeId) === signature && modelCatalogs.has(runtimeId)) return;
+    const request = { signature };
+    catalogRequests.set(runtimeId, request);
+    catalogSignatures.set(runtimeId, signature);
+    const identity = { runtimeId, adapter: selected.runtime.adapter, configuredExecutable: selected.runtime.executable };
+    modelCatalogs.set(runtimeId, { ...identity, status: 'loading', models: [], diagnostics: [] });
+    const read = api.runtimeModels ? api.runtimeModels(runtimeId, force) : getJson(`/api/runtimes/${encodeURIComponent(runtimeId)}/models${force ? '?refresh=1' : ''}`);
+    void read.then(catalog => {
+      if (catalog.runtimeId !== runtimeId || catalog.adapter !== selected.runtime.adapter || catalog.configuredExecutable !== selected.runtime.executable) throw new Error('The runtime binding changed while its models were loading. Refresh models.');
+      if (!destroyed && catalogRequests.get(runtimeId) === request && catalogSignature(runtimeId) === signature) modelCatalogs.set(runtimeId, catalog);
+    }).catch(error => {
+      if (!destroyed && catalogRequests.get(runtimeId) === request && catalogSignature(runtimeId) === signature) modelCatalogs.set(runtimeId, { ...identity, status: 'unavailable', models: [], diagnostics: [error.message || 'Could not read this runtime’s model choices.'] });
+    }).finally(() => {
+      if (catalogRequests.get(runtimeId) === request) catalogRequests.delete(runtimeId);
+      if (!destroyed) renderComposer();
+    });
+  }
+  function setChoiceOptions(select, options, value) {
+    const html = options.map(option => `<option value="${esc(option.value)}"${option.unavailable ? ' disabled' : ''}>${esc(option.label)}</option>`).join('');
+    // Browsers normalize boolean attributes in innerHTML. Compare our own bytes
+    // so polling never rebuilds an unchanged open native selector.
+    if (select.dataset.optionsMarkup !== html) { select.innerHTML = html; select.dataset.optionsMarkup = html; }
+    select.value = value;
+  }
+  function renderOrchestrator() {
+    if (activeTab === 'chat') ensureModels();
+    const selected = binding();
+    const catalog = catalogForRuntime(modelCatalogs, selected.runtimeId, selected.runtime);
+    const runtime = selected.runtimes.find(row => row.id === selected.runtimeId);
+    const reportedModel = catalog?.models?.find(model => model.id === selected.effortOptions.effectiveModel);
+    const modelLabel = reportedModel?.label || selected.model || selected.inheritedModel || 'Runtime default';
+    const effort = selected.effort || selected.inheritedEffort || reportedModel?.defaultEffort;
+    const identity = runtime ? `${runtime.name} · ${modelLabel}` : 'Choose an AI runtime';
+    const title = `${identity}${effort ? ` · ${effort} effort` : ' · effort inherited'}. Runtime binding: ${selected.runtimeId || 'not selected'}. Used by Control Center for this message. Department heads and workers keep their own settings.`;
+    const heading = element.querySelector('.sidebar-orchestrator-binding');
+    heading.textContent = identity;
+    heading.title = title;
+    const runtimeSelect = composerWrap.querySelector('[name=control-runtime]');
+    const runtimeOptions = [{ value: '', label: selected.defaultRuntimeId ? `${selected.runtimes.find(row => row.id === selected.defaultRuntimeId)?.name || selected.defaultRuntimeId} · default` : 'Workspace default', unavailable: false }, ...selected.runtimes.map(row => ({ value: row.id, label: `${row.name}${selected.runtimes.filter(other => other.binding.adapter === row.binding.adapter).length > 1 ? ` · ${row.id}` : ''}${row.ready ? '' : ` · ${row.status}`}`, unavailable: !row.ready }))];
+    if (orchestratorPreferences.runtime && !runtimeOptions.some(option => option.value === orchestratorPreferences.runtime)) runtimeOptions.push({ value: orchestratorPreferences.runtime, label: `${orchestratorPreferences.runtime} · unavailable`, unavailable: true });
+    setChoiceOptions(runtimeSelect, runtimeOptions, orchestratorPreferences.runtime);
+    runtimeSelect.disabled = sending || !selected.runtimes.length;
+    runtimeSelect.title = title;
+    const modelSelect = composerWrap.querySelector('[name=control-model]');
+    const inheritedModelId = selected.inheritedModel || catalog?.defaultModel || catalog?.models?.find(model => model.isDefault)?.id;
+    const inheritedModelLabel = catalog?.models?.find(model => model.id === inheritedModelId)?.label || inheritedModelId;
+    setChoiceOptions(modelSelect, selected.modelOptions.options.map(option => !option.value && inheritedModelLabel ? { ...option, label: `${inheritedModelLabel} · ${option.unavailable ? 'unavailable' : 'default'}` } : option), selected.model);
+    modelSelect.disabled = sending || !selected.runtime || selected.modelOptions.disabled;
+    modelSelect.title = `${selected.modelOptions.hint}${reportedModel?.description ? ` ${reportedModel.description}` : ''}`;
+    const effortSelect = composerWrap.querySelector('[name=control-effort]');
+    const inheritedEffort = selected.inheritedEffort || reportedModel?.defaultEffort;
+    setChoiceOptions(effortSelect, selected.effortOptions.options.map(option => !option.value ? { ...option, label: `${inheritedEffort || 'Default'}${inheritedEffort ? ' · default' : ''}${option.unavailable ? ' · unavailable' : ''}` } : option), selected.effort);
+    effortSelect.disabled = sending || !selected.runtime || selected.effortOptions.disabled;
+    effortSelect.title = selected.effortOptions.hint;
+    const hint = composerWrap.querySelector('.composer-binding-status');
+    const message = catalog?.status === 'loading' ? 'Reading runtime models…' : catalog?.status !== 'available' ? selected.modelOptions.hint : selected.effortOptions.disabled ? 'Effort is inherited; this runtime does not report its reasoning options.' : '';
+    hint.textContent = message;
+    hint.hidden = !message || !selected.runtime;
+    const refresh = composerWrap.querySelector('[data-refresh-models]');
+    refresh.disabled = sending || !selected.runtime || catalog?.status === 'loading';
+    refresh.setAttribute('aria-label', catalog?.status === 'loading' ? 'Reading model choices' : 'Refresh model choices');
+    return selected;
+  }
+
+  function attachmentsReady() { return draftAttachments.every(file => file.status === 'ready' && file.id); }
+  function renderAttachments() {
+    const list = composerWrap.querySelector('.composer-attachments');
+    list.hidden = !draftAttachments.length;
+    const html = `<ul aria-label="Files for this message">${draftAttachments.map(file => `<li class="composer-attachment attachment-${file.status}" title="${esc(`${file.name} · ${file.mimeType} · ${formatAttachmentSize(file.size)}`)}"><span class="attachment-kind" aria-hidden="true">${file.mimeType?.startsWith('image/') ? 'IMG' : 'FILE'}</span><span class="attachment-copy"><strong>${esc(file.name)}</strong><small>${esc(formatAttachmentSize(file.size))} · ${file.status === 'uploading' ? 'Uploading…' : file.status === 'ready' ? 'Attached' : 'Upload failed'}</small>${file.error ? `<span class="attachment-file-error">${esc(file.error)}</span>` : ''}</span>${file.status === 'error' && attachmentFiles.has(file.key) ? `<button type="button" class="attachment-retry" data-retry-attachment="${esc(file.key)}" aria-label="Retry uploading ${esc(file.name)}" ${sending ? 'disabled' : ''}>Retry</button>` : ''}<button type="button" class="attachment-remove" data-remove-attachment="${esc(file.key)}" aria-label="Remove ${esc(file.name)}" ${sending ? 'disabled' : ''}>×</button></li>`).join('')}</ul>`;
+    if (list.dataset.markup !== html) { list.innerHTML = html; list.dataset.markup = html; }
+    const uploading = draftAttachments.filter(file => file.status === 'uploading').length;
+    const failed = draftAttachments.some(file => file.status === 'error');
+    const hint = composerWrap.querySelector('.composer-attachment-hint');
+    hint.textContent = uploading ? `Uploading ${uploading} file${uploading === 1 ? '' : 's'}…` : failed ? 'Retry or remove the failed uploads before sending.' : draftAttachments.length ? !draft.trim() ? 'Add a message to send these files.' : 'Format support depends on the selected runtime.' : '';
+    hint.title = 'Format support depends on the selected runtime. 10 MB per file; 5 MB per image.';
+    hint.hidden = !hint.textContent;
+    const error = composerWrap.querySelector('.composer-attachment-error');
+    error.textContent = attachmentError;
+    error.hidden = !attachmentError;
+    composerWrap.querySelector('[data-add-attachment]').disabled = sending || draftAttachments.length >= ATTACHMENT_LIMITS.count;
+    composerWrap.querySelector('[name=attachments]').disabled = sending;
+  }
+  async function uploadRows(rows) {
+    const targetStorage = storageKey;
+    const operation = {};
+    for (const row of rows) { row.status = 'uploading'; delete row.error; attachmentUploads.set(row.key, operation); }
+    submission = null; attachmentError = ''; persist(); renderComposer();
+    try {
+      const result = await api.uploadAttachments(rows.map(row => attachmentFiles.get(row.key)));
+      const uploaded = attachmentDescriptors(result?.attachments);
+      if (uploaded.length !== rows.length || new Set(uploaded.map(file => file.id)).size !== rows.length) throw new Error('The server did not return all uploaded files. Retry this upload.');
+      if (destroyed || storageKey !== targetStorage) return;
+      rows.forEach((row, index) => {
+        const current = draftAttachments.find(file => file.key === row.key);
+        if (!current || attachmentUploads.get(row.key) !== operation) return;
+        Object.assign(current, uploaded[index], { status: 'ready' });
+        delete current.error;
+        attachmentFiles.delete(row.key);
+      });
+    } catch (error) {
+      if (destroyed || storageKey !== targetStorage) return;
+      for (const row of rows) {
+        const current = draftAttachments.find(file => file.key === row.key);
+        if (current && attachmentUploads.get(row.key) === operation) { current.status = 'error'; current.error = error?.message || 'Upload failed. Try again.'; }
+      }
+    } finally {
+      for (const row of rows) if (attachmentUploads.get(row.key) === operation) attachmentUploads.delete(row.key);
+      if (!destroyed && storageKey === targetStorage) { persist(); renderComposer(); }
+    }
+  }
+  function addAttachments(files) {
+    const selected = Array.from(files || []);
+    if (!selected.length || sending) return;
+    attachmentError = attachmentSelectionError(selected, draftAttachments);
+    if (attachmentError) { renderComposer(); return; }
+    const rows = selected.map(file => {
+      const row = { key: uid(), name: file.name, mimeType: file.type || 'application/octet-stream', size: file.size, status: 'uploading' };
+      attachmentFiles.set(row.key, file);
+      return row;
+    });
+    draftAttachments.push(...rows);
+    void uploadRows(rows);
+  }
+  function removeAttachment(key) {
+    if (sending) return;
+    draftAttachments = draftAttachments.filter(file => file.key !== key);
+    attachmentFiles.delete(key); attachmentUploads.delete(key);
+    submission = null; attachmentError = ''; persist(); renderComposer();
+    composerWrap.querySelector('textarea')?.focus({ preventScroll: true });
+  }
+  function retryAttachment(key) {
+    if (sending) return;
+    const row = draftAttachments.find(file => file.key === key);
+    if (row?.status === 'error' && attachmentFiles.has(key)) void uploadRows([row]);
   }
 
   function mountComposer() {
     if (composerReady) return;
-    composerWrap.innerHTML = `<div class="composer-readiness" role="status"></div><form class="sidebar-composer" aria-label="Message Control Center"><label class="sr-only" for="coordinator-message">Message Control Center</label><textarea id="coordinator-message" name="task" rows="3" maxlength="20000" placeholder="Ask anything or describe a task…"></textarea><div class="composer-boundary" hidden><label><input type="checkbox" name="consent"> <span>Allow runtime writes without a verified OS file boundary. This task will run alone.</span></label></div><div class="composer-bottom"><div class="composer-routing">${icon('terminal',14)}<label><span class="sr-only">Project</span><select name="project" id="chat-project" aria-label="Task project"></select></label></div><span class="composer-scope" title="Control Center chooses the team. Coding tasks run against committed HEAD in an isolated candidate."></span><button class="composer-send" type="submit" aria-label="Send to Control Center">${icon('send', 17)}</button></div></form><p class="composer-error" role="alert" hidden></p><div class="composer-help"><span>Each message starts a new request</span><span title="Enter to send. Shift + Enter for a new line.">Shift + Enter for a new line</span></div>`;
+    composerWrap.innerHTML = `<div class="composer-readiness" role="status"></div><form class="sidebar-composer" aria-label="Message Control Center"><div class="composer-attachments" hidden></div><label class="sr-only" for="coordinator-message">Message Control Center</label><textarea id="coordinator-message" name="task" rows="3" maxlength="20000" placeholder="Ask anything or describe a task…"></textarea><div class="composer-orchestrator" role="group" aria-label="Control Center AI settings"><label><span>Runtime</span><select name="control-runtime" aria-label="Control Center runtime"></select></label><label><span>Model</span><select name="control-model" aria-label="Control Center model"></select></label><label><span>Effort</span><select name="control-effort" aria-label="Control Center reasoning effort"></select></label><button type="button" class="composer-model-refresh" data-refresh-models title="Refresh choices reported by this runtime" aria-label="Refresh model choices">↻</button></div><p class="composer-binding-status" role="status" hidden></p><div class="composer-boundary" hidden><label><input type="checkbox" name="consent"> <span>Allow runtime writes without a verified OS file boundary. This task will run alone.</span></label></div><div class="composer-bottom"><input class="sr-only" type="file" name="attachments" multiple tabindex="-1" aria-label="Choose files or images" hidden><button class="composer-attach" type="button" data-add-attachment aria-label="Attach files or images" title="Attach files or images · 8 maximum · 10 MB per file; 5 MB per image · 25 MB total">${icon('attach', 17)}</button><div class="composer-routing">${icon('terminal',14)}<label><span class="sr-only">Project</span><select name="project" id="chat-project" aria-label="Task project"></select></label></div><span class="composer-scope" title="Control Center replies, asks a focused question, or delegates to a department. Coding tasks use an isolated candidate."></span><button class="composer-send" type="submit" aria-label="Send to Control Center">${icon('send', 17)}</button></div></form><p class="composer-attachment-hint" role="status" hidden></p><p class="composer-attachment-error" role="alert" hidden></p><p class="composer-error" role="alert" hidden></p><div class="composer-help"><span>Each message starts a new request</span><span title="Enter to send. Shift + Enter for a new line.">Shift + Enter for a new line</span></div>`;
     composerReady = true;
     const textarea = composerWrap.querySelector('textarea');
+    composerWrap.querySelector('[name=attachments]').addEventListener('change', event => {
+      addAttachments(event.target.files);
+      event.target.value = '';
+    });
     textarea.addEventListener('input', () => {
       draft = textarea.value;
       submission = null;
@@ -245,16 +422,34 @@ export function createSidebar({ element, departments = [], employees = [], runti
       consent = false; submission = null; persist(); renderComposer();
     });
     composerWrap.querySelector('[name=consent]').addEventListener('change', event => { consent = event.target.checked; updateComposerButton(); });
+    composerWrap.querySelector('[name=control-runtime]').addEventListener('change', event => {
+      orchestratorPreferences = { runtime: event.target.value, model: '', effort: '' };
+      submission = null; submitError = ''; persist(); renderComposer();
+    });
+    composerWrap.querySelector('[name=control-model]').addEventListener('change', event => {
+      orchestratorPreferences.model = event.target.value;
+      const selected = binding();
+      const catalog = catalogForRuntime(modelCatalogs, selected.runtimeId, selected.runtime);
+      const next = reconcileModelSelection({ catalog, model: orchestratorPreferences.model, effort: orchestratorPreferences.effort, inheritedModel: selected.inheritedModel, changed: 'model' });
+      orchestratorPreferences = { ...orchestratorPreferences, ...next };
+      submission = null; submitError = ''; persist(); renderComposer();
+    });
+    composerWrap.querySelector('[name=control-effort]').addEventListener('change', event => {
+      orchestratorPreferences.effort = event.target.value;
+      submission = null; submitError = ''; persist(); renderComposer();
+    });
   }
   function updateComposerButton() {
     const current = route();
     const button = composerWrap.querySelector('.composer-send');
-    button.disabled = sending || !draft.trim() || !current.sendable;
+    button.disabled = sending || !draft.trim() || !current.sendable || !binding().sendable || !attachmentsReady();
     button.classList.toggle('is-sending', sending);
     button.setAttribute('aria-label', sending ? 'Sending task' : 'Send to Control Center');
+    renderAttachments();
   }
   function renderComposer() {
     mountComposer();
+    const selected = renderOrchestrator();
     composerWrap.hidden = activeTab !== 'chat';
     if (activeTab !== 'chat') return;
     const current = route();
@@ -274,9 +469,9 @@ export function createSidebar({ element, departments = [], employees = [], runti
     composerWrap.querySelector('[name=consent]').checked = consent;
     composerWrap.querySelector('[name=consent]').disabled = sending;
     const readiness = composerWrap.querySelector('.composer-readiness');
-    readiness.hidden = current.sendable;
-    const needsWorkers = current.candidates.length === 0;
-    readiness.innerHTML = `${current.blockers.map(line => `<p>${esc(line)}</p>`).join('')}<div class="inline-actions">${!current.projects.length ? '<button type="button" data-add-project>Add project</button>' : !departments.length ? '<button type="button" data-add-department>Create department</button>' : needsWorkers ? '<button type="button" data-manage-agents>Assign workers to project</button>' : '<button type="button" data-add-project>Project settings</button><button type="button" data-manage-runtimes>Runtime settings</button>'}</div>`;
+    const blockers = [...new Set([...current.blockers, ...selected.blockers])];
+    readiness.hidden = blockers.length === 0;
+    readiness.innerHTML = `${blockers.map(line => `<p>${esc(line)}</p>`).join('')}<div class="inline-actions">${!current.projects.length ? '<button type="button" data-add-project>Add project</button>' : selected.blockers.length || !current.runtimeId ? '<button type="button" data-manage-runtimes>Runtime settings</button>' : '<button type="button" data-add-project>Project settings</button>'}</div>`;
     composerWrap.querySelector('.composer-scope').innerHTML = current.sendable ? 'Auto route' : '';
     const error = composerWrap.querySelector('.composer-error');
     error.hidden = !submitError; error.textContent = submitError;
@@ -284,23 +479,27 @@ export function createSidebar({ element, departments = [], employees = [], runti
   }
 
   async function submitMessage() {
-    if (sending || !draft.trim()) return;
+    if (sending || !draft.trim() || !attachmentsReady()) return;
     const current = route();
-    if (!current.sendable) { renderComposer(); return; }
+    const selected = binding();
+    if (!current.sendable || !selected.sendable) { renderComposer(); return; }
     if (!onAssignTask) { submitError = 'Task intake is not available yet. Your draft is saved.'; renderComposer(); return; }
     const text = draft.trim();
-    const fingerprint = JSON.stringify([text, current.projectId]);
+    const controlCenter = selected.payload;
+    const attachments = attachmentDescriptors(draftAttachments);
+    const attachmentIds = attachments.map(file => file.id);
+    const fingerprint = controlSubmissionFingerprint({ text, projectId: current.projectId, controlCenter, attachmentIds });
     if (submission?.fingerprint !== fingerprint) submission = { fingerprint, id: uid() };
     const clientRequestId = submission.id;
     const sentContext = contextKey();
     sending = true; submitError = ''; persist(); renderComposer();
     try {
-      const result = await onAssignTask({ text, projectId: current.projectId, clientRequestId });
+      const result = await onAssignTask({ text, projectId: current.projectId, clientRequestId, ...(attachmentIds.length ? { attachmentIds } : {}), ...(controlCenter ? { controlCenter } : {}) });
       if (!result?.task?.id) throw new Error('The coordinator did not return a request receipt. Your draft is saved; retry uses the same request identity.');
-      state.messages.push({ id: clientRequestId, requestId: result.task.id, text, projectId: current.projectId, departmentId: result.task.departmentId || null, at: result.task.receivedAt || new Date().toISOString() });
+      state.messages.push({ id: clientRequestId, requestId: result.task.id, text, attachments: Array.isArray(result.task.attachments) ? attachmentDescriptors(result.task.attachments) : attachments, projectId: current.projectId, ...(controlCenter ? { controlCenter } : {}), departmentId: result.task.departmentId || null, at: result.task.receivedAt || new Date().toISOString() });
       state.messages = state.messages.slice(-100);
-      if (sentContext === contextKey()) { draft = ''; submission = null; consent = false; }
-      else state.contexts[sentContext] = { ...state.contexts[sentContext], draft: '', submission: null };
+      if (sentContext === contextKey()) { draft = ''; draftAttachments = []; attachmentError = ''; submission = null; consent = false; }
+      else state.contexts[sentContext] = { ...state.contexts[sentContext], draft: '', attachments: [], submission: null };
       persist();
     } catch (error) { submitError = `${error?.message || 'The task could not be sent.'} Your draft is saved.`; }
     finally { sending = false; render(); jumpToLatest(); composerWrap.querySelector('textarea')?.focus({ preventScroll: true }); }
@@ -420,12 +619,17 @@ export function createSidebar({ element, departments = [], employees = [], runti
     try {
       if (action === 'routing-confirm') {
         const item = task.entry.item;
-        const clientRequestId = consentSubmissions[task.id] || uid();
-        consentSubmissions[task.id] = clientRequestId; persist();
+        const savedMessage = state.messages.find(message => message.requestId === item.id);
+        const savedChoice = savedMessage?.controlCenter;
+        const previous = consentSubmissions[task.id];
+        const controlCenter = consentRetryBinding(item, savedChoice, previous);
+        const attachmentIds = consentRetryAttachmentIds(item, savedMessage, previous);
+        const clientRequestId = typeof previous === 'string' ? previous : previous?.id || uid();
+        consentSubmissions[task.id] = { id: clientRequestId, attachmentIds, ...(controlCenter ? { controlCenter } : {}) }; persist();
         const text = item.task || task.entry?.run?.request?.text || task.title;
-        const result = await onAssignTask({ text, projectId: task.projectId, clientRequestId, allowUnconfinedWrites: true, ...(item.route?.state === 'selected' || item.route?.departmentId ? { consentDepartmentId: item.route.departmentId } : {}) });
+        const result = await onAssignTask({ text, projectId: task.projectId, clientRequestId, allowUnconfinedWrites: true, ...(attachmentIds.length ? { attachmentIds } : {}), ...(controlCenter ? { controlCenter } : {}), ...(item.route?.state === 'selected' || item.route?.departmentId ? { consentDepartmentId: item.route.departmentId } : {}) });
         if (!result?.task?.id) throw new Error('The coordinator did not return a receipt. Retrying uses the same request identity.');
-        if (!state.messages.some(message => message.requestId === result.task.id)) state.messages.push({ id: clientRequestId, requestId: result.task.id, text, projectId: task.projectId, departmentId: result.task.departmentId || null, at: result.task.receivedAt });
+        if (!state.messages.some(message => message.requestId === result.task.id)) state.messages.push({ id: clientRequestId, requestId: result.task.id, text, attachments: attachmentDescriptors(result.task.attachments || item.attachments || savedMessage?.attachments), projectId: task.projectId, ...(controlCenter ? { controlCenter } : {}), departmentId: result.task.departmentId || null, at: result.task.receivedAt });
         delete consentSubmissions[task.id]; persist();
       }
       if (action === 'stop') await api.stopRequest(task.requestId || task.entry.item.id);
@@ -455,11 +659,28 @@ export function createSidebar({ element, departments = [], employees = [], runti
     activeTab = tab; render(); reveal(); void refreshDetails();
   }
   function showRuntime(runtimeId) { if (!runtimeById(runtimeId)) return; expandedRuntime = runtimeId; showTab('connections'); }
+  function showTask(id) {
+    const task = taskById(id);
+    if (!task) return false;
+    focusedChatTask = task.id;
+    showTab('chat');
+    const turn = [...scroll.querySelectorAll('.chat-turn')].find(node => node.dataset.requestId === (task.requestId || task.entry?.item?.id || task.id));
+    if (!turn) return false;
+    const trace = turn.querySelector('details.chat-trace');
+    if (trace) trace.open = true;
+    disclosureState.remember(viewportKey(), scroll);
+    const view = viewportState();
+    view.following = false; view.unseen = false;
+    view.top = Math.max(0, scroll.scrollTop + turn.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 12);
+    applyViewport();
+    void refreshDetails();
+    return true;
+  }
   function refresh() {
     if (destroyed) return;
     tasks = [...(liveData.tasks || [])];
     loadPersistence();
-    if (selection.type === 'employee' && !employeeById(selection.id) || selection.type === 'department' && !departmentById(selection.id)) { persist(); selection = { type: 'office' }; restoreContext(); }
+    if (selection.type === 'employee' && !employeeById(selection.id) || selection.type === 'department' && !departmentById(selection.id)) { persist(); selection = { type: 'office' }; }
     render(); void refreshDetails();
   }
   contextSelect.addEventListener('change', () => { const [type, ...id] = contextSelect.value.split(':'); const next = { type, ...(id.length ? { id: id.join(':') } : {}) }; select(next); onFocus(next); });
@@ -479,6 +700,10 @@ export function createSidebar({ element, departments = [], employees = [], runti
     const button = event.target.closest('button');
     if (!button || !element.contains(button)) return;
     if (button.hasAttribute('data-jump-latest')) jumpToLatest();
+    else if (button.hasAttribute('data-add-attachment') && !button.disabled) composerWrap.querySelector('[name=attachments]').click();
+    else if (button.hasAttribute('data-remove-attachment')) removeAttachment(button.dataset.removeAttachment);
+    else if (button.hasAttribute('data-retry-attachment')) retryAttachment(button.dataset.retryAttachment);
+    else if (button.hasAttribute('data-refresh-models')) { ensureModels(true); renderComposer(); }
     else if (button.hasAttribute('data-manage-agents')) onManageAgents();
     else if (button.hasAttribute('data-manage-runtimes')) onManageRuntimes();
     else if (button.hasAttribute('data-recheck-runtimes') && !runtimeChecking) {
@@ -508,9 +733,9 @@ export function createSidebar({ element, departments = [], employees = [], runti
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
     event.preventDefault(); const tabs = ['chat','tasks','connections']; const index = tabs.indexOf(activeTab);
     showTab(tabs[event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + (event.key === 'ArrowRight' ? 1 : -1) + 3) % 3]);
-    element.querySelector(`[data-tab="${activeTab}"]`).focus();
+    element.querySelector(`[data-tab="${activeTab}"]`).focus({ preventScroll: true });
   });
   const interval = setInterval(() => { void refreshDetails(); }, 3000);
   render();
-  return { select, showTab, showRuntime, reveal, refresh, updateData(next = {}) { liveData = { ...liveData, ...next }; refresh(); }, addActivity() {}, destroy() { persist(); destroyed = true; clearInterval(interval); resizeObserver?.disconnect(); if (revealFrame !== null) cancelAnimationFrame(revealFrame); element.replaceChildren(); } };
+  return { select, showTab, showRuntime, showTask, reveal, refresh, updateData(next = {}) { liveData = { ...liveData, ...next }; refresh(); }, addActivity() {}, destroy() { persist(); destroyed = true; clearInterval(interval); resizeObserver?.disconnect(); if (revealFrame !== null) cancelAnimationFrame(revealFrame); element.replaceChildren(); } };
 }

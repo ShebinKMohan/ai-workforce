@@ -34,6 +34,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { RuntimeAttachment } from '../adapters/types.js';
 import { z } from 'zod';
 import {
   type AgentConfigFile,
@@ -51,6 +52,7 @@ import {
   SILENT_STREAM,
   listFilesAtRevision,
   resolveAcceptanceChecks,
+  validateRunAttachments,
   type AdapterFactory,
   type ResolvedChecks,
   type RunDirectResult,
@@ -116,6 +118,7 @@ export interface RunPlannedInput {
   readonly requestSource: string;
   readonly tasks: ReadonlyArray<PlannedTaskInput>;
   readonly contextRefs?: ReadonlyArray<string>;
+  readonly attachments?: ReadonlyArray<RuntimeAttachment>;
   readonly agentId?: string;
   readonly checkFlags?: ReadonlyArray<string>;
   readonly paths: StatePaths;
@@ -190,6 +193,7 @@ export interface PlannedRunSetup {
   readonly requestText: string;
   readonly requestSource: string;
   readonly contextRefs?: ReadonlyArray<string>;
+  readonly attachments?: ReadonlyArray<RuntimeAttachment>;
   readonly agentId?: string;
   readonly checkFlags?: ReadonlyArray<string>;
   readonly paths: StatePaths;
@@ -215,6 +219,7 @@ export interface PlannedRun {
   /** The run's default worker agent. */
   readonly agentId: string;
   readonly contextRefs: ReadonlyArray<string>;
+  readonly attachments: ReadonlyArray<RuntimeAttachment>;
   readonly bridge: CoordinationBridge | null;
   /** Run-level unresolved issues. Everything that happens inside the run appends here. */
   readonly unresolved: string[];
@@ -239,6 +244,7 @@ export async function createPlannedRun(setup: PlannedRunSetup): Promise<PlannedR
   const stream = setup.stream ?? SILENT_STREAM;
   const { db, paths } = setup;
   const contextRefs = [...(setup.contextRefs ?? [])];
+  const requestedAttachments = (setup.attachments ?? []).map((attachment) => ({ ...attachment }));
 
   const inspection = await inspectProject(setup.repoPath);
   if (!inspection.isGitRepo || inspection.repositoryRoot === null) {
@@ -259,6 +265,7 @@ export async function createPlannedRun(setup: PlannedRunSetup): Promise<PlannedR
     throw new RunSetupError('unknown_agent', `agent "${agentId}" is not defined in ${setup.configPath}`);
   }
   const snapshot = computeAgentSnapshot(setup.config, agentId);
+  const attachments = validateRunAttachments(snapshot.binding.runtime.adapter, requestedAttachments);
   const policy: Policy = snapshot.binding.policy;
   const limits: Limits = limitsFromDefaults(setup.config.defaults);
 
@@ -287,6 +294,7 @@ export async function createPlannedRun(setup: PlannedRunSetup): Promise<PlannedR
     runId,
     text: setup.requestText,
     contextRefs,
+    ...(attachments.length > 0 ? { attachments } : {}),
     repoPath: projectRoot,
     baseMode: 'head',
     submittedAt: createdAt,
@@ -335,6 +343,7 @@ export async function createPlannedRun(setup: PlannedRunSetup): Promise<PlannedR
     limits,
     agentId,
     contextRefs,
+    attachments,
     bridge,
     unresolved,
     closeBridge: closerFor(bridge),
@@ -351,7 +360,7 @@ export async function createPlannedRun(setup: PlannedRunSetup): Promise<PlannedR
       const manifestPath = writePlannedManifest(runDir, {
         runId,
         createdAt,
-        request: { text: setup.requestText, source: setup.requestSource, contextRefs },
+        request: { text: setup.requestText, source: setup.requestSource, contextRefs, ...(attachments.length > 0 ? { attachments } : {}) },
         base: { revision: baseRevision, repoPath: projectRoot },
         accepted: false,
         reason,
@@ -696,7 +705,7 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
             return {
               key,
               result: await runTaskWithRepair({
-                input,
+                input: { ...input, contextRefs: run.contextRefs, attachments: run.attachments },
                 runId,
                 runDir,
                 key,
@@ -1016,6 +1025,7 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
         policy: input.headReview, config: input.config, runId, repoPath: projectRoot,
         baseRevision, combinedRevision: combination.combinedRevision,
         requestText: input.requestText, tasks, checks: resolvedChecks.checks,
+        ...(run.attachments.length > 0 ? { attachments: run.attachments } : {}),
         receipts: combination.receipts, paths: input.paths, db, bridge: run.bridge,
         stream: forTask(stream, { runId, agentId: input.headReview.headAgentId, key: 'head-review' }),
         ...(input.signal ? { signal: input.signal } : {}),
@@ -1102,7 +1112,7 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
     const manifestPath = writePlannedManifest(runDir, {
       runId,
       createdAt: run.createdAt,
-      request: { text: input.requestText, source: input.requestSource, contextRefs },
+      request: { text: input.requestText, source: input.requestSource, contextRefs, ...(run.attachments.length > 0 ? { attachments: run.attachments } : {}) },
       base: { revision: baseRevision, repoPath: projectRoot },
       accepted: outcome.accepted,
       reason: outcome.reason,
@@ -1180,6 +1190,7 @@ export interface ContinuePlannedRunInput extends Omit<RunPlannedInput, 'tasks' |
 export async function continuePlannedRun(input: ContinuePlannedRunInput): Promise<RunPlannedResult> {
   const stream = input.stream ?? SILENT_STREAM;
   const { db, paths, runId } = input;
+  const requestedAttachments = (input.attachments ?? []).map((attachment) => ({ ...attachment }));
   const record = readPlanRecord(paths, runId);
   if (record === null) throw new RunSetupError('no_plan_record', `run ${runId} recorded no plan (${planRecordPath(paths, runId)}), so there is no plan to continue`);
   const row = getRun(db, runId);
@@ -1205,6 +1216,7 @@ export async function continuePlannedRun(input: ContinuePlannedRunInput): Promis
 
   const limits = limitsFromDefaults(input.config.defaults);
   const agentId = input.agentId ?? input.config.defaults.workerAgent;
+  const attachments = validateRunAttachments(computeAgentSnapshot(input.config, agentId).binding.runtime.adapter, requestedAttachments);
   // Acceptance means the same thing across an interruption: the checks the run
   // was started with, not whatever the repository happens to configure now.
   const checkFlags = input.checkFlags ?? record.checkFlags;
@@ -1226,6 +1238,7 @@ export async function continuePlannedRun(input: ContinuePlannedRunInput): Promis
     limits,
     agentId,
     contextRefs: [...(input.contextRefs ?? [])],
+    attachments,
     bridge,
     unresolved,
     closeBridge: closerFor(bridge),
@@ -1409,6 +1422,7 @@ async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResu
       },
       coordination: bridge,
       ...(input.contextRefs !== undefined ? { contextRefs: input.contextRefs } : {}),
+      ...(input.attachments !== undefined && input.attachments.length > 0 ? { attachments: input.attachments } : {}),
       ...(task.agentId ?? input.agentId ? { agentId: (task.agentId ?? input.agentId)! } : {}),
       ...(input.checkFlags !== undefined ? { checkFlags: input.checkFlags } : {}),
       ...(input.signal !== undefined ? { signal: input.signal } : {}),

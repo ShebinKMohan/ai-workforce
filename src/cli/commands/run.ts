@@ -64,6 +64,7 @@ export interface RunCommandArgs {
   readonly agents?: string;
   readonly task?: string;
   readonly taskFile?: string;
+  readonly attachmentIds?: ReadonlyArray<string>;
   readonly stateDir?: string;
   /** Candidate workspace root; defaults to `<state-root>/workspaces`. */
   readonly workspaceRoot?: string;
@@ -321,6 +322,7 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
     ]);
   }
   const loaded = loadConfigOrFail(configPath);
+  if (args.attachmentIds?.length) throw new CliError(EXIT_CODES.invalidInput, 'attachment_project_required', '--attachment requires a saved --project and --department so uploads resolve in the correct workspace.');
   const task = requireTaskText(args);
   if (args.agent !== undefined && !loaded.config.agents.some((agent) => agent.id === args.agent)) {
     throw new CliError(

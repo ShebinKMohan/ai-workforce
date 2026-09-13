@@ -191,8 +191,11 @@ export async function gitTextOrNull(args: ReadonlyArray<string>, options: GitOpt
 
 /** Resolve `dir` to the absolute realpath of the Git worktree root that contains it, or null. */
 export async function repositoryRoot(dir: string): Promise<string | null> {
-  const top = await gitTextOrNull(['rev-parse', '--show-toplevel'], { cwd: dir });
-  if (top === null) return null;
+  const run = await git(['rev-parse', '--show-toplevel'], { cwd: dir });
+  if (!run.ok || run.truncated) return null;
+  // A path can end in spaces. Remove only Git's line terminator, never path bytes.
+  const top = run.stdout.replace(/\r?\n$/, '');
+  if (top.length === 0) return null;
   try {
     return realpathSync(top);
   } catch {

@@ -98,7 +98,7 @@ export function workspaceProblemHtml(ctx) {
   const error = ctx.ws.error;
   const details = (error?.details ?? []).slice(0, 5);
   return [
-    pageHead('problem-head', 'Your workspace file could not be read', 'Nothing can be sent or changed from this page until it is fixed. Workforce never overwrites a file it cannot read.'),
+    pageHead('problem-head', 'Your workspace file could not be read', 'Nothing can be sent or changed from this page until it is fixed. AI Workforce never overwrites a file it cannot read.'),
     keyed('section', 'problem', 'class="section card"', `<p><strong>File:</strong> <code>${esc(ctx.ws.path ?? '')}</code></p><p>${esc(error?.message ?? '')}</p>${details.length ? `<ul>${details.map((line) => `<li>${esc(line)}</li>`).join('')}</ul>` : ''}<p class="muted">Tasks already recorded are still readable in Tasks.</p><button type="button" class="button" data-action="reload-all" data-live-action>Check again</button>`),
   ].join('');
 }

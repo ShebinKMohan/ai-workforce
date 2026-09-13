@@ -115,6 +115,25 @@ function screenTexture(color) {
   return texture;
 }
 
+/** Soft local occlusion anchors the desk and chair to the floor even when the
+ * directional shadow is small in a wide campus view. This is static lighting. */
+function contactShadow(parent, width = 2.5, depth = 2.5) {
+  const key = 'contact-shadow';
+  if (!textures.has(key)) {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+    const ctx = canvas.getContext('2d'), gradient = ctx.createRadialGradient(32, 32, 4, 32, 32, 31);
+    gradient.addColorStop(0, 'rgba(40,51,60,.30)'); gradient.addColorStop(.48, 'rgba(40,51,60,.16)'); gradient.addColorStop(1, 'rgba(40,51,60,0)');
+    ctx.fillStyle = gradient; ctx.fillRect(0, 0, 64, 64);
+    const texture = new THREE.CanvasTexture(canvas); texture.userData.sharedFurniture = true; textures.set(key, texture);
+  }
+  if (!materials.has(key)) {
+    const mat = new THREE.MeshBasicMaterial({ map: textures.get(key), transparent: true, depthWrite: false, toneMapped: false });
+    mat.userData.sharedFurniture = true; materials.set(key, mat);
+  }
+  const mesh = new THREE.Mesh(geometry('contact-plane', () => new THREE.PlaneGeometry(1, 1)), materials.get(key));
+  mesh.name = 'furniture-contact-shadow'; mesh.rotation.x = -Math.PI / 2; mesh.position.set(0, .009, .43); mesh.scale.set(width, depth, 1); parent.add(mesh);
+}
+
 function monitor(parent, { x = 0, z = -.24, angle = 0, width = .94, color = '#92afc1' } = {}) {
   const group = new THREE.Group(); group.position.set(x, 1.105, z); group.rotation.y = angle;
   parent.add(group);
@@ -127,6 +146,10 @@ function monitor(parent, { x = 0, z = -.24, angle = 0, width = .94, color = '#92
   panel.position.set(0, .49, .013);
   panel.name = 'decorative-screen'; panel.userData.decorativeOnly = true;
   group.add(panel);
+  // This separate light is set by persisted activity. The desktop artwork is
+  // unchanged; no generated typing or terminal output is presented as evidence.
+  const indicator = new THREE.Mesh(geometry(`activity-light:${width}`, () => new THREE.PlaneGeometry(width - .12, .018)), new THREE.MeshBasicMaterial({ color: '#438cd0', transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
+  indicator.position.set(0, .49 - width * .31 + .025, .018); indicator.name = 'recorded-activity-light'; group.add(indicator);
   ellipsoid(group, .009, .009, .007, '#667d77', width / 2 - .045, .49 - width * .31 + .021, .017);
   return group;
 }
@@ -234,6 +257,7 @@ function person(parent, agent, index, executive = false) {
 /** Desk top: width 1.9, depth 1.1, center height 1.05; chair sits on +Z. */
 export function createWorkstation({ agent = {}, color = '#8ca7b4', index = 0, head = false } = {}) {
   const group = new THREE.Group();
+  contactShadow(group);
   group.name = head ? 'head-workstation' : 'employee-workstation';
   group.userData.agentId = agent.id ?? null;
   desk(group, 1.9, color, head);
@@ -247,6 +271,7 @@ export function createWorkstation({ agent = {}, color = '#8ca7b4', index = 0, he
 /** The sole three-monitor desk, reserved for the central coordinator. */
 export function createControlCenter() {
   const group = new THREE.Group(); group.name = 'control-center';
+  contactShadow(group, 4.7, 3.1);
   // One continuous command desk: a wide outer arc and a concave edge opening
   // toward the chair on +Z. The center cutout leaves the person's arms visible.
   const slab = geometry('control-center:curved-command-desk:v1', () => {

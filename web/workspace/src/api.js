@@ -50,9 +50,23 @@ export function postJson(path, body = {}) {
   return request(path, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', 'x-workforce-token': value }, body: JSON.stringify(body) });
 }
 
+/** Upload one atomic batch. Chunked conversion avoids spreading a whole file onto the call stack. */
+export async function uploadAttachments(files) {
+  const encoded = [];
+  for (const file of Array.from(files || [])) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const chunks = [];
+    for (let offset = 0; offset < bytes.length; offset += 8192) chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + 8192)));
+    encoded.push({ name: file.name, mimeType: file.type || 'application/octet-stream', data: btoa(chunks.join('')) });
+  }
+  return postJson('/api/attachments', { files: encoded });
+}
+
 const runBase = (projectId, runId) => (projectId ? `/api/projects/${enc(projectId)}/runs/${enc(runId)}` : `/api/runs/${enc(runId)}`);
 
 export const api = {
+  uploadAttachments,
+  runtimeModels: (id, refresh = false) => getJson(`/api/runtimes/${enc(id)}/models${refresh ? '?refresh=1' : ''}`),
   workspace: (refresh = false) => getJson(refresh ? '/api/workspace?refresh=1' : '/api/workspace'),
   runs: (limit = 100) => getJson(`/api/runs?limit=${limit}`),
   requests: () => getJson('/api/requests'),

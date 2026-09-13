@@ -1,13 +1,14 @@
 # AGENTS.md — repository conventions for coding agents
 
 Read `docs/plan.md` in full before changing anything. It is the authoritative specification.
-Feature IDs (FR001–FR090), work packages (WP01–WP13, plus the WP10b day-one amendment) and acceptance tests (AT01–AT35) in that file are the scope references. Read section 17 for the current local workspace decisions and the features still deferred.
+Feature IDs (FR001–FR093), work packages (WP01–WP13, plus the WP10b day-one amendment) and acceptance tests (AT01–AT35) in that file are the scope references. Read section 17 for the current local workspace decisions and the features still deferred.
 
 ## What this repository is
 
-`workforce` (placeholder name) is a local terminal coordinator that lets a developer describe an engineering task once,
-then dispatches installed coding runtimes (Codex, Claude Code) into isolated candidate workspaces, coordinates them,
-verifies the result with independently captured checks, and delivers a verified local candidate with evidence.
+AI Workforce is a local developer harness over installed coding runtimes (Codex, Claude Code),
+with a desktop browser workspace and the compatible `workforce` CLI. Control Center provides AI
+intake and department routing; heads plan and review work, while coordinator code owns capacity,
+isolated candidate execution, independently captured checks and evidence-backed delivery.
 
 ## Stack (fixed for the MVP)
 

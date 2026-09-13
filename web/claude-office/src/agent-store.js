@@ -12,7 +12,7 @@ const standardBindings = { 'codex-local': { adapter: 'codex', executable: 'codex
 export function createAgentStore({ employees = [], departments = [], runtimes = [], control = {}, workspace = null, getWorkspace, onWorkspace = () => {}, load = getJson, commit = postJson } = {}) {
   let document = workspace;
   let warning = '';
-  const coordinator = { ...control, id: 'control', name: 'Coordinator', role: 'System scheduler', departmentId: 'control', isCoordinator: true, model: '', runtime: '', instructions: 'The system scheduler routes tasks to configured department heads. It is not a model agent.', status: 'system' };
+  const coordinator = { ...control, id: 'control', name: 'Control Center', role: 'AI orchestrator', departmentId: 'control', isCoordinator: true, model: '', runtime: '', instructions: 'Control Center uses the selected AI runtime to understand messages, reply directly, ask focused questions, or delegate to a department head. Change its runtime, model and effort in the chat composer or Control Center settings.', status: 'configured' };
   const current = () => {
     const external = getWorkspace?.();
     return external && (external.revision ?? external.workspace?.revision ?? 0) > (document?.revision ?? document?.workspace?.revision ?? -1) ? external : document || external;
@@ -50,7 +50,7 @@ export function createAgentStore({ employees = [], departments = [], runtimes = 
   const list = ({ archived = false, includeArchived = false } = {}) => (config()?.agents || []).filter((agent) => includeArchived || Boolean(agent.archived) === archived).map(decorate);
   const get = (id, { includeArchived = false } = {}) => id === 'control' ? coordinator : list({ includeArchived }).find((agent) => agent.id === id);
   async function archive(id, expectRevision = current()?.revision ?? config()?.revision) {
-    if (id === 'control') throw failure({}, 'The coordinator is the system scheduler and cannot be archived.');
+    if (id === 'control') throw failure({}, 'Control Center is the workspace orchestrator and cannot be archived.');
     const agent = get(id);
     if (!agent) throw failure({}, 'This agent is no longer active. Reload the directory.');
     const result = await commit('/api/workspace/ops', { expectRevision, ops: [{ op: 'agent.archive', id }] });
@@ -62,7 +62,7 @@ export function createAgentStore({ employees = [], departments = [], runtimes = 
     const base = config();
     const existing = values.id ? base.agents.find((agent) => agent.id === values.id && !agent.archived) : null;
     const replacing = values.replaceId ? base.agents.find((agent) => agent.id === values.replaceId && !agent.archived && agent.role === 'head') : null;
-    if (values.id === 'control') throw failure({}, 'The coordinator is a system scheduler. Edit a department head to change its model.');
+    if (values.id === 'control') throw failure({}, 'Change the Control Center runtime, model and effort in the chat composer or Control Center settings.');
     if (values.id && !existing) throw failure({}, 'This agent no longer exists. Reload the directory.');
     if (values.replaceId && (!replacing || values.id)) throw failure({}, 'The head to replace has changed. Reload the directory.');
     const name = String(values.name || '').trim();

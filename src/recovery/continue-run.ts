@@ -28,6 +28,8 @@
  * one that could be rejoined would be exactly the duplicate writer this whole
  * path exists to prevent.
  */
+import type { RuntimeAttachment } from '../adapters/types.js';
+import { validateAttachments } from '../adapters/attachments.js';
 import { readFileSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
@@ -85,6 +87,7 @@ export interface RunContinuationSetup {
   readonly repoPath: string;
   readonly requestText: string;
   readonly contextRefs: ReadonlyArray<string>;
+  readonly attachments?: ReadonlyArray<RuntimeAttachment>;
   /** Anything a reader has to know about how faithful this reconstruction is. */
   readonly notes: ReadonlyArray<string>;
 }
@@ -105,6 +108,9 @@ export function prepareRunContinuation(store: StateStore, runId: string, fallbac
   const run = findRun(store.db, runId);
   if (run === null) throw new ContinueRunError('unknown_run', `run ${runId} not found under ${store.paths.root}`);
   const request = validateRunRequest(JSON.parse(run.request_json));
+  const attachments: RuntimeAttachment[] = (request.attachments ?? []).map(({ path, name, mimeType, sizeBytes, sha256, mode }) => ({ path, name, mimeType, ...(sizeBytes === undefined ? {} : { sizeBytes }), ...(sha256 === undefined ? {} : { sha256 }), ...(mode === undefined ? {} : { mode }) }));
+  try { validateAttachments('fake', attachments.map((file) => ({ ...file, mode: 'reference' as const }))); }
+  catch (error) { throw new ContinueRunError('configuration_unavailable', `This run's attached context is missing or changed. Restore its original files before resuming: ${error instanceof Error ? error.message : 'unreadable attachment'}`); }
   const notes: string[] = [];
 
   // A missing plan must never turn a planned request into independent direct
@@ -159,6 +165,7 @@ export function prepareRunContinuation(store: StateStore, runId: string, fallbac
     repoPath: run.repo_path,
     requestText: request.text,
     contextRefs: request.contextRefs,
+    ...(attachments.length ? { attachments } : {}),
     notes,
   };
 }
@@ -317,6 +324,7 @@ export async function continueResumedRun(
       requestText: setup.requestText,
       requestSource: `resume of run ${plan.runId}`,
       contextRefs: setup.contextRefs,
+      ...(setup.attachments?.length ? { attachments: setup.attachments } : {}),
       paths: store.paths,
       db,
       stream,
@@ -468,6 +476,7 @@ async function continuePlanned(
       requestText: setup.requestText,
       requestSource: `resume of run ${plan.runId}`,
       contextRefs: setup.contextRefs,
+      ...(setup.attachments?.length ? { attachments: setup.attachments } : {}),
       paths: store.paths,
       db,
       ...(deps.stream !== undefined ? { stream: deps.stream } : {}),
@@ -503,6 +512,7 @@ async function continueHeadPlanning(
     repoPath: setup.repoPath,
     requestText: setup.requestText,
     requestSource: `resume of run ${plan.runId}`,
+    ...(setup.attachments?.length ? { attachments: setup.attachments } : {}),
     paths: store.paths,
     db: store.db,
     stream,

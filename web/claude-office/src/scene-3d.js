@@ -2,6 +2,7 @@ import * as THREE from './vendor/three.module.min.js';
 import { buildSceneLayout } from './scene-layout.js';
 import { createWorkstation, createControlCenter } from './scene-furniture.js';
 import { createDepartmentIsland, createCentralIsland, createWalkway } from './scene-campus.js';
+import { createSceneFlow } from './scene-flow.js';
 
 const esc = (value='') => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const palette = {blue:'#a9c8da',green:'#b9d0bf',pink:'#e1b8c6',purple:'#c8bfdc',amber:'#e3cfab',teal:'#a8cbc8',slate:'#c0c9ce'};
@@ -21,20 +22,20 @@ function disposeTree(group) {
 }
 
 /** Real, roster-driven 3D scene. No furniture exists without its saved owner. */
-export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCreateDepartment=()=>{},layoutKey=null}) {
+export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCreateDepartment=()=>{},onOpenTask=()=>{},layoutKey=null}) {
   element.replaceChildren();element.classList.add('dynamic-canvas');
   const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));renderer.setClearColor(getComputedStyle(element).getPropertyValue('--canvas').trim()||'#f6f7f9');
-  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFShadowMap;
+  renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.shadowMap.autoUpdate=false;
   renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
   renderer.domElement.className='office-webgl';renderer.domElement.setAttribute('aria-hidden','true');element.append(renderer.domElement);
   const overlay=document.createElement('div');overlay.className='scene-labels';element.append(overlay);
   const empty=document.createElement('div');empty.className='scene-empty';empty.innerHTML='<span class="scene-eyebrow">WORKSPACE SETUP</span><h2>Build your workforce</h2><p>Create a department to define its head, assign agents, and connect your local coding runtimes.</p><button type="button" class="add-agent-button">+ Create a department</button>';empty.querySelector('button').onclick=onCreateDepartment;element.append(empty);
-  const scene=new THREE.Scene();scene.add(new THREE.HemisphereLight(0xffffff,0xc7cec3,1.8));
-  const key=new THREE.DirectionalLight(0xfff1dd,2.1);key.position.set(-12,25,16);key.castShadow=true;
+  const scene=new THREE.Scene();scene.add(new THREE.HemisphereLight(0xf3f7ff,0xb2bdba,1.15));
+  const key=new THREE.DirectionalLight(0xfff2df,2.75);key.position.set(-12,25,16);key.castShadow=true;
   key.shadow.mapSize.set(2048,2048);key.shadow.camera.near=.1;key.shadow.camera.far=180;key.shadow.normalBias=.035;key.shadow.bias=-.00012;key.shadow.radius=4;scene.add(key);scene.add(key.target);
-  const fill=new THREE.DirectionalLight(0xd5e7ff,1.1);fill.position.set(12,10,-10);scene.add(fill);
-  const ground=new THREE.Mesh(new THREE.PlaneGeometry(2000,2000),new THREE.ShadowMaterial({color:0x778277,opacity:.11}));ground.rotation.x=-Math.PI/2;ground.position.y=-.14;ground.receiveShadow=true;scene.add(ground);
+  const fill=new THREE.DirectionalLight(0xdce8ff,.65);fill.position.set(12,10,-10);scene.add(fill);
+  const ground=new THREE.Mesh(new THREE.PlaneGeometry(2000,2000),new THREE.ShadowMaterial({color:0x61717d,opacity:.20}));ground.rotation.x=-Math.PI/2;ground.position.y=-.14;ground.receiveShadow=true;scene.add(ground);
   const camera=new THREE.OrthographicCamera(-10,10,10,-10,.1,2000);
   const direction=new THREE.Vector3(1,1,1).normalize();
   let content=new THREE.Group();scene.add(content);let connections=new THREE.Group();scene.add(connections);
@@ -50,12 +51,13 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
     }))rememberedLayout={departments:rows};
   }catch{}
   const target=new THREE.Vector3(0,0,0),desiredTarget=new THREE.Vector3(0,0,0);
-  let span=14,desiredSpan=14,fitSpan=14,width=1,height=1,frame=0,closed=false,hasRenderedData=false,drag=null,moved=false;
+  let span=14,desiredSpan=14,fitSpan=14,width=1,height=1,frame=0,closed=false,hasRenderedData=false,drag=null,moved=false,labelsDirty=true,lastPaint=0,controlGroup=null;
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),projected=new THREE.Vector3();
   const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
   const roomGroups=new Map(),agentGroups=new Map();
+  const flow=createSceneFlow({element,scene,getNode:key=>key==='control'?controlGroup:key.startsWith('agent:')?agentGroups.get(key.slice(6)):null,requestRender,onOpenTask});
 
-  function requestRender() {if(!closed&&!frame)frame=requestAnimationFrame(animate);}
+  function requestRender() {labelsDirty=true;if(!closed&&!frame&&!document.hidden)frame=requestAnimationFrame(animate);}
 
   function cameraUpdate() {
     camera.position.copy(target).addScaledVector(direction,150);camera.lookAt(target);
@@ -68,7 +70,9 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
     const floors=bounds===layout.bounds?[layout.center.worldBounds,...layout.departments.map(room=>room.worldBounds)]:[bounds];
     for(const floor of floors)for(const x of [floor.minX,floor.maxX])for(const z of [floor.minZ,floor.maxZ])for(const y of [0,3.2]){const p=new THREE.Vector3(x,y,z).sub(desiredTarget);const sx=p.dot(right),sy=p.dot(up);minX=Math.min(minX,sx);maxX=Math.max(maxX,sx);minY=Math.min(minY,sy);maxY=Math.max(maxY,sy);}
     desiredTarget.addScaledVector(right,(minX+maxX)/2).addScaledVector(up,(minY+maxY)/2);
-    desiredSpan=Math.max(10,(maxY-minY)*1.35,(maxX-minX)/(width/height)*1.3);
+    // Use the desktop canvas while reserving room for labels and the small
+    // activity legend. No mobile-scale fixed world span shrinks the overview.
+    desiredSpan=Math.max(10,(maxY-minY)*1.25,(maxX-minX)/(width/height)*1.18);
     // Leave a clear lower area for the first-department invitation.
     if(!layout.departments.length){desiredSpan=Math.max(17,desiredSpan);desiredTarget.y=-3;}
     if(instant){span=desiredSpan;target.copy(desiredTarget);}
@@ -133,8 +137,8 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
       const to={x:path.to.x+direction.x*.55,z:path.to.z+direction.y*.55};
       content.add(createWalkway(from,to,path.width));
     }
-    const central=new THREE.Group();central.add(createCentralIsland());const command=createControlCenter();command.position.y=.36;command.rotation.y=Math.PI/4;central.add(command);mark(central,{type:'control',id:'control'});content.add(central);
-    label(new THREE.Vector3(0,3.15,0),'control','control','Control center','Workspace coordinator');
+    const central=new THREE.Group();central.add(createCentralIsland());const command=createControlCenter();command.position.y=.36;command.rotation.y=Math.PI/4;central.add(command);controlGroup=command;mark(central,{type:'control',id:'control'});content.add(central);
+    label(new THREE.Vector3(0,3.15,0),'control','control','Control center','AI orchestrator');
     const byAgent=new Map(data.agents.map(a=>[a.id,a]));
     for(const room of layout.departments) {
       const department=data.departments.find(d=>d.id===room.id);const color=department.color?.startsWith('#')?department.color:(palette[department.color]||'#b8cdd3');
@@ -162,6 +166,7 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
     const extent=Math.max(layout.bounds.width,layout.bounds.depth,16)*.8;key.shadow.camera.left=-extent;key.shadow.camera.right=extent;key.shadow.camera.top=extent;key.shadow.camera.bottom=-extent;key.shadow.camera.updateProjectionMatrix();
     key.position.set(layout.bounds.centerX-12,35,layout.bounds.centerZ+16);key.target.position.set(layout.bounds.centerX,0,layout.bounds.centerZ);
     content.updateMatrixWorld(true);
+    renderer.shadowMap.needsUpdate=true;flow.rebuild();
     // Initial construction may receive the empty bootstrap and live roster in
     // one turn. Fit both instantly until the first paint. Status-only updates
     // must preserve the user's camera while they work in the conversation.
@@ -188,10 +193,16 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
   };
   const up=event=>{if(!drag)return;drag=null;renderer.domElement.style.cursor='grab';if(moved)return;const box=renderer.domElement.getBoundingClientRect();pointer.set((event.clientX-box.left)/box.width*2-1,-(event.clientY-box.top)/box.height*2+1);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(pickables,false)[0];if(hit?.object.userData.officeSelection)choose(hit.object.userData.officeSelection);};
   const wheel=event=>{event.preventDefault();desiredSpan=THREE.MathUtils.clamp(desiredSpan*Math.exp(event.deltaY*.0012),4,Math.max(250,fitSpan*4));requestRender();};
-  const keyboard=event=>{if(event.target!==element)return;if(['+','=','-','0','Home','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();if(event.key==='0'||event.key==='Home')choose({type:'office'});else if(event.key==='+'||event.key==='=')zoomBy(1.2);else if(event.key==='-')zoomBy(1/1.2);else{const right=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0),up=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);right.y=up.y=0;desiredTarget.addScaledVector(event.key.includes('Left')||event.key.includes('Right')?right:up,(event.key==='ArrowLeft'||event.key==='ArrowDown'?-1:1)*span*.06);}requestRender();}};
+  const keyboard=event=>{if(event.target!==element)return;if(['+','=','-','0','Home','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)){event.preventDefault();if(event.key==='0'||event.key==='Home')choose({type:'office'});else if(event.key==='+'||event.key==='=')zoomBy(1.2);else if(event.key==='-')zoomBy(1/1.2);else{const right=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0),up=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);right.y=up.y=0;desiredTarget.addScaledVector(event.key.includes('Left')||event.key.includes('Right')?right:up,(event.key==='ArrowLeft'||event.key==='ArrowDown'?-1:1)*span*.06);}span=desiredSpan;target.copy(desiredTarget);requestRender();}};
   renderer.domElement.addEventListener('pointerdown',down);renderer.domElement.addEventListener('pointermove',move);renderer.domElement.addEventListener('pointerup',up);renderer.domElement.addEventListener('pointercancel',()=>{drag=null;});renderer.domElement.addEventListener('wheel',wheel,{passive:false});element.addEventListener('keydown',keyboard);
   function zoomBy(factor){if(!Number.isFinite(factor)||factor<=0)return;desiredSpan=THREE.MathUtils.clamp(desiredSpan/factor,4,Math.max(250,fitSpan*4));requestRender();}
-  function animate(){frame=0;if(closed)return;const t=reduceMotion.matches?1:.18;target.lerp(desiredTarget,t);span=THREE.MathUtils.lerp(span,desiredSpan,t);cameraUpdate();
+  function animate(now=performance.now()){frame=0;if(closed||document.hidden)return;
+    const cameraMoving=target.distanceToSquared(desiredTarget)>=1e-8||Math.abs(span-desiredSpan)>=.0001;
+    // Active hardware needs only 30 fps; camera gestures retain display-rate
+    // feedback. Static shadow maps and label positions are reused while working.
+    if(!labelsDirty&&!cameraMoving&&now-lastPaint<32){frame=requestAnimationFrame(animate);return;}
+    const t=reduceMotion.matches?1:.18;target.lerp(desiredTarget,t);span=THREE.MathUtils.lerp(span,desiredSpan,t);cameraUpdate();
+    if(labelsDirty||cameraMoving){
     const visibleLabels=[];
     for(const item of labels){projected.copy(item.position).project(camera);const x=(projected.x*.5+.5)*width,y=(-projected.y*.5+.5)*height;
       const roomView=selected.type==='department'&&data.agents.find(a=>a.id===item.id)?.departmentId===selected.id;
@@ -205,7 +216,7 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
     const priority=item=>selected.id===item.id?0:item.type==='control'?1:item.type==='department'?2:item.head?3:4;
     visibleLabels.sort((a,b)=>priority(a)-priority(b)||a.id.localeCompare(b.id));
     // The shell reserves toolbar and runtime-dock space outside this canvas.
-    const placed=[],gap=5,left=12,right=Math.max(12,width-12),top=12,bottom=Math.max(24,height-12);
+    const placed=[],gap=5,left=12,right=Math.max(12,width-12),top=12,bottom=Math.max(24,height-98);
     const clamp=(value,min,max)=>Math.max(min,Math.min(Math.max(min,max),value));
     for(const item of visibleLabels){
       const w=Math.min(item.element.offsetWidth,width-16),h=item.element.offsetHeight;
@@ -223,11 +234,13 @@ export function createOfficeScene({element,onSelect=()=>{},onCamera=()=>{},onCre
       const dx=endX-item.anchorX,dy=endY-item.anchorY,length=Math.hypot(dx,dy);
       if(length>8){item.leader.hidden=false;item.leader.style.width=`${length.toFixed(1)}px`;item.leader.style.transform=`translate(${item.anchorX.toFixed(1)}px,${item.anchorY.toFixed(1)}px) rotate(${Math.atan2(dy,dx)}rad)`;}
     }
-    renderer.render(scene,camera);hasRenderedData=true;onCamera({zoom:fitSpan/span,span});
-    if(target.distanceToSquared(desiredTarget)>=1e-8||Math.abs(span-desiredSpan)>=.0001)frame=requestAnimationFrame(animate);
+    onCamera({zoom:fitSpan/span,span});labelsDirty=false;
+    }
+    const activeMotion=flow.tick(now);renderer.render(scene,camera);hasRenderedData=true;lastPaint=now;
+    if(activeMotion||target.distanceToSquared(desiredTarget)>=1e-8||Math.abs(span-desiredSpan)>=.0001)frame=requestAnimationFrame(animate);
   }
   reduceMotion.addEventListener('change',requestRender);
   resize();setData(data);
-  const api={setData,select,fit,zoomBy,setConnections(value){showConnections=value;connections.visible=value;requestRender();},getSnapshot(){return {departmentCount:layout.departments.length,agentCount:data.agents.length,workstationCount:agentGroups.size,avatarCount:agentGroups.size,coordinatorCount:1,walkwayCount:(layout.paths||[]).length,paths:layout.paths||[],departments:layout.departments.map(room=>({...room,seatCount:room.seats.length})),bounds:layout.bounds,selected,zoom:fitSpan/span,renderer:'three-webgl',canvas:{width,height}};},destroy(){closed=true;cancelAnimationFrame(frame);observer.disconnect();reduceMotion.removeEventListener('change',requestRender);element.removeEventListener('keydown',keyboard);disposeTree(content);disposeTree(connections);ground.geometry.dispose();ground.material.dispose();key.shadow.map?.dispose();renderer.dispose();element.replaceChildren();}};
+  const api={setData,setActivity:input=>flow.update(input),select,fit,zoomBy,setConnections(value){showConnections=value;connections.visible=value;requestRender();},getSnapshot(){return {departmentCount:layout.departments.length,agentCount:data.agents.length,workstationCount:agentGroups.size,avatarCount:agentGroups.size,coordinatorCount:1,walkwayCount:(layout.paths||[]).length,paths:layout.paths||[],departments:layout.departments.map(room=>({...room,seatCount:room.seats.length})),bounds:layout.bounds,selected,zoom:fitSpan/span,renderer:'three-webgl',canvas:{width,height},activity:flow.getSnapshot()};},destroy(){closed=true;cancelAnimationFrame(frame);observer.disconnect();reduceMotion.removeEventListener('change',requestRender);element.removeEventListener('keydown',keyboard);flow.destroy();disposeTree(content);disposeTree(connections);ground.geometry.dispose();ground.material.dispose();key.shadow.map?.dispose();renderer.dispose();element.replaceChildren();}};
   return api;
 }

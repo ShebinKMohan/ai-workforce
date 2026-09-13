@@ -35,7 +35,7 @@ describe('the five phases', () => {
     const { detail, events } = detailFor('verified');
     expect(detail.phases.map((phase) => phase.state)).toEqual(['done', 'done', 'done', 'done', 'done']);
     const decide = stagesOf(detail, 'decide').map((stage) => stage.line);
-    expect(decide).toContain('Try 1 of 2: Atlas split it into 2 parts. Workforce checked that every part has a worker on Storefront and a clear finish.');
+    expect(decide).toContain('Try 1 of 2: Atlas split it into 2 parts. AI Workforce checked that every part has a worker on Storefront and a clear finish.');
     expect(decide.filter((line) => line.includes('→'))).toEqual(['"Add docs/alpha.md describing the pagination helpers." → Nova. Decided by Atlas.', '"Add docs/beta.md describing the search endpoint." → Mira. Decided by Atlas.']);
     const checks = stagesOf(detail, 'check');
     expect(checks.filter((stage) => stage.id === 'part-result').map((stage) => stage.tone)).toEqual(['verified', 'verified']);
@@ -65,8 +65,8 @@ describe('the five phases', () => {
     expect(detail.phases.map((phase) => phase.state)).toEqual(['done', 'done', 'skipped', 'skipped', 'done']);
     const tries = stagesOf(detail, 'decide').filter((stage) => stage.id.startsWith('try-'));
     expect(tries.map((stage) => stage.line)).toEqual([
-      'Try 1 of 2: Workforce returned the plan: part "beta" was given to mo, who is not a worker of Engineering on Storefront. Asking again.',
-      'Try 2 of 2: Workforce returned the plan: part "beta" was given to mo, who is not a worker of Engineering on Storefront.',
+      'Try 1 of 2: AI Workforce returned the plan: part "beta" was given to mo, who is not a worker of Engineering on Storefront. Asking again.',
+      'Try 2 of 2: AI Workforce returned the plan: part "beta" was given to mo, who is not a worker of Engineering on Storefront.',
     ]);
     expect(stagesOf(detail, 'decide').some((stage) => stage.line.includes('→'))).toBe(false);
     expect(detail.status).toMatchObject({ key: 'noPlan', word: 'No usable plan' });

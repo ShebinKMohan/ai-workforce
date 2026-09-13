@@ -49,6 +49,10 @@ import path from 'node:path';
 import { z } from 'zod';
 import { nowIso } from '../core/ids.js';
 import { discoverWorkspaceRuntimes, type RuntimeReadinessReport } from '../discovery/readiness.js';
+import { validateAttachments } from '../adapters/attachments.js';
+import { ATTACHMENT_LIMITS, storeAttachments } from './attachments.js';
+import { listProjectFolders } from './project-folders.js';
+import { discoverRuntimeModels } from '../discovery/model-catalog.js';
 import { sanitizedProbeEnv } from '../discovery/spawn.js';
 import { createStatePaths } from '../storage/paths.js';
 import { redactText } from '../telemetry/redaction.js';
@@ -85,6 +89,8 @@ export interface OfficeServerOptions {
   readonly webRoot?: string;
   /** Passive runtime discovery; never a live check. Replaceable so a test does not probe the machine's runtimes. */
   readonly discover?: () => Promise<ReadonlyArray<RuntimeReadinessReport>>;
+  /** Metadata handshake only; replaceable in tests without a machine's CLI. */
+  readonly modelCatalog?: typeof discoverRuntimeModels;
   readonly spawner?: Spawner;
   readonly cliInvocation?: CliInvocation;
   readonly launchTimeoutMs?: number;
@@ -191,11 +197,40 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
     return readiness.value;
   };
 
+  const catalogs = new Map<string, { key: string; at: number; pending: boolean; value: ReturnType<typeof discoverRuntimeModels> }>();
+  const runtimeModels = async (runtimeId: string, refresh = false) => {
+    const runtime = readWorkspace(root).loaded?.config.runtimes[runtimeId];
+    if (!runtime) throw new ApiError(404, 'unknown_runtime', 'This runtime is not configured in the workspace.');
+    const observed = await currentReadiness(refresh);
+    const reports = 'reports' in observed ? observed.reports : [];
+    const key = JSON.stringify([runtime, reports.filter((report) => report.runtimeId === runtimeId || !report.runtimeId && report.adapter === runtime.adapter).map((report) => [report.executable, report.realPath, report.version, report.auth])]);
+    const cached = catalogs.get(runtimeId);
+    if (cached && cached.key === key && (cached.pending || !refresh && Date.now() - cached.at < READINESS_TTL_MS)) return cached.value;
+    const entry = { key, at: Date.now(), pending: true, value: (options.modelCatalog ?? discoverRuntimeModels)({ runtimeId, runtime, reports }) };
+    catalogs.set(runtimeId, entry);
+    try { return await entry.value; } catch (error) {
+      if (catalogs.get(runtimeId) === entry) catalogs.delete(runtimeId);
+      throw error;
+    } finally { entry.pending = false; }
+  };
+
   const queue = new RequestQueue({
     stateRoot: root,
     passStateDir: options.passStateDir ?? true,
     env,
     readiness: () => currentReadiness(false),
+    validateControl: async (settings, runtime, _reports, attachments = []) => {
+      if (runtime.adapter === 'fake' || settings.model === undefined && settings.effort === undefined && attachments.length === 0) return;
+      const catalog = await runtimeModels(settings.runtime);
+      if (catalog.status !== 'available') throw new ApiError(409, 'control_models_unavailable', 'Control Center model choices could not be read from this runtime. Refresh its models or use runtime defaults.', catalog.diagnostics);
+      const model = catalog.models.find((item) => item.id === (settings.model ?? catalog.defaultModel));
+      if (settings.model !== undefined && !model) throw new ApiError(400, 'unsupported_control_model', `The installed runtime does not offer model "${settings.model}". Select a model from its current list.`);
+      if (settings.effort !== undefined && (!model || !model.efforts.includes(settings.effort))) throw new ApiError(400, 'unsupported_control_effort', 'The selected model does not report support for that reasoning effort. Select one of its offered levels or use the runtime default.');
+      if (attachments.length) {
+        try { validateAttachments(runtime.adapter, attachments, model?.inputModalities ? { inputModalities: model.inputModalities } : {}); }
+        catch (error) { throw new ApiError(400, 'unsupported_attachment', error instanceof Error ? error.message : 'This model cannot read an attached file.'); }
+      }
+    },
     ...(options.spawner !== undefined ? { spawner: options.spawner } : {}),
     ...(options.cliInvocation !== undefined ? { invocation: options.cliInvocation } : {}),
     ...(options.queuePollMs !== undefined ? { pollMs: options.queuePollMs } : {}),
@@ -234,6 +269,9 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
     }
 
     // ---- workspace ----------------------------------------------------------
+    if (a === 'runtimes' && b && c === 'models' && n === 3) {
+      return { allow: 'GET', handle: async (_method, url) => sendJson(res, 200, await runtimeModels(b, url.searchParams.get('refresh') === '1')) };
+    }
     if (a === 'workspace' && n === 1) {
       return { allow: 'GET', handle: async (_method, url) => sendJson(res, 200, await workspaceDocument(root, await currentReadiness(url.searchParams.get('refresh') === '1'))) };
     }
@@ -242,6 +280,12 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
     }
     if (a === 'workspace' && b === 'ops' && n === 3 && OP_NAME_PATTERN.test(c!)) {
       return { allow: 'POST', handle: async () => sendJson(res, 200, await applySingleWorkspaceOp(c!, await body(), writeContext)) };
+    }
+    if (a === 'attachments' && n === 1) {
+      return { allow: 'POST', handle: async () => sendJson(res, 201, await storeAttachments(root, parseJson(await readBody(req, ATTACHMENT_LIMITS.maxBodyBytes)))) };
+    }
+    if (a === 'projects' && b === 'folders' && n === 2) {
+      return { allow: 'POST', handle: async () => sendJson(res, 200, await listProjectFolders(await body(), root)) };
     }
     if (a === 'projects' && b === 'inspect' && n === 2) {
       return { allow: 'POST', handle: async () => sendJson(res, 200, await inspectFolder(await body(), root)) };

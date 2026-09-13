@@ -77,6 +77,7 @@ Options:
   --agents <file>      agent configuration JSON (schemaVersion 1)
   --task <text>        task request text
   --task-file <file>   read the task request from a file
+  --attachment <id>   include a saved upload in a project request (repeatable)
   --agent <id>         worker agent to dispatch (default: defaults.workerAgent)
   --plan <file>        JSON plan: {"tasks":[{"key","objective","dependencies":[]}]}.
                        The only way to express a task graph; forces the planned path.
@@ -139,6 +140,7 @@ interface ParsedArgs {
   readonly agents?: string;
   readonly task?: string;
   readonly taskFile?: string;
+  readonly attachmentIds?: ReadonlyArray<string>;
   readonly codexPath?: string;
   readonly claudePath?: string;
   readonly connect: boolean;
@@ -268,6 +270,7 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     ...(values.agents !== undefined ? { agents: values.agents } : {}),
     ...(values.task !== undefined ? { task: values.task } : {}),
     ...(values['task-file'] !== undefined ? { taskFile: values['task-file'] } : {}),
+    ...(values.attachment !== undefined ? { attachmentIds: values.attachment } : {}),
     ...(values['codex-path'] !== undefined ? { codexPath: values['codex-path'] } : {}),
     ...(values['claude-path'] !== undefined ? { claudePath: values['claude-path'] } : {}),
     connect: values.connect === true,
@@ -292,6 +295,7 @@ const OPTIONS = {
   agents: { type: 'string' },
   task: { type: 'string' },
   'task-file': { type: 'string' },
+  attachment: { type: 'string', multiple: true },
   'codex-path': { type: 'string' },
   'claude-path': { type: 'string' },
   connect: { type: 'boolean', default: false },

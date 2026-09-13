@@ -31,7 +31,7 @@ describe('a fresh install', () => {
   it('renders Welcome, the checklist, How a task moves and an empty office, and no top-bar primary button', () => {
     const html = renderHome(contextFor(fixture('workspace-empty.json'), fixture('runs-empty.json'), fixture('requests-empty.json')));
     const text = visibleText(html);
-    expect(text).toContain('Welcome to Workforce');
+    expect(text).toContain('Welcome to AI Workforce');
     expect(text).toContain('You send it to a department.');
     expect(text).toContain('Only checks the verifier runs can mark work verified.');
     expect(html.match(/button-primary/g)).toHaveLength(1);

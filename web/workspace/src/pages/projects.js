@@ -5,7 +5,7 @@ import { EMPTY, plural } from '../words.js';
 import { chipHtml, emptyHtml, errorHtml, pageHead, recordHtml, taskRowHtml, toggleHtml } from './common.js';
 
 const SOURCE_WORDS = {
-  cli_flags: 'Set in Workforce',
+  cli_flags: 'Set in AI Workforce',
   repository_config: 'Found in .workforce/checks.json at your last commit',
   detected: 'Detected at your last commit',
   none: 'None found',
@@ -15,7 +15,7 @@ export function checksSummary(ws, projectId) {
   const checks = projectChecks(ws, projectId);
   if (checks.count === null) return { tone: 'attention', text: `Checks could not be read: ${checks.fact?.detail ?? 'the folder could not be read'}.` };
   if (checks.count === 0) return { tone: 'attention', text: 'No checks yet, so nothing here could be verified.' };
-  return { tone: 'neutral', text: `${plural(checks.count, 'check')} · ${SOURCE_WORDS[checks.fact?.source] ?? 'Set in Workforce'}` };
+  return { tone: 'neutral', text: `${plural(checks.count, 'check')} · ${SOURCE_WORDS[checks.fact?.source] ?? 'Set in AI Workforce'}` };
 }
 
 function workersOn(ws, projectId) {

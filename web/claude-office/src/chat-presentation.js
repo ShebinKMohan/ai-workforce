@@ -1,4 +1,5 @@
 import { renderRecordedMarkdown, renderRecordedSource } from './recorded-output.js';
+import { attachmentDescriptors, formatAttachmentSize } from './attachment-model.js';
 
 const esc = (value = '') => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const chevron = '<svg class="chat-trace-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>';
@@ -27,9 +28,11 @@ export function renderChatResponse({ id, flow, elapsedMs, traceHTML = '', action
   return `<section class="chat-progress chat-response" aria-label="Control Center response">${trace}${refreshError ? `<p class="sidebar-error" role="status">Could not refresh the task: ${esc(refreshError)}. Showing the last received records.</p>` : ''}${stopRequested ? '<p class="chat-response-status" role="status">Stop requested. Waiting for the runtime to settle.</p>' : ''}${notice}${reply ? `<article class="control-center-reply" data-reply-status="${esc(label)}"><div class="chat-answer-heading">Control Center${flow.directReply ? '<span class="sr-only"> · Answered</span>' : ''}</div><div class="recorded-markdown">${renderRecordedMarkdown(reply).replace('<p class="recorded-output-limit">Preview shortened. The original output is below.</p>', flow.directReply ? '<p class="recorded-output-limit">Preview shortened. The original output is below.</p>' : '<p class="recorded-output-limit">Preview shortened. Expand the trace for the original output.</p>')}</div>${longDirectReply ? source : ''}${worked ? '<p class="chat-answer-verdict">Reviewed and verified</p>' : ''}</article>` : ''}${actionsHTML ? `<div class="inline-actions chat-response-actions">${actionsHTML}</div>` : ''}${consentHTML}</section>`;
 }
 
-export function renderUserMessage({ id, text, project = '', at = '' }) {
+export function renderUserMessage({ id, text, project = '', at = '', attachments = [] }) {
   const fullText = String(text || '');
   const long = fullText.length > 700 || fullText.split('\n').length > 10;
   const message = long ? `<details class="chat-user-prompt" data-disclosure="prompt:${esc(id)}"><summary><span class="chat-prompt-preview">${esc(fullText.slice(0, 240).replace(/\s+\S*$/, '').trimEnd())}…</span><span class="chat-prompt-toggle"><span class="when-closed">Show more</span><span class="when-open">Show less</span>${chevron}</span></summary><p>${esc(fullText)}</p></details>` : `<p>${esc(fullText)}</p>`;
-  return `<div class="chat-message chat-message-user" aria-label="Your message"><span class="sr-only">You</span>${message}<div class="chat-message-caption">${esc([project, at].filter(Boolean).join(' · '))}</div></div>`;
+  const files = attachmentDescriptors(attachments);
+  const attachmentHTML = files.length ? `<ul class="chat-sent-attachments" aria-label="Attached files">${files.map(file => `<li title="${esc(`${file.name} · ${file.mimeType} · ${formatAttachmentSize(file.size)}`)}"><span class="attachment-kind" aria-hidden="true">${file.mimeType.startsWith('image/') ? 'IMG' : 'FILE'}</span><span class="attachment-copy"><strong>${esc(file.name)}</strong><small>${esc(formatAttachmentSize(file.size))}</small></span></li>`).join('')}</ul>` : '';
+  return `<div class="chat-message chat-message-user" aria-label="Your message"><span class="sr-only">You</span>${attachmentHTML}${message}<div class="chat-message-caption">${esc([project, at].filter(Boolean).join(' · '))}</div></div>`;
 }

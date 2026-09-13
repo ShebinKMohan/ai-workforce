@@ -7,6 +7,7 @@ import { esc, keyed } from '../render.js';
 import { floorModel } from '../office/floor-model.js';
 import { agentTool, departmentHead, departmentLabel, departmentReadiness, departmentWorkers, draftIssues, draftNotes, draftOps, draftPreview, runtimeBoundary } from '../model.js';
 import { COLOR_HEX, COLOR_ORDER, EMPTY, plural } from '../words.js';
+import { catalogForRuntime, effortChoices, modelChoices } from '../runtime-model-options.js';
 import { chipHtml, emptyHtml, errorHtml, pageHead, toggleHtml } from './common.js';
 
 export function renderDepartments(ctx) {
@@ -37,20 +38,33 @@ export function renderDepartments(ctx) {
 }
 
 function toolOptions(ws, selected) {
-  return ['codex', 'claude-code']
-    .map((adapter) => {
-      const tool = agentTool(ws, { runtime: adapter === 'codex' ? 'codex-local' : 'claude-local' });
-      return `<option value="${adapter}" ${adapter === selected ? 'selected' : ''}>${esc(tool.name)}${tool.version ? ` ${esc(tool.version)}` : ''} · ${esc(tool.word)}</option>`;
+  const runtimeIds = Object.keys(ws.config?.runtimes ?? {});
+  if (selected && !runtimeIds.includes(selected)) runtimeIds.push(selected);
+  return runtimeIds
+    .map((runtimeId) => {
+      const tool = agentTool(ws, { runtime: runtimeId });
+      const binding = ws.config?.runtimes?.[runtimeId];
+      return `<option value="${esc(runtimeId)}" ${runtimeId === selected ? 'selected' : ''}>${esc(tool.name)} · ${esc(runtimeId)} · ${esc(binding ? tool.word : 'not configured')}</option>`;
     })
     .join('');
 }
 
-function boundaryLine(ws, adapter) {
-  const boundary = runtimeBoundary(ws, adapter === 'codex' ? 'codex-local' : 'claude-local');
-  const tool = agentTool(ws, { runtime: adapter === 'codex' ? 'codex-local' : 'claude-local' });
+function boundaryLine(ws, runtimeId) {
+  const boundary = runtimeBoundary(ws, runtimeId);
+  const tool = agentTool(ws, { runtime: runtimeId });
   return boundary.verified
     ? `Reads and plans only. ${tool.name} cannot change files here (checked for this tool).`
     : `Reads and plans. ${tool.name} is given only reading tools, but it has no enforced file boundary, so this is not guaranteed, and this department's tasks run on their own.`;
+}
+
+function runtimeOverrides(ctx, agent, path, prefix) {
+  const binding = ctx.ws.config?.runtimes?.[agent.tool];
+  const catalog = catalogForRuntime(ctx.ui.modelCatalogs, agent.tool, binding);
+  const model = modelChoices(catalog, agent.model ?? '', { inheritLabel: 'Inherit binding default', inheritedModel: binding?.model ?? '' });
+  const effort = effortChoices(catalog, agent.model ?? '', agent.effort ?? '', { inheritLabel: 'Inherit binding default', inheritedModel: binding?.model ?? '', inheritedEffort: binding?.effort ?? '' });
+  const field = (name, label, choices, selected) => `<div class="field"><label for="${prefix}-${name}">${label}</label><select id="${prefix}-${name}" data-bind="draft:${path}.${name}" data-rerender aria-describedby="${prefix}-${name}-hint" ${choices.disabled ? 'disabled' : ''}>${choices.options.map((option) => `<option value="${esc(option.value)}" ${option.value === selected ? 'selected' : ''} ${option.unavailable ? 'disabled' : ''}>${esc(option.label)}</option>`).join('')}</select><span id="${prefix}-${name}-hint" class="hint" aria-live="polite">${esc(choices.hint)}</span></div>`;
+  const refresh = binding ? `<div class="button-row"><button type="button" class="link-button" data-action="refresh-models" data-runtime="${esc(agent.tool)}" ${catalog?.status === 'loading' ? 'disabled' : ''}>${catalog?.status === 'loading' ? 'Reading models…' : 'Refresh model choices'}</button></div>` : '';
+  return `<div class="editor-grid">${field('model', 'Model', model, agent.model ?? '')}${field('effort', 'Reasoning effort', effort, agent.effort ?? '')}</div>${refresh}`;
 }
 
 export function renderDepartmentEditor(ctx) {
@@ -78,8 +92,8 @@ export function renderDepartmentEditor(ctx) {
   const more = ui.expanded.has(`more:${draftKey}`);
   const headBlock = `<div class="editor-section"><h2>Department head</h2><p class="muted small">${esc(boundaryLine(ws, draft.head.tool))}</p>
     <div class="editor-grid"><div class="field"><label for="head-name">Name</label><input type="text" id="head-name" data-bind="draft:head.name" data-rerender value="${esc(draft.head.name)}" maxlength="60"></div>
-    <div class="field"><label for="head-tool">Coding tool</label><select id="head-tool" data-bind="draft:head.tool" data-rerender>${toolOptions(ws, draft.head.tool)}</select></div></div>
-    ${more ? `<div class="editor-grid"><div class="field"><label for="head-model">Model</label><span class="hint">Leave empty for the tool's default.</span><input type="text" id="head-model" data-bind="draft:head.model" value="${esc(draft.head.model)}"></div></div>
+    <div class="field"><label for="head-tool">Runtime</label><select id="head-tool" data-bind="draft:head.tool" data-rerender>${toolOptions(ws, draft.head.tool)}</select></div></div>
+    ${more ? `${runtimeOverrides(ctx, draft.head, 'head', 'head')}
     <div class="field"><label for="head-instructions">Instructions</label><span class="hint">Leave empty for the standard instructions.</span><textarea id="head-instructions" data-bind="draft:head.instructions">${esc(draft.head.instructions)}</textarea></div>` : ''}</div>`;
 
   const projects = ws.liveProjects;
@@ -89,18 +103,17 @@ export function renderDepartmentEditor(ctx) {
         ? `<fieldset><legend>${esc(worker.name.trim() || `Worker ${index + 1}`)} works on</legend><div class="project-checks">${projects.map((project) => `<label class="check-row"><input type="checkbox" id="worker-${index}-project-${esc(project.id)}" data-bind="draft:workers.${index}.projects" data-project="${esc(project.id)}" data-rerender ${worker.projectIds.includes(project.id) ? 'checked' : ''} aria-label="${esc(worker.name.trim() || `Worker ${index + 1}`)} works on ${esc(project.name)}"> <span>${esc(project.name)}</span></label>`).join('')}</div></fieldset>`
         : '<p class="muted small">Add a project first, then tick it here.</p>';
       const extra = more
-        ? `<div class="editor-grid"><div class="field"><label for="worker-${index}-policy">Files</label><select id="worker-${index}-policy" data-bind="draft:workers.${index}.policy" data-rerender><option value="local-development" ${worker.policy === 'local-development' ? 'selected' : ''}>Can change files in its copy</option><option value="analysis" ${worker.policy === 'analysis' ? 'selected' : ''}>Reads only</option></select></div>
-          <div class="field"><label for="worker-${index}-model">Model</label><span class="hint">Leave empty for the tool's default.</span><input type="text" id="worker-${index}-model" data-bind="draft:workers.${index}.model" value="${esc(worker.model)}"></div></div>
+        ? `${runtimeOverrides(ctx, worker, `workers.${index}`, `worker-${index}`)}<div class="editor-grid"><div class="field"><label for="worker-${index}-policy">Files</label><select id="worker-${index}-policy" data-bind="draft:workers.${index}.policy" data-rerender><option value="local-development" ${worker.policy === 'local-development' ? 'selected' : ''}>Can change files in its copy</option><option value="analysis" ${worker.policy === 'analysis' ? 'selected' : ''}>Reads only</option></select></div></div>
           <div class="field"><label for="worker-${index}-instructions">Instructions</label><span class="hint">Leave empty for the standard instructions.</span><textarea id="worker-${index}-instructions" data-bind="draft:workers.${index}.instructions">${esc(worker.instructions)}</textarea></div>`
         : '';
       return `<div class="worker-card"><div class="worker-card-head"><strong>${esc(worker.name.trim() || `Worker ${index + 1}`)}</strong><button type="button" class="link-button" data-action="remove-worker" data-index="${index}">${worker.id ? 'Archive' : 'Remove'}</button></div>
         <div class="editor-grid"><div class="field"><label for="worker-${index}-name">Name</label><input type="text" id="worker-${index}-name" data-bind="draft:workers.${index}.name" data-rerender value="${esc(worker.name)}" maxlength="60"></div>
-        <div class="field"><label for="worker-${index}-tool">Coding tool</label><select id="worker-${index}-tool" data-bind="draft:workers.${index}.tool" data-rerender>${toolOptions(ws, worker.tool)}</select></div></div>${checks}${extra}</div>`;
+        <div class="field"><label for="worker-${index}-tool">Runtime</label><select id="worker-${index}-tool" data-bind="draft:workers.${index}.tool" data-rerender>${toolOptions(ws, worker.tool)}</select></div></div>${checks}${extra}</div>`;
     })
     .join('');
   const archived = draft.archivedWorkers.length ? `<p class="muted small">Archived when you save: ${esc(draft.archivedWorkers.map((id) => ws.agentById.get(id)?.name ?? id).join(', '))}. Their history stays. <button type="button" class="link-button" data-action="restore-workers">Undo</button></p>` : '';
   const workersBlock = `<div class="editor-section"><h2>Workers</h2><p class="muted small">Workers change files, each in its own copy, and only on the projects you tick.</p>${workers}${archived}<button type="button" class="button" data-action="add-worker">+ Add worker</button></div>`;
-  const moreToggle = `<div class="more">${toggleHtml(`more:${draftKey}`, more, 'More options: instructions, model, file access', 'Fewer options', 'editor-form')}</div>`;
+  const moreToggle = `<div class="more">${toggleHtml(`more:${draftKey}`, more, 'More options: model, effort, instructions, file access', 'Fewer options', 'editor-form')}</div>`;
 
   const previewBlock = keyed(
     'section',

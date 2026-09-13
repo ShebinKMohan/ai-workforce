@@ -1,0 +1,74 @@
+{
+  "runtimeId": "claude-local",
+  "adapter": "claude-code",
+  "configuredExecutable": "claude",
+  "executable": "/opt/homebrew/bin/claude",
+  "resolvedExecutable": "/opt/homebrew/Caskroom/claude-code/2.1.236/claude",
+  "version": "2.1.236",
+  "checkedAt": "2026-09-13T06:50:29.883Z",
+  "status": "available",
+  "models": [
+    {
+      "id": "default",
+      "label": "Default (recommended)",
+      "description": "Opus 5 with 1M context \u00b7 Best for everyday, complex tasks",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "effortStatus": "reported"
+    },
+    {
+      "id": "opus[1m]",
+      "label": "Opus (1M context)",
+      "description": "Opus 5 with 1M context \u00b7 Best for everyday, complex tasks",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "effortStatus": "reported"
+    },
+    {
+      "id": "claude-fable-5-1[1m]",
+      "label": "Fable",
+      "description": "Fable 5.1 \u00b7 Most capable for your hardest and longest-running tasks",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "effortStatus": "reported"
+    },
+    {
+      "id": "sonnet",
+      "label": "Sonnet",
+      "description": "Sonnet 5 \u00b7 Efficient for routine tasks",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "effortStatus": "reported"
+    },
+    {
+      "id": "haiku",
+      "label": "Haiku",
+      "description": "Haiku 4.5 \u00b7 Fastest for quick answers",
+      "efforts": [],
+      "effortStatus": "unavailable"
+    }
+  ],
+  "diagnostics": [
+    "The CLI did not report reasoning choices for every model. Unavailable choices are left empty."
+  ]
+}

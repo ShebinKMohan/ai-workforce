@@ -18,6 +18,7 @@ import { z } from 'zod';
 import type { DatabaseSync } from 'node:sqlite';
 import {
   type AgentConfigFile,
+  type AdapterId,
   type EffectiveAgentBinding,
   type Limits,
   type Policy,
@@ -46,6 +47,8 @@ import {
   type StopReceipt,
   type TurnHandle,
 } from '../adapters/index.js';
+import { AdapterError, type RuntimeAttachment } from '../adapters/types.js';
+import { attachmentReferenceText, validateAttachments } from '../adapters/attachments.js';
 import { writeArtifact, type ArtifactRecord } from '../storage/artifacts.js';
 import {
   findSurfaceChanges as computeSurfaceChanges,
@@ -997,6 +1000,7 @@ export interface RunDirectInput {
   readonly requestText: string;
   readonly requestSource: string;
   readonly contextRefs?: ReadonlyArray<string>;
+  readonly attachments?: ReadonlyArray<RuntimeAttachment>;
   readonly agentId?: string;
   readonly checkFlags?: ReadonlyArray<string>;
   readonly paths: StatePaths;
@@ -1091,7 +1095,7 @@ export interface RunManifest {
   readonly attemptId: string;
   readonly outcome: RunOutcome;
   readonly createdAt: string;
-  readonly request: { readonly text: string; readonly source: string; readonly contextRefs: ReadonlyArray<string> };
+  readonly request: { readonly text: string; readonly source: string; readonly contextRefs: ReadonlyArray<string>; readonly attachments?: ReadonlyArray<RuntimeAttachment> };
   readonly project: Record<string, unknown>;
   readonly base: Record<string, unknown>;
   readonly candidate: Record<string, unknown>;
@@ -1159,6 +1163,16 @@ export class RunSetupError extends Error {
 // The direct path
 // ---------------------------------------------------------------------------
 
+/** Freeze request descriptors without persisting adapter-specific delivery decisions. */
+export function validateRunAttachments(adapter: AdapterId, attachments: ReadonlyArray<RuntimeAttachment> = []): ReadonlyArray<RuntimeAttachment> {
+  try {
+    return Object.freeze(validateAttachments(adapter, attachments).map(({ delivery: _delivery, ...attachment }) => Object.freeze(attachment)));
+  } catch (error) {
+    if (error instanceof AdapterError) throw new RunSetupError(error.code, error.message);
+    throw error;
+  }
+}
+
 export async function runDirect(input: RunDirectInput): Promise<RunDirectResult> {
   // The caller's stream is the run-level one. As soon as this task's ids are
   // minted it is narrowed to a per-task stream (below), so every record and
@@ -1170,6 +1184,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   const timer = new PhaseTimer();
   const { db, paths } = input;
   const contextRefs = [...(input.contextRefs ?? [])];
+  const requestedAttachments = (input.attachments ?? []).map((attachment) => ({ ...attachment }));
 
   // ---- 1. Project inspection and registration (FR019) --------------------
   const dispatchSpan = timer.begin('dispatch');
@@ -1194,6 +1209,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
   }
   const snapshot = computeAgentSnapshot(input.config, agentId);
   const binding: EffectiveAgentBinding = snapshot.binding;
+  const attachments = validateRunAttachments(binding.runtime.adapter, requestedAttachments);
   const limits: Limits = limitsFromDefaults(input.config.defaults);
   const policy: Policy = binding.policy;
 
@@ -1371,6 +1387,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     runId,
     text: input.requestText,
     contextRefs,
+    ...(attachments.length > 0 ? { attachments } : {}),
     repoPath: projectRoot,
     baseMode: 'head',
     submittedAt: createdAt,
@@ -1640,6 +1657,8 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       }
     }
 
+    // Recheck immutable identity after asynchronous setup and before a runtime exists.
+    const preparedAttachments = validateAttachments(adapter.id, attachments);
     session = await adapter.openSession({
       cwd: workspace.path,
       allowedWritePaths: grants,
@@ -1755,7 +1774,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     // A safe boundary before the turn: anything a dependency left for this task
     // is in the prompt, not racing the turn that is about to start.
     const inbox = bridge === null ? [] : deliverableMessages(bridge, taskId);
-    const prompt = composeTaskPrompt({
+    const taskPrompt = composeTaskPrompt({
       requestText: taskText,
       contextRefs,
       workspace,
@@ -1774,6 +1793,8 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
             },
           }),
     });
+    const references = adapter.id === 'fake' ? attachmentReferenceText(preparedAttachments) : '';
+    const prompt = references.length > 0 ? `${taskPrompt}\n\n${references}` : taskPrompt;
     for (const message of inbox) {
       try {
         bridge?.acknowledge(message.id);
@@ -1783,7 +1804,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       }
     }
     const runtimeSpan = timer.begin('runtime');
-    turn = await adapter.startTurn(session, { prompt, contextRefs });
+    turn = await adapter.startTurn(session, { prompt, contextRefs, ...(attachments.length > 0 ? { attachments } : {}) });
     // One transition records session, process identity and turn together:
     // an attempt is "running" once it actually has a turn.
     transitionAttempt(db, attemptId, 'running', {
@@ -2245,7 +2266,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
     attemptId,
     outcome,
     createdAt,
-    request: { text: input.requestText, source: input.requestSource, contextRefs },
+    request: { text: input.requestText, source: input.requestSource, contextRefs, ...(attachments.length > 0 ? { attachments } : {}) },
     project: {
       canonicalPath: projectRoot,
       requestedPath: inspection.canonicalPath,

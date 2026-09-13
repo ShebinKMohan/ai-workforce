@@ -77,7 +77,7 @@ export function createDepartmentManager({ element, getWorkspace = () => null, on
   element.hidden = true;
   const field = (name, label, input, hint = '') => `<div class="am-field"><label for="dm-${name}">${label}</label>${input}${hint ? `<p class="am-hint" id="dm-${name}-hint">${hint}</p>` : ''}<p class="am-field-error" id="dm-${name}-error" hidden></p></div>`;
   const text = (name, label, value, max = 60, hint = '') => field(name, label, `<input id="dm-${name}" name="${name}" value="${esc(value)}" maxlength="${max}" autocomplete="off"${hint ? ` aria-describedby="dm-${name}-hint"` : ''}>`, hint);
-  const header = () => '<header class="am-header"><div class="am-kicker"><span>WORKFORCE SETUP</span><button type="button" class="am-icon-button" data-dm="close" aria-label="Close department setup">✕</button></div><div class="am-heading-row"><h1>Create a department</h1></div><p>Create a department and bind its head to a local runtime.</p></header>';
+  const header = () => '<header class="am-header"><div class="am-kicker"><span>AI WORKFORCE SETUP</span><button type="button" class="am-icon-button" data-dm="close" aria-label="Close department setup">✕</button></div><div class="am-heading-row"><h1>Create a department</h1></div><p>Create a department and bind its head to a local runtime.</p></header>';
   function hide() {
     active = false;
     opening += 1;

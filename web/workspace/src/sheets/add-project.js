@@ -1,5 +1,5 @@
 /**
- * The Add a project sheet: paste a folder path, look at it with Git only,
+ * The Add a project sheet: browse a local folder, inspect it with Git only,
  * see the checks the verifier would find, name it, and add it. A project with
  * no check can be added, but setup step 2 stays open until it has one.
  */
@@ -19,7 +19,7 @@ export function inspectionLines(inspection) {
   if (!inspection.isDirectory) return [{ tone: 'failed', text: 'This is a file, not a folder.' }];
   if (!inspection.isGitRepo) return [{ tone: 'failed', text: 'This folder is not a Git repository. A project is a Git repository with at least one commit.' }];
   if (inspection.existingProjectId) lines.push({ tone: 'failed', text: 'This repository is already in the workspace.' });
-  if (inspection.overlapsStateRoot) lines.push({ tone: 'failed', text: "This folder overlaps Workforce's own files. Choose a project folder." });
+  if (inspection.overlapsStateRoot) lines.push({ tone: 'failed', text: "This folder overlaps AI Workforce's own files. Choose a project folder." });
   if (!inspection.headRevision) lines.push({ tone: 'failed', text: 'This repository has no commits yet. Make a first commit so workers have a starting point.' });
   else {
     const dirty = inspection.dirty ?? {};
@@ -45,9 +45,9 @@ export function renderAddProjectSheet(ctx, sheet) {
     : '';
   const canAdd = Boolean(inspection?.canAdd) && sheet.projectName.trim().length > 0 && !sheet.saving;
   const addLabel = sheet.saving ? 'Adding…' : found > 0 || typed.length > 0 ? 'Add project' : 'Add without checks';
-  const body = `<div class="field"><label for="project-path">Folder</label><span class="hint">Paste a Git repository path on this computer. You can start with ~/ for your home folder.</span>
+  const body = `<div class="project-folder-choice"><div><strong>${sheet.path ? 'Selected folder' : 'Local Git repository'}</strong><p>${esc(sheet.path || 'Choose an existing project from this computer.')}</p></div><button type="button" class="button button-primary" data-action="browse-project-folders"${sheet.inspecting ? ' disabled' : ''}>Browse folders</button></div><div data-project-folder-picker hidden></div><details class="project-path-fallback"><summary>Enter a path</summary><div class="field"><label for="project-path">Folder path</label><span class="hint">Use an absolute Git repository path or ~/ for your home folder.</span>
       <div class="inline-field"><input type="text" id="project-path" data-bind="sheet:path" value="${esc(sheet.path)}" placeholder="/Users/you/code/my-app" autocomplete="off" spellcheck="false"><button type="button" class="button" data-action="inspect-folder" ${sheet.inspecting ? 'disabled' : ''}>${sheet.inspecting ? 'Looking…' : 'Check folder'}</button></div>
-      </div>
+      </div></details>
     ${lines.length ? `<ul class="step-lines">${lines.map((line) => `<li class="tone-${line.tone}">${esc(line.text)}</li>`).join('')}</ul><p class="muted small">Looked at with Git only; nothing was changed.</p>` : ''}
     ${inspection?.canAdd ? `<div class="field"><label for="project-name">Name</label><input type="text" id="project-name" data-bind="sheet:projectName" data-rerender value="${esc(sheet.projectName)}" maxlength="80"></div>` : ''}
     ${checksBlock}

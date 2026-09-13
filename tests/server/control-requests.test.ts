@@ -148,18 +148,27 @@ describe('automatic Control Center request admission', () => {
     await until(h.queue, b.id, (item) => item.state === 'ended');
   });
 
-  it('answers a greeting and routes an explicit directive while another classifier is waiting', async () => {
+  it('queues an AI greeting behind an owned intake turn while an explicit directive routes immediately', async () => {
     const root = await workspace(); const started = gate(); const finish = gate(); let classified = 0;
-    const h = harness(root, async (input) => { classified++; started.resolve(); await finish.promise; return selected(input); });
+    const h = harness(root, async (input) => {
+      classified++;
+      if (input.task === 'hello') return { route: { ...selected(input).route, method: 'direct_reply', departmentId: null, headAgentId: null }, reply: 'Hello from Control Center.' };
+      started.resolve(); await finish.promise; return selected(input);
+    });
     const pending = await h.queue.submit({ projectId: 'one', task: 'Explain this bug.' });
     await started.promise;
     const greeting = await h.queue.submit({ projectId: 'one', task: 'hello' });
-    expect((await until(h.queue, greeting.id, (item) => item.state === 'ended')).route?.method).toBe('direct_reply');
+    expect(h.queue.get(greeting.id).route?.state).toBe('pending');
     const explicit = await h.queue.submit({ projectId: 'two', task: '@eng fix the test' });
     const live = await until(h.queue, explicit.id, (item) => item.state === 'running');
     expect(live.route?.method).toBe('directive');
     expect(classified).toBe(1);
     h.queue.discard(pending.id); finish.resolve(); h.release(1);
+    const answer = await until(h.queue, greeting.id, (item) => item.state === 'ended');
+    expect(answer.route?.method).toBe('direct_reply');
+    expect(answer.controlReply).toBe('Hello from Control Center.');
+    expect(classified).toBe(2);
+    expect(h.calls).toHaveLength(1);
     await until(h.queue, explicit.id, (item) => item.state === 'ended');
   });
 
@@ -223,8 +232,8 @@ describe('automatic Control Center request admission', () => {
     const uncertain = await h.queue.submit({ projectId: 'one', task: 'Classify this request.' });
     await until(h.queue, uncertain.id, (item) => item.state === 'failed_to_start');
     for (let index = 0; index < 201; index++) {
-      const greeting = await h.queue.submit({ projectId: 'one', task: 'hello' });
-      await until(h.queue, greeting.id, (item) => item.state === 'ended');
+      const invalid = await h.queue.submit({ projectId: 'one', task: '@missing-team hello' });
+      await until(h.queue, invalid.id, (item) => item.state === 'failed_to_start');
     }
     expect(h.queue.get(uncertain.id).routingSession?.state).toBe(state);
     h.queue.close();

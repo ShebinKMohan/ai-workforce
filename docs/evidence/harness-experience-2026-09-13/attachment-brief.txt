@@ -1,0 +1,3 @@
+Attachment verification brief
+The release codename is Polaris.
+This file is context for a read-only attachment test, not a request to modify source.

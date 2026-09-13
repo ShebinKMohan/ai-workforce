@@ -1,0 +1,73 @@
+{
+  "id": "01a0999d-a9d5-763b-b15e-b3226060d3cd",
+  "kind": "request",
+  "clientRequestId": "b3806740-46d5-4a5d-887d-43ddaba35f03",
+  "projectId": "ai-employee",
+  "departmentId": null,
+  "task": "Hello. In one sentence, identify the project selected for this conversation. This is a workspace question only.",
+  "resumeRunId": null,
+  "allowUnconfinedWrites": false,
+  "agentIds": [],
+  "workerIds": [],
+  "exclusive": false,
+  "unconfinedRuntimes": [],
+  "state": "ended",
+  "reason": "Control Center is routing your request.",
+  "receivedAt": "2026-09-13T07:14:01.813Z",
+  "startedAt": null,
+  "endedAt": "2026-09-13T07:14:11.466Z",
+  "heldAt": null,
+  "launchId": null,
+  "pid": null,
+  "pidStartedAtMs": null,
+  "stdoutPath": null,
+  "stderrPath": null,
+  "runId": null,
+  "stopRequestedAt": null,
+  "exitCode": 0,
+  "signal": null,
+  "result": {
+    "exitCode": 0,
+    "code": "control_reply",
+    "message": "The project selected for this conversation is AI Employee.",
+    "details": []
+  },
+  "submittedDepartmentId": null,
+  "submittedControlCenter": {
+    "runtime": "codex-local",
+    "model": "gpt-5.5",
+    "effort": "low"
+  },
+  "controlCenter": {
+    "runtime": "codex-local",
+    "model": "gpt-5.5",
+    "effort": "low"
+  },
+  "controlRuntime": {
+    "adapter": "codex",
+    "executable": "codex",
+    "model": "gpt-5.5",
+    "effort": "medium"
+  },
+  "admissionReady": false,
+  "route": {
+    "state": "selected",
+    "projectId": "ai-employee",
+    "departmentId": null,
+    "headAgentId": null,
+    "reason": "The user asked a direct workspace question answerable from the supplied project context.",
+    "decidedAt": "2026-09-13T07:14:10.396Z",
+    "elapsedMs": 9642.989791999978,
+    "method": "direct_reply",
+    "runtimeId": "codex-local",
+    "sessionId": "01a0999d-ac70-72c3-ac40-fe1be275107b",
+    "model": "gpt-5.5",
+    "effort": "low",
+    "workspaceRevision": 17
+  },
+  "routingSession": {
+    "sessionId": "01a0999d-ac70-72c3-ac40-fe1be275107b",
+    "state": "stopped"
+  },
+  "controlReply": "The project selected for this conversation is AI Employee."
+}

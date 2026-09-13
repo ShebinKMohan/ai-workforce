@@ -43,13 +43,13 @@ import { spawn } from 'node:child_process';
 import { closeSync, existsSync, fstatSync, fsyncSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { validateAgentConfig, type AgentConfigFile } from '../core/contracts.js';
+import { validateAgentConfig, ModelSchema, EffortSchema, RuntimeIdSchema, RuntimeConfigSchema, type RuntimeConfig, type AgentConfigFile } from '../core/contracts.js';
 import { newId, nowIso, randomToken } from '../core/ids.js';
 import { sha256Hex } from '../core/snapshot.js';
 import { isProcessAlive, isProcessGroupAlive, matchProcessIdentity, observeProcessStartMs, ProcessIdentitySchema } from '../core/process.js';
 import { assessContainment, createAdapter } from '../core/run-direct.js';
-import { isToolUsable, toolFactForRuntime, type WorkspaceConfig } from '../core/workspace-config.js';
-import { controlRoutingExclusive, directControlRoute, RouteDecisionSchema, routeControlRequest, type ControlIntakeInput, type ControlIntakeResult } from '../routing/control-intake.js';
+import { isToolUsable, toolFactForRuntime, ControlCenterConfigSchema, type ControlCenterConfig, type WorkspaceConfig } from '../core/workspace-config.js';
+import { controlRuntimeId, controlRoutingExclusive, directControlRoute, RouteDecisionSchema, routeControlRequest, type ControlIntakeInput, type ControlIntakeResult } from '../routing/control-intake.js';
 import { readinessReportForRuntime, type RuntimeReadinessReport } from '../discovery/readiness.js';
 import { openStateStore, StateNotFoundError } from '../storage/db.js';
 import { acquireCoordinatorLock, classifyHolder, LockHeldError, readLockInfo, type CoordinatorLock, type LockInfo } from '../storage/lock.js';
@@ -59,6 +59,9 @@ import { projectHasLiveRun, projectStateRoot, projectStatePaths } from '../works
 import { resolveProjectChecks, toolFacts } from '../workspace/readiness.js';
 import { adapterWriteContainment, buildRoster, rosterAgentIds, type Roster } from '../workspace/roster.js';
 import { loadWorkspace } from '../workspace/store.js';
+import { AttachmentDescriptorSchema, AttachmentIdsSchema, resolveAttachments } from './attachments.js';
+import type { RuntimeAttachment } from '../adapters/types.js';
+import { validateAttachments } from '../adapters/attachments.js';
 import { ApiError } from './http.js';
 import { defaultCliInvocation, MAX_TASK_CHARS, type CliInvocation, type Spawner } from './launch.js';
 import { projectRootIds, readableProjectPaths } from './project-reads.js';
@@ -75,12 +78,20 @@ export const MAX_FINISHED_ITEMS = 200;
 export const HELD_REASON = 'held: this request was still waiting when the page server stopped, so it was not started. Start it or discard it.';
 
 const noNul = (value: string): boolean => !value.includes('\0');
+export const ControlSelectionSchema = z.strictObject({
+  runtime: RuntimeIdSchema,
+  model: ModelSchema.refine((value) => !/[\r\n\0]/.test(value)).optional(),
+  effort: EffortSchema.refine((value) => !/[\r\n\0]/.test(value)).optional(),
+});
+const controlSelectionKey = (selection?: z.infer<typeof ControlSelectionSchema>) => JSON.stringify(selection ? [selection.runtime, selection.model ?? null, selection.effort ?? null] : null);
 
 export const RequestBodySchema = z.strictObject({
   /** One logical composer submission. Retrying it must not start another paid turn. */
   clientRequestId: z.string().min(1).max(128).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/).optional(),
   projectId: z.string().min(1).max(64),
   departmentId: z.string().min(1).max(64).optional(),
+  controlCenter: ControlSelectionSchema.optional(),
+  attachmentIds: AttachmentIdsSchema.optional(),
   task: z
     .string()
     .max(MAX_TASK_CHARS)
@@ -107,6 +118,11 @@ export const RequestItemSchema = z.strictObject({
   clientRequestId: z.string().min(1).max(128).optional(),
   /** Original routing override, before automatic intake selected a department. */
   submittedDepartmentId: z.string().nullable().optional(),
+  submittedControlCenter: ControlSelectionSchema.optional(),
+  attachments: z.array(AttachmentDescriptorSchema).max(8).optional(),
+  /** Frozen orchestration settings and executable. Department bindings are separate. */
+  controlCenter: ControlCenterConfigSchema.optional(),
+  controlRuntime: RuntimeConfigSchema.optional(),
   route: RouteDecisionSchema.optional(),
   controlReply: z.string().optional(),
   admissionReady: z.boolean().optional(),
@@ -169,6 +185,7 @@ export interface RequestQueueOptions {
   readonly readiness: () => Promise<PassiveReadiness>;
   /** Injectable classification only; it never launches project work. */
   readonly routeControl?: (input: ControlIntakeInput) => Promise<ControlIntakeResult>;
+  readonly validateControl?: (settings: ControlCenterConfig, runtime: RuntimeConfig, reports: ReadonlyArray<RuntimeReadinessReport>, attachments?: ReadonlyArray<RuntimeAttachment>) => Promise<void>;
 }
 
 /** A project run that is live now, from this server's queue or from a project lock. */
@@ -737,6 +754,7 @@ export class RequestQueue {
       ...item.workerIds.map((id) => `--worker=${id}`),
       ...(item.admittedWorkspaceRevision === undefined ? [] : [`--workspace-revision=${item.admittedWorkspaceRevision}`]),
       `--task=${item.task!}`,
+      ...(item.attachments ?? []).map((file) => `--attachment=${file.id}`),
       ...(item.allowUnconfinedWrites ? ['--allow-unconfined-writes'] : []),
       ...(this.options.passStateDir ? [`--state-dir=${this.root}`] : []),
     ];
@@ -837,7 +855,7 @@ export class RequestQueue {
     const previous = items.find((item) => item.kind === 'request' && item.clientRequestId === body.clientRequestId);
     if (previous === undefined) return null;
     const submittedDepartment = previous.submittedDepartmentId !== undefined ? previous.submittedDepartmentId : previous.departmentId;
-    if (previous.projectId !== body.projectId || submittedDepartment !== (body.departmentId ?? null) || previous.task !== body.task || previous.allowUnconfinedWrites !== (body.allowUnconfinedWrites === true)) {
+    if (previous.projectId !== body.projectId || submittedDepartment !== (body.departmentId ?? null) || previous.task !== body.task || previous.allowUnconfinedWrites !== (body.allowUnconfinedWrites === true) || controlSelectionKey(previous.submittedControlCenter) !== controlSelectionKey(body.controlCenter) || JSON.stringify((previous.attachments ?? []).map((file) => file.id)) !== JSON.stringify(body.attachmentIds ?? [])) {
       throw new ApiError(409, 'request_id_conflict', 'this submission ID already belongs to a different request; send a new submission ID for changed task text or routing', [], { requestId: previous.id });
     }
     return structuredClone(previous);
@@ -881,16 +899,26 @@ export class RequestQueue {
       if (!active()) return;
       const config = loadWorkspace(this.root).config;
       if (!config.projects.some((project) => project.id === item.projectId && !project.archived)) throw new ApiError(409, 'routing_project_unavailable', 'The selected project is no longer available. Select an active project and send this message again.');
-      const input = { workspace: config, projectId: item.projectId, task: item.task! };
+      if (item.controlCenter && item.controlRuntime && JSON.stringify(config.runtimes[item.controlCenter.runtime]) !== JSON.stringify(item.controlRuntime)) throw new ApiError(409, 'control_runtime_changed', 'The selected Control Center runtime binding changed while this request waited. Send a new request to use the current binding.');
+      // This copy is only for intake. Worker preflight below always reads the original workspace.
+      const controlWorkspace = item.controlCenter ? { ...config, controlCenter: item.controlCenter } : config;
+      const files = item.attachments?.length ? await resolveAttachments(this.root, item.attachments.map((file) => file.id)) : [];
+      if (!active()) return;
+      const attachments = files.map((file) => ({ path: file.path, name: file.name, mimeType: file.mimeType, sizeBytes: file.size, sha256: file.sha256 }));
+      const input = { workspace: controlWorkspace, projectId: item.projectId, task: item.task!, ...(attachments.length ? { attachments } : {}) };
       const direct = directControlRoute(input);
       if (direct === null) {
         const readiness = await this.options.readiness();
         if (!active()) return;
         this.reports = 'reports' in readiness ? readiness.reports : null;
       }
-      if (direct === null && controlRoutingExclusive(config, this.reports ?? []) && item.allowUnconfinedWrites) {
-        if (this.liveRuns(config).length > 0) { item.reason = 'waiting: Control Center uses a runtime without a verified file boundary and must route this request on its own.'; return; }
-        if (this.routing !== null) this.routing.exclusive = true;
+      if (direct === null) {
+        const live = this.liveRuns(config);
+        if (live.some((run) => run.exclusive)) { item.reason = 'waiting: Control Center must wait for the active task without a verified file boundary to finish.'; return; }
+        if (controlRoutingExclusive(controlWorkspace, this.reports ?? []) && item.allowUnconfinedWrites) {
+          if (live.length > 0) { item.reason = 'waiting: Control Center uses a runtime without a verified file boundary and must route this request on its own.'; return; }
+          if (this.routing !== null) this.routing.exclusive = true;
+        }
       }
       const decision = direct ?? await (this.options.routeControl ?? routeControlRequest)({ ...input, reports: this.reports ?? [], allowUnconfinedWrites: item.allowUnconfinedWrites, signal,
         onSession: (session) => {
@@ -974,11 +1002,31 @@ export class RequestQueue {
     if (this.closed) throw new ApiError(503, 'server_closing', 'the page server is stopping');
     const previous = this.previousSubmission(body);
     if (previous !== null) return previous;
+    const files = body.attachmentIds?.length ? await resolveAttachments(this.root, body.attachmentIds) : [];
+    const attachments = files.map(({ id, name, mimeType, size }) => ({ id, name, mimeType, size }));
 
     if (body.departmentId === undefined) {
       const loaded = loadWorkspace(this.root);
       const project = loaded.config.projects.find((project) => project.id === body.projectId && !project.archived);
       if (!loaded.exists || project === undefined) throw new ApiError(400, 'unknown_project', 'Select a saved, active project before sending a message to Control Center.');
+      if (body.controlCenter && !loaded.config.runtimes[body.controlCenter.runtime]) throw new ApiError(400, 'unknown_control_runtime', 'Select a configured runtime for Control Center.');
+      const observed = await this.options.readiness();
+      const reports = 'reports' in observed ? observed.reports : [];
+      const runtimeId = body.controlCenter?.runtime ?? controlRuntimeId(loaded.config, reports);
+      const runtime = runtimeId ? loaded.config.runtimes[runtimeId] : undefined;
+      let controlCenter: ControlCenterConfig | undefined;
+      if (runtimeId && runtime) {
+        const inherited = body.controlCenter ? body.controlCenter : loaded.config.controlCenter;
+        controlCenter = ControlCenterConfigSchema.parse({ ...loaded.config.controlCenter, runtime: runtimeId,
+          model: inherited?.model ?? runtime.model, effort: inherited?.effort ?? runtime.effort });
+        // Passive model metadata is normally warm from the composer; never start a turn to list choices.
+        await this.options.validateControl?.(controlCenter, runtime, reports, files.map((file) => ({ path: file.path, name: file.name, mimeType: file.mimeType, sizeBytes: file.size, sha256: file.sha256 })));
+        if (files.length) {
+          try { validateAttachments(runtime.adapter, files.map((file) => ({ path: file.path, name: file.name, mimeType: file.mimeType, sizeBytes: file.size, sha256: file.sha256 }))); }
+          catch (error) { throw new ApiError(400, 'unsupported_attachment', error instanceof Error ? error.message : 'This runtime cannot read one of the attachments.'); }
+        }
+      }
+      if (loadWorkspace(this.root).config.revision !== loaded.config.revision) throw new ApiError(409, 'workspace_changed', 'Workspace settings changed while preparing this request. Retry with the current configuration.');
       this.ensureOwner();
       const acceptedWhileChecking = this.previousSubmission(body);
       if (acceptedWhileChecking !== null) return acceptedWhileChecking;
@@ -986,13 +1034,16 @@ export class RequestQueue {
         departmentId: null, task: body.task, resumeRunId: null, allowUnconfinedWrites: body.allowUnconfinedWrites === true,
         agentIds: [], workerIds: [], exclusive: false, unconfinedRuntimes: [] });
       item.submittedDepartmentId = null;
+      if (attachments.length) item.attachments = attachments;
+      if (body.controlCenter) item.submittedControlCenter = structuredClone(body.controlCenter);
+      if (controlCenter && runtime) { item.controlCenter = structuredClone(controlCenter); item.controlRuntime = structuredClone(runtime); }
       item.admissionReady = false;
       item.route = { state: 'pending', projectId: body.projectId, departmentId: null, headAgentId: null, reason: 'Control Center is routing your request.',
         decidedAt: null, elapsedMs: 0, method: 'pending', workspaceRevision: loaded.config.revision };
       this.items.push(item);
       this.persist();
       const receipt = structuredClone(item);
-      if (directControlRoute({ workspace: loaded.config, projectId: item.projectId, task: item.task! }) !== null) {
+      if (directControlRoute({ workspace: { ...loaded.config, ...(controlCenter ? { controlCenter } : {}) }, projectId: item.projectId, task: item.task! }) !== null) {
         this.directRouting.add(item.id);
         setImmediate(() => { void this.resolveRouting(item, new AbortController().signal).finally(() => { this.directRouting.delete(item.id); this.queueRouting(); }); });
       } else this.queueRouting();
@@ -1016,6 +1067,8 @@ export class RequestQueue {
         ...workspaceRosterFacts(config, roster, reports),
       });
     item.submittedDepartmentId = body.departmentId;
+    if (attachments.length) item.attachments = attachments;
+    if (body.controlCenter) item.submittedControlCenter = structuredClone(body.controlCenter);
     item.approvedRosterHash = this.rosterHash(config, roster);
     item.route = { state: 'selected', projectId: body.projectId, departmentId: body.departmentId, headAgentId: roster.head.id,
       reason: 'The request explicitly selected this department.', decidedAt: nowIso(), elapsedMs: 0, method: 'explicit', workspaceRevision: config.revision };

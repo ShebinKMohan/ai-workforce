@@ -31,6 +31,10 @@ describe('Control Center settings editor', () => {
     expect(html).toContain('Projects without a rule use model classification');
     expect(html).toMatch(/id="control-center-model"[^>]*disabled/);
     ctx.ui.controlCenterDraft = { ...controlCenterDefaults(doc.workspace), runtime: 'codex-local' };
+    expect(renderControlCenterPanel(ctx)).toMatch(/id="control-center-model"[^>]*disabled/);
+    ctx.ui.modelCatalogs = new Map([['codex-local', { runtimeId: 'codex-local', adapter: 'codex', configuredExecutable: 'codex', status: 'available', models: [{ id: 'reported-model', label: 'Reported model', efforts: ['reported-effort'], effortStatus: 'reported' }] }]]);
     expect(renderControlCenterPanel(ctx)).not.toMatch(/id="control-center-model"[^>]*disabled/);
+    expect(renderControlCenterPanel(ctx)).toContain('Your AI orchestrator.');
+    expect(renderControlCenterPanel(ctx)).not.toContain('Routing runtime');
   });
 });

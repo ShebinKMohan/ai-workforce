@@ -1,13 +1,14 @@
-# Start using Workforce
+# Start using AI Workforce
 
-Workforce is a local workspace for sending engineering tasks to installed coding agents. You
-choose a project and a department. The department head reads the request, assigns eligible
-workers, and the verifier checks their result. Use the UI to configure the team and follow the
-actual work as it happens.
+AI Workforce is a local harness for installed coding agents. Choose a project and send a message
+to Control Center, the AI orchestrator. It answers, asks for context, or routes work to a department
+head. The head plans and delegates, workers execute, and independent checks plus head review
+support the result returned in Chat. Use the UI to configure the team and follow actual work.
 
 This guide covers the browser workspace shipped with `workforce serve`. The dated
-[integration record](evidence/workspace/2026-09-12-dogfood.md) records what was tested with fake
-runtimes and what was proved with a real Codex request.
+[integration record](evidence/workspace/2026-09-12-dogfood.md) records the original workspace proof.
+The [13 September harness evidence](evidence/harness-experience-2026-09-13/README.md) covers the
+current chat, model choices, attachments, folder browser and real Codex multimodal intake.
 
 ## Open it
 
@@ -33,7 +34,8 @@ For a Finder shortcut on this Mac, double-click:
 It opens the page when the server is already answering, or builds and starts the server in a
 terminal. Keep that terminal open while using the page.
 
-Use **http://127.0.0.1:4317/**. The server prints its URL and state folder. If `workforce` is not
+The default URL is **http://127.0.0.1:4317/**; use the URL and state folder printed by your server.
+The 13 September dogfooding workspace uses port **4421**. If `workforce` is not
 linked, `node dist/cli/index.js serve --open` starts the last build directly. `npm start` builds
 the current source first. For a fresh installation, run `npm ci` once, then `npm start`.
 Run `npm link` once to make the optional `workforce` commands below available. This machine
@@ -58,9 +60,9 @@ workspace uses `$WORKFORCE_STATE_DIR` when set, otherwise `~/.workforce`.
 
 ### 1. Check your coding tools
 
-The main page opens the Office. A fresh workspace shows only the central Coordinator, with no
+The main page opens the Office. A fresh workspace shows only Control Center, with no
 departments, worker desks or employee avatars. The setup checklist is available at
-`/workspace/#/home`; Settings is at `/workspace/#/settings`. Workforce looks for Codex and Claude Code using passive
+`/workspace/#/home`; Settings is at `/workspace/#/settings`. AI Workforce looks for Codex and Claude Code using passive
 version and sign-in checks. Opening the page, editing your team and checking tools starts no
 model task. Readiness reported by a tool is distinct from a completed real task.
 
@@ -76,11 +78,15 @@ or, for Claude Code:
 claude auth login
 ```
 
-Then click **Check again** in Settings. You do not enter a token into Workforce.
+Then click **Check again** in Settings. You do not enter a token into AI Workforce. Runtime,
+model and reasoning-effort choices are available in Chat and the settings/editors. Model lists
+come from the selected installed runtime; use refresh if its available choices have changed.
 
 ### 2. Add a project
 
-Open **Projects** in the Office header, click **Add a project**, paste the path to a local Git repository and click **Check folder**.
+Open **Projects** in the Office header, click **Add a project**, then **Browse folders**. Navigate
+to the local Git repository and choose **Use this folder** to run Git inspection. **Enter a path**
+remains an optional alternative.
 Review the repository, its last commit and the checks the verifier will run. Name it and add it.
 A folder without a commit cannot be used yet. A project without a check can be saved, but cannot
 receive a task until you add a check in its project page.
@@ -88,7 +94,7 @@ receive a task until you add a check in its project page.
 Adding a project creates no department, head or worker. Team setup is a separate action.
 
 Checks are commands that succeed with exit code zero. For example, `npm test` is suitable when
-it runs the project's meaningful tests. Workforce executes command arguments without a shell;
+it runs the project's meaningful tests. AI Workforce executes command arguments without a shell;
 use separate checks for separate commands rather than `npm test && npm run build`. It reads
 project-provided checks from the last commit. Tests that need downloads, network services or
 unavailable dependencies may fail under the verifier's restricted environment; the task page
@@ -96,18 +102,18 @@ retains that failure as evidence.
 
 Coordinator Git operations disable repository hooks, fsmonitor, text conversion and
 clean/smudge/process filters. This avoids executing repository-configured programs during setup
-and snapshotting. Git LFS entries remain pointer files; Workforce does not fetch or materialize
+and snapshotting. Git LFS entries remain pointer files; AI Workforce does not fetch or materialize
 their large-file contents. Choose a first task that does not require those missing assets.
 
 Workers start from the repository's committed HEAD. If your requested change depends on local
-uncommitted edits, first decide which committed version you want them to use. Workforce does not
+uncommitted edits, first decide which committed version you want them to use. AI Workforce does not
 silently include those edits, and it does not reset, clean or stash your folder.
 
 ### 3. Create a department
 
 Return to the Office and click **+ Department**. Configure the department and its head:
 
-- **Head:** enter a name, coding runtime, optional model ID and instructions. The head decides
+- **Head:** enter a name, coding runtime, optional model/effort choices and instructions. The head decides
   how to split and assign each request and uses the read-only analysis policy.
 - **Department:** choose a name and color. Names may repeat when different notes tell them apart,
   such as Engineering / Payments and Engineering / Storefront.
@@ -119,8 +125,9 @@ Use **Add agent** to add workers to that department. Set each worker's name, run
 instructions, and select the projects it may work on. The same department room grows to contain
 every saved worker; there is no four-seat limit or separate overflow department. You can create a
 department before adding a project, then assign projects when adding or editing its workers.
-The **Agents** directory keeps the full configured roster available. Capabilities and reasoning
-effort can be configured through the CLI; the page has no editor for those fields.
+The **Agents** directory keeps the full configured roster available. Model and reasoning effort
+can be selected in the agent editor's options. Removing an agent archives it from the active
+directory while preserving historical records; archived agents can be restored.
 
 No starter department is silently saved. A worker assigned to no projects remains unassigned
 and cannot receive work. Only workers in the chosen department and assigned to the chosen
@@ -129,19 +136,26 @@ configuration for execution and resume.
 
 ### 4. Send a small first task
 
-From Office, use the Control center's **Chat** tab. Optionally select a department, describe
-the task and click the composer arrow, labelled **Review task before sending**. This opens the
-**Review task** dialog with your draft. You can also use the New task button from the
-workspace pages. Choose the project and department and describe one change whose result you
-can inspect. For example, on the provided rounding demo:
+From Office, use Control Center's **Chat** tab. Choose the project, optionally select Control
+Center's runtime/model/effort, and describe one change whose result you can inspect. The composer
+has no department selector: Control Center chooses the responsible team. For example, on the
+provided rounding demo:
 
 > applyDiscount truncates instead of rounding to the nearest cent. Fix the underlying defect in
 > src/. Do not modify anything under test/.
 
 That prompt is specific to the rounding demo; use an equivalent bounded request for your own
-repository. Review the selected project, department, head, eligible workers, checks and execution
-boundary. Click **Send to department head** in the Office dialog (or **Send to [head name]** in
-the workspace sheet). This submits the request; model turns start when the queue admits it.
+repository. Click the arrow labelled **Send to Control Center**. The request is recorded before
+its route is resolved; the chat then shows the chosen department and subsequent execution.
+The selected runtime/model/effort apply to Control Center for this message, while department
+heads and workers retain their own settings. Selecting a room or employee does not change routing.
+
+Use **Attach files or images**, or drag files into Chat, to add multiple attachments. Remove a
+chip to exclude that file before sending. The limits are 8 files, 5 MiB per supported native image,
+10 MiB per other file and 25 MiB total. Supported images use native model input; Claude also
+accepts native PDFs. Other files are staged for runtime tools, with bounded text excerpts where
+applicable. Unsupported interpretation is not silently promised for arbitrary binary formats.
+Each ordinary send creates a new request; earlier chat answers are not automatically included.
 
 If anyone on the roster uses a runtime without a verified file boundary, the page explains the
 limit and requires a consent checkbox. Claude Code currently falls into this category even for
@@ -150,12 +164,12 @@ create an OS sandbox. Choose Codex for a first contained trial.
 
 ## See what is happening
 
-**Office** is an interactive Three.js scene built from your saved workspace. The original
-Claude-designed header, Control center sidebar, employee focus, directory and settings
-interactions surround the new procedural rooms, desks, chairs and people.
+**Office** is an interactive 3D scene built from your saved workspace. The Control Center sidebar,
+employee focus, directory and settings surround its rooms, desks, chairs and people.
 
-- An empty workspace has only the central **Coordinator / System scheduler**. It is coordination
-  software, with no model assigned. There are no sample departments or placeholder employees.
+- An empty workspace has only **Control Center**, the AI intake orchestrator. Its runtime is
+  configurable; coordinator code separately owns capacity, permissions and verification.
+  There are no sample departments or placeholder employees.
 - Each saved department has its own room and head. Adding workers expands that same room to
   fit its complete roster, including the fifth worker and beyond. Department and employee IDs
   determine membership; repeated department names do not merge teams.
@@ -164,23 +178,24 @@ interactions surround the new procedural rooms, desks, chairs and people.
   worker to a saved department. **+ Department** creates a department and head together.
 - Drag the scene to pan, scroll to zoom, or use the zoom and Fit controls. With the scene focused,
   keyboard arrows pan, **+ / −** zoom, and **0 / Home** fit the office.
-- Status labels and task counts come from recorded workspace state. Furniture, camera motion and
-  configured connections do not establish that a runtime has executed work.
+- Status labels, task counts and communication packets come from recorded workspace state.
+  The phase legend explains intake, routing, work, checks, review and reply. Scene motion can
+  be paused and respects reduced motion; furniture alone does not establish runtime execution.
 
-The **Control center** beside the scene has three tabs:
+The resizable **Control Center** beside the scene has three tabs:
 
 | Tab | What it does |
 | --- | --- |
-| Chat | Holds a task draft in the selected office, department or employee context. The arrow opens Review task, where you confirm the project/department pair, checks and any required consent before sending. The tab does not add a separate conversational coordinator model. |
-| Tasks | Shows recorded work with All, Review, Running and Needs you filters. Open a task to inspect its details and full evidence. Selection narrows the panel to the relevant department or employee. |
-| Connections | Shows configured runtime/model bindings and reported runtime information. A configured model is distinct from the effective model recorded by a real task. |
+| Chat | Sends messages and attachments to Control Center with project context. The main response stays readable; one collapsed trace exposes routing, actors, output, checks and usage when expanded. Direct answers have no invented worker trace. |
+| Activity | Shows recorded work and its current state. Open a task to inspect its details and full evidence. |
+| Runtimes | Shows configured bindings and reported runtime information. A configured model is distinct from the effective model recorded by a real task. |
 
 The **Projects** header link opens the workspace project pages. Home/setup, Departments, Tasks
 and Settings remain available in the workspace interface at `/workspace/`. The original employee
 directory and settings panels are also available directly in Office. Saving configuration starts
 no model task; changes must be saved before they appear in the persisted roster.
 
-Use the actual app at **http://127.0.0.1:4317/** for execution. The original reference at
+Use your page server's printed URL for execution; **4317** is the default port. The original reference at
 **http://127.0.0.1:4318/** is a separate prototype. Its sample state is not execution evidence
 for your workspace.
 
@@ -193,15 +208,16 @@ five phases and evidence:
 | Department head | Planning started, plan proposed through the head tool, validation and named worker assignments. |
 | Work | Worker attempt and file activity in its candidate copy. |
 | Checks | Frozen candidate identity and verifier-executed check outcomes. |
-| Review | Final status, changes and the exact check receipts supporting it. |
+| Review | The head's review of the checked candidate, followed by Control Center's recorded final response. |
 
 Expand **Changes** to inspect the recorded patch; **Checks** shows who executed each check and
 whether it counted. **All events** is the ordered record. **Show record** exposes technical
 identifiers and revisions when you need them. A completed planning phase uses neutral styling;
 it is not verification. A worker reporting a pass cannot replace an independent check.
 
-**Verified** means the configured checks passed against the recorded candidate. It still needs
-your review for requirements the checks cannot establish. It is a local result: no automatic
+For new department tasks, **Verified** requires configured checks to pass and the head to approve
+that recorded candidate. It still needs your review for requirements the checks cannot establish.
+It is a local result: no automatic
 application to your active checkout, remote push, merge or deployment has happened. Preserve
 its candidate and patch while deciding how to apply the change.
 
@@ -257,7 +273,7 @@ git -C "/path/to/my-task-review" apply "/path/to/reviewed-task.patch"
 ```
 
 Run the project's checks and inspect the diff in that review folder. Applying, committing and
-merging remain your deliberate Git actions; Workforce has not done them for you. If the target
+merging remain your deliberate Git actions; AI Workforce has not done them for you. If the target
 base or changes differ from the reviewed candidate, the earlier acceptance does not verify that
 new combination.
 
@@ -291,6 +307,11 @@ limits, the workspace file and earlier history. The default admits two simultane
 tasks. Each project still runs one at a time, a shared worker waits until available, and a roster
 containing Claude Code runs alone. Parts of one planned task can run concurrently under the
 per-task limits.
+
+Control Center settings select its AI runtime, model, effort and orchestration instructions.
+Optional project specialization rules provide explicit routing. The notification control can
+alert you when work finishes or needs attention while the page is running; browser support and
+permission are required. It does not deliver notifications after the page or server closes.
 
 The CLI offers the same workspace operations. Inspect the exact IDs and setup state with:
 

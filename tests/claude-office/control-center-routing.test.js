@@ -51,10 +51,10 @@ describe('one Control Center conversation', () => {
     expect(controlCenterSubmission(context, document)).not.toHaveProperty('departmentId');
     expect(controlCenterSubmission({ ...context, allowUnconfinedWrites:true }, document)).toEqual({ task:'Fix bug', projectId:'app', departmentId:'eng', allowUnconfinedWrites:true, clientRequestId:'consent-retry' });
   });
-  it('requires a registered project and an eligible workforce before taking work', () => {
+  it('requires a registered project but lets Control Center answer before workers or checks are configured', () => {
     expect(controlCenterRoute(fixture('workspace-empty')).sendable).toBe(false);
     expect(() => controlCenterSubmission({ text:'Fix bug' },fixture('workspace'))).toThrow(/Choose the project/);
-    expect(() => controlCenterSubmission({ text:'Fix bug',projectId:'notes' },fixture('workspace'))).toThrow(/No configured team/);
+    expect(controlCenterSubmission({ text:'Hello',projectId:'notes' },fixture('workspace'))).toEqual({ task:'Hello',projectId:'notes' });
   });
   it('acknowledges pending routing without pretending an eligible roster is assigned or replied', () => {
     const task = { inMotion:true,entry:{ item:{state:'queued',workerIds:['eligible-worker'],route:{state:'pending',projectId:'app',departmentId:null,headAgentId:null,reason:'Selecting a team'}}}};

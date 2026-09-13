@@ -196,15 +196,24 @@ export function decodeStreamLine(line: string): DecodedLine {
 // stdin frames (`--input-format stream-json`)
 // ---------------------------------------------------------------------------
 
+/** MessageParam content from the documented Agent SDK streaming input API.
+ * https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode
+ * https://platform.claude.com/docs/en/api/typescript/messages
+ */
+export type UserContentBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'image'; readonly source: { readonly type: 'base64'; readonly media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; readonly data: string } }
+  | { readonly type: 'document'; readonly title: string; readonly source: { readonly type: 'base64'; readonly media_type: 'application/pdf'; readonly data: string } };
+
 export interface UserFrame {
   readonly type: 'user';
-  readonly message: { readonly role: 'user'; readonly content: ReadonlyArray<{ readonly type: 'text'; readonly text: string }> };
+  readonly message: { readonly role: 'user'; readonly content: ReadonlyArray<UserContentBlock> };
   readonly parent_tool_use_id: null;
   readonly session_id: string;
 }
 
-export function userFrame(sessionId: string, text: string): UserFrame {
-  return { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, parent_tool_use_id: null, session_id: sessionId };
+export function userFrame(sessionId: string, content: string | ReadonlyArray<UserContentBlock>): UserFrame {
+  return { type: 'user', message: { role: 'user', content: typeof content === 'string' ? [{ type: 'text', text: content }] : content }, parent_tool_use_id: null, session_id: sessionId };
 }
 
 export interface ControlRequestFrame {
@@ -239,9 +248,10 @@ export const InitializeResponseSchema = z.looseObject({
   models: z
     .array(
       z.looseObject({
-        value: z.string(),
+        value: z.string().min(1),
         resolvedModel: z.string().optional(),
         displayName: z.string().optional(),
+        description: z.string().optional(),
         supportsEffort: z.boolean().optional(),
         supportedEffortLevels: z.array(z.string()).optional(),
       }),

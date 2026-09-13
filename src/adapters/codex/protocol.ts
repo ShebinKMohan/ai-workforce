@@ -183,17 +183,28 @@ export type TurnStartResult = z.infer<typeof TurnStartResultSchema>;
 
 export const TurnSteerResultSchema = z.looseObject({ turnId: z.string().min(1) });
 
+/** Outgoing user-input variants this adapter supports, from the installed app-server schema. */
+export const CodexUserInputSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('text'), text: z.string() }),
+  z.strictObject({ type: z.literal('localImage'), path: z.string().min(1) }),
+]);
+export type CodexUserInput = z.infer<typeof CodexUserInputSchema>;
+
 export const ModelListResultSchema = z.looseObject({
   data: z.array(
     z.looseObject({
       id: z.string().min(1),
+      model: z.string().min(1).optional(),
       isDefault: z.boolean().optional(),
       displayName: z.string().optional(),
+      description: z.string().optional(),
       hidden: z.boolean().optional(),
+      inputModalities: z.array(z.string().min(1)).optional(),
       defaultReasoningEffort: z.string().nullish(),
-      supportedReasoningEfforts: z.array(z.looseObject({ reasoningEffort: z.string() })).optional(),
+      supportedReasoningEfforts: z.array(z.looseObject({ reasoningEffort: z.string().min(1), description: z.string().optional() })).optional(),
     }),
   ),
+  nextCursor: z.string().min(1).nullish(),
 });
 export type ModelListResult = z.infer<typeof ModelListResultSchema>;
 

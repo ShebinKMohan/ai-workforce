@@ -76,9 +76,27 @@ export interface SettingSupport {
   readonly exhaustive: boolean;
 }
 
+/** A runtime-reported model and the effort choices belonging to that model. */
+export interface RuntimeModelSettings extends OfferedSetting {
+  readonly displayName: string;
+  readonly catalogId?: string;
+  readonly description?: string;
+  readonly resolvedModel?: string;
+  readonly isDefault?: boolean;
+  readonly defaultEffort?: string;
+  readonly supportsEffort?: boolean;
+  /** Present only when the runtime listed its accepted input modalities. */
+  readonly inputModalities?: ReadonlyArray<string>;
+  readonly effort: SettingSupport;
+  readonly effortStatus: 'reported' | 'unavailable';
+}
+
 export interface RuntimeSettingsSupport {
   readonly model: SettingSupport;
   readonly effort: SettingSupport;
+  readonly models?: ReadonlyArray<RuntimeModelSettings>;
+  /** Catalog default, not proof of the effective model in a later session. */
+  readonly defaultModel?: string;
 }
 
 export type SettingStatus = 'runtime_default' | 'supported' | 'supported_unverified' | 'unsupported';
@@ -124,7 +142,12 @@ function reportSetting(setting: SettingName, support: SettingSupport, requested:
 /** Validate requested settings against what an adapter offers. Adapters may use this to implement `validateSettings`. */
 export function validateSettingsAgainst(adapter: AdapterId, support: RuntimeSettingsSupport, requested: RequestedSettings): SettingsValidation {
   const model = reportSetting('model', support.model, requested.model);
-  const effort = reportSetting('effort', support.effort, requested.effort);
+  const selected = support.models?.find((entry) => entry.value === requested.model);
+  // A model catalog does not reveal a user's configured runtime default. Once
+  // per-model metadata is available, never validate against another model's
+  // choices (or a union of them) when that effective model is still unknown.
+  const effortSupport = selected?.effort ?? (support.models === undefined ? support.effort : { offered: [], exhaustive: false });
+  const effort = reportSetting('effort', effortSupport, requested.effort);
   return { adapter, ok: model.status !== 'unsupported' && effort.status !== 'unsupported', model, effort };
 }
 
@@ -193,9 +216,21 @@ export interface SessionHandle {
   readonly raw: unknown;
 }
 
+/** An immutable staged upload, supplied as context rather than runtime configuration. */
+export interface RuntimeAttachment {
+  readonly path: string;
+  readonly name: string;
+  readonly mimeType: string;
+  readonly sizeBytes?: number;
+  readonly sha256?: string;
+  /** Auto sends supported media natively and keeps other files as explicit references. */
+  readonly mode?: 'auto' | 'native' | 'reference';
+}
+
 export interface TurnInput {
   readonly prompt: string;
   readonly contextRefs?: ReadonlyArray<string>;
+  readonly attachments?: ReadonlyArray<RuntimeAttachment>;
 }
 
 export interface TurnHandle {

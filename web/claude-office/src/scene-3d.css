@@ -25,7 +25,7 @@
 .scene-label-employee.selected { max-width:250px; }
 .scene-label-employee.selected small { display:block; }
 .scene-status-dot { width:6px;height:6px;border-radius:50%;background:#9da8b0;flex:none; }
-.scene-label.is-working .scene-status-dot { background:#397caf;animation:scene-working 2.4s ease-in-out infinite; }
+.scene-label.is-working .scene-status-dot { background:#397caf; }
 .scene-label.is-waiting .scene-status-dot { background:#bf852a; }
 .scene-label.is-failed .scene-status-dot { background:#bc5757; }
 .scene-role { font-size:8px;line-height:13px;font-weight:600;color:#687b88;border-left:1px solid #e1e6eb;padding-left:5px; }
@@ -37,7 +37,31 @@
 .scene-empty p { font-size:12px;line-height:1.65;color:#64717e;margin:0 0 18px; }
 .scene-empty button { pointer-events:auto;padding:11px 16px; }
 .office-panel .canvas-help { pointer-events:none; }
-@keyframes scene-working { 0%,100% { box-shadow:0 0 0 2px #397caf14; } 50% { box-shadow:0 0 0 4px #397caf08; } }
-@media(prefers-reduced-motion:reduce) { .scene-label { transition:none; }.scene-label.is-working .scene-status-dot { animation:none;box-shadow:0 0 0 2px #397caf14; } }
+.scene-activity { position:absolute;z-index:4;bottom:12px;left:16px;width:min(352px,calc(100% - 32px));padding:11px 12px 9px;border:1px solid #dae1e7;border-radius:10px;background:rgba(255,255,255,.96);box-shadow:0 4px 18px #26374609;color:#394957;pointer-events:auto; }
+.scene-activity-heading { display:flex;align-items:center;gap:7px;min-width:0; }
+.scene-activity-heading strong { font-size:11px;line-height:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.scene-activity-signal { width:6px;height:6px;border-radius:50%;background:#92a0ac;flex:none; }
+.scene-activity[data-tone=active] .scene-activity-signal { background:#397fad; }
+.scene-activity[data-tone=review] .scene-activity-signal { background:#8472ae; }
+.scene-activity[data-tone=attention] .scene-activity-signal { background:#b98331; }
+.scene-activity[data-tone=verified] .scene-activity-signal { background:#408263; }
+.scene-activity-detail { display:block;width:100%;margin:3px 0 8px;padding:0 0 0 13px;text-align:left;border:0;background:transparent;font:inherit;font-size:10px;line-height:14px;color:#72808e;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer; }
+.scene-activity-detail:hover:not(:disabled) { color:#397fad;text-decoration:underline;text-underline-offset:2px; }
+.scene-activity-detail:focus-visible { outline:2px solid #397fad;outline-offset:2px;border-radius:2px; }
+.scene-activity-detail:disabled { cursor:default; }
+.scene-motion-toggle { width:23px;height:23px;padding:4px;display:grid;place-items:center;flex:none;margin:-3px -3px -3px auto;color:#70808e;border:1px solid transparent;border-radius:5px;background:transparent;cursor:pointer; }
+.scene-motion-toggle:hover { background:#eef3f7;color:#35638a;border-color:#dce6ee; }
+.scene-motion-toggle:focus-visible { outline:2px solid #397fad;outline-offset:2px; }
+.scene-motion-toggle:disabled { opacity:.4;cursor:default; }
+.scene-motion-toggle svg { width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round; }
+.scene-flow-stages { display:flex;align-items:center;justify-content:space-between;gap:3px;list-style:none;margin:0;padding:7px 0 0;border-top:1px solid #edf0f3;color:#8793a0; }
+.scene-flow-stages li { position:relative;font-size:9px;line-height:13px;font-weight:500; }
+.scene-flow-stages li+li::before { content:'›';color:#b4bdc6;position:absolute;left:-10px; }
+.scene-flow-stages .is-current { color:#397fad;font-weight:650; }
+.scene-activity[data-tone=review] .scene-flow-stages .is-current { color:#8472ae; }
+.scene-activity[data-tone=verified] .scene-flow-stages .is-current { color:#408263; }
+.task-notification-toggle[aria-pressed=true] { color:#377cae;background:#eef5fa;border-color:#cbdfea; }
+.task-notification-toggle:disabled { opacity:.55;cursor:default; }
+@media(prefers-reduced-motion:reduce) { .scene-label { transition:none; } }
 @media(max-width:900px) { .scene-empty { bottom:125px; }.scene-empty h2 { font-size:22px; }.scene-empty p { font-size:11px; } }
 @media(max-width:760px) { .scene-label-department { max-width:190px; }.scene-label-department strong { max-width:110px; }.scene-label-control { padding:7px 9px; }.scene-label-control strong { font-size:11px; }.scene-empty { bottom:125px; } }

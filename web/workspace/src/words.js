@@ -19,7 +19,7 @@
  * session, hashes) appear only inside "Show record", All events and Settings.
  */
 
-export const APP_NAME = 'Workforce';
+export const APP_NAME = 'AI Workforce';
 
 export const PHASES = [
   { key: 'send', number: 1, heading: 'Sent', line: 'You send it to a department.' },
@@ -45,10 +45,10 @@ export const TOOL_NAMES = { codex: 'Codex', 'claude-code': 'Claude Code', fake: 
 export const TOOL_LOGIN = { codex: 'codex login', 'claude-code': 'claude auth login' };
 
 export const SETUP = {
-  heading: 'Welcome to Workforce',
+  heading: 'Welcome to AI Workforce',
   lines: ['Your workspace is empty. You decide which projects, departments and workers it holds.', 'Nothing runs and no model is called until you send a task.'],
   steps: {
-    tools: { title: 'Check your coding tools', text: 'A coding tool is a program on this computer that does the work, such as Codex or Claude Code. Workforce looked for them without starting either one.' },
+    tools: { title: 'Check your coding tools', text: 'A coding tool is a program on this computer that does the work, such as Codex or Claude Code. AI Workforce looked for them without starting either one.' },
     project: { title: 'Add a project', text: 'A project is a Git repository on this computer with at least one check: a command, such as npm test, that the verifier runs. Workers never change your folder; each gets its own copy.' },
     department: { title: 'Create a department', text: 'A department is a department head and the workers it hands tasks to.' },
     send: { title: 'Send your first task', text: 'Describe a change. The department head decides which worker does it.' },
@@ -65,14 +65,14 @@ export const EMPTY = {
 };
 
 export const ERRORS = {
-  unreachable: "Workforce's page server is not answering, so nothing on this page is current. Is workforce serve still running in its terminal?",
+  unreachable: "AI Workforce's page server is not answering, so nothing on this page is current. Is workforce serve still running in its terminal?",
   streamLost: 'Live updates stopped. What you see may be out of date. Reconnecting…',
-  workspaceUnreadable: 'Your workspace file could not be read, so nothing can be sent or changed from this page. Workforce never overwrites a file it cannot read.',
+  workspaceUnreadable: 'Your workspace file could not be read, so nothing can be sent or changed from this page. AI Workforce never overwrites a file it cannot read.',
   revisionConflict: 'The workspace changed since this page read it, so nothing was saved. Your edits are still here.',
   lockBusy: 'Another change is being saved right now. Try again in a moment.',
-  noTools: 'No coding tool found. Workforce works with Codex and Claude Code. Adding a project does not need one.',
+  noTools: 'No coding tool found. AI Workforce works with Codex and Claude Code. Adding a project does not need one.',
   discoveryFailed: 'Could not check for coding tools. Nothing was started.',
-  queueElsewhere: 'Another Workforce page server manages tasks for this workspace. Use that page, or stop it first.',
+  queueElsewhere: 'Another AI Workforce page server manages tasks for this workspace. Use that page, or stop it first.',
 };
 
 /** Status words for a task, with the tone that may colour them. Green (`verified`) is used by exactly one. */

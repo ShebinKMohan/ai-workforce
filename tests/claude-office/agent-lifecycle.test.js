@@ -94,7 +94,7 @@ describe('agent directory lifecycle', () => {
     await expect(store.archive('worker', 0)).rejects.toMatchObject({ code: 'workspace_revision_conflict' });
     expect(store.get('worker').archived).toBe(false);
     await expect(store.save(formValues(store.get('head'), { id: undefined, replaceId: 'worker' }))).rejects.toThrow(/head to replace/);
-    await expect(store.archive('control')).rejects.toThrow(/system scheduler/);
+    await expect(store.archive('control')).rejects.toThrow(/cannot be archived/);
     expect(snapshot().revision).toBe(4);
   });
 

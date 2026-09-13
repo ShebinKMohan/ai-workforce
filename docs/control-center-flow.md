@@ -6,7 +6,7 @@ The user clarified this product's interaction contract on 12 September 2026: eve
 
 | Component | Owns | Does not infer |
 | --- | --- | --- |
-| Control Center | User conversation, project context, bounded intent classification, recorded routing decision, final response | Worker availability from a model's memory; success from an optimistic worker reply |
+| Control Center | User conversation, project context, bounded AI reply/clarification/delegation, recorded routing decision, final response | Worker availability from a model's memory; success from an optimistic worker reply |
 | Department head | Task decomposition, assignments within the admitted roster, semantic review of the combined result | Access to an unreserved or out-of-project worker; permission to override failed checks |
 | Worker | Bounded implementation in an isolated candidate, tool output and evidence | Authority to apply the result to the user's checkout |
 | Coordinator code | Queue ordering, exact worker reservations, process ownership, stop/resume, durable transitions and latency measurements | An estimated completion percentage presented as measured fact |
@@ -28,7 +28,9 @@ flowchart LR
 
 ## Routing and capacity
 
-The composer retains project context because executing against an unknown repository is unsafe and ambiguous. Department selection is internal. Explicit saved project routing rules can take the deterministic fast path. Otherwise a single bounded classification call sees the registered departments, capabilities and project context. A department without eligible workers remains a legitimate routing target: the interface reports what is missing instead of silently sending the request to an unrelated team. Ambiguity, unsupported runtime configuration and timeout produce a recorded clarification or blocker.
+The composer retains project context because executing against an unknown repository is unsafe and ambiguous. Department selection is internal. Explicit saved project routing rules can take the deterministic fast path. Otherwise a single bounded AI intake turn sees the registered departments, capabilities and project context. It can answer greetings and workspace questions, ask for clarification, or delegate project work. Direct answers start no worker task and cannot certify project completion. A department without eligible workers remains a legitimate routing target: the interface reports what is missing instead of silently sending the request to an unrelated team. Ambiguity, unsupported runtime configuration and timeout produce a recorded clarification or blocker.
+
+The composer can select Control Center’s runtime, model and effort from the installed executable’s passive metadata. Effort choices are specific to each model. Runtime defaults, Control Center defaults and individual agent settings remain independently editable. The request freezes its chosen Control Center configuration before routing; changing defaults cannot retarget a waiting message. If its executable binding changes, it requires a new request. Each message currently opens one bounded intake session; persistent conversation context and a tool-using Control Center loop are not implemented.
 
 Receipt is persisted before routing starts. Routing does not wait for an available worker or a free project lock. Submission IDs deduplicate repeat clicks and retries so one logical message cannot launch duplicate work. The route and its measured duration are durable records.
 

@@ -23,12 +23,13 @@
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { FAKE_SCENARIO_ENV } from '../adapters/index.js';
-import type { RuntimeAdapter, RuntimeEvent, RuntimeReadiness, SessionHandle, StopReceipt, TurnHandle } from '../adapters/types.js';
+import type { RuntimeAdapter, RuntimeAttachment, RuntimeEvent, RuntimeReadiness, SessionHandle, StopReceipt, TurnHandle } from '../adapters/types.js';
+import { attachmentReferenceText, validateAttachments } from '../adapters/attachments.js';
 import { HEAD_BRIDGE_TOOL_NAMES } from '../coordination/bridge.js';
 import type { CoordinationBridge } from '../coordination/index.js';
 import type { EffectiveAgentBinding } from '../core/contracts.js';
 import { newId } from '../core/ids.js';
-import { RunSetupError, coordinationArgsFor, createAdapter, forTask, renderRuntimeEvent, type RunStream } from '../core/run-direct.js';
+import { RunSetupError, coordinationArgsFor, createAdapter, forTask, renderRuntimeEvent, validateRunAttachments, type RunStream } from '../core/run-direct.js';
 import { createPlannedRun, type PlannedRun } from '../core/run-planned.js';
 import { writeLineFrom } from '../core/run-stream.js';
 import { computeAgentSnapshot } from '../core/snapshot.js';
@@ -181,6 +182,7 @@ export interface HeadPlannerClientOptions {
   readonly workspace: CandidateWorkspace;
   readonly roster: HeadPlanRoster;
   readonly stream: RunStream;
+  readonly attachments?: ReadonlyArray<RuntimeAttachment>;
   readonly sessionEnv?: Readonly<Record<string, string>>;
   readonly signal?: AbortSignal;
   readonly turnDeadlineMs: number;
@@ -216,6 +218,8 @@ export class HeadPlannerClient implements PlannerClient {
 
   async propose(request: PlannerRequest): Promise<unknown> {
     const o = this.#options;
+    // This runs for every planning attempt, including retries after a file changed.
+    const attachments = validateRunAttachments(o.adapter.id, o.attachments);
     const attempt = request.attempt ?? 1;
     const maxTasksPerRun = request.limits.maxTasksPerRun;
     const proposals: Array<Record<string, unknown>> = [];
@@ -284,6 +288,7 @@ export class HeadPlannerClient implements PlannerClient {
         }
         const extraArgs = coordinationArgsFor(o.adapter.id, bridgeConfig);
         const runtime = o.binding.runtime;
+        const preparedAttachments = validateAttachments(o.adapter.id, attachments);
         // Still the one coordinator of this project? Ask before a session exists.
         o.ownership?.assertOwnership();
         appendEvent(o.db, {
@@ -308,8 +313,10 @@ export class HeadPlannerClient implements PlannerClient {
         if (stopped()) {
           flow.stopping = stopSession();
         } else {
-          const prompt = composeHeadPrompt({ request, headId: o.headAgentId, workspacePath: o.workspace.path, baseRevision: o.workspace.baseRevision });
-          const turn = await o.adapter.startTurn(session, { prompt });
+          const headPrompt = composeHeadPrompt({ request, headId: o.headAgentId, workspacePath: o.workspace.path, baseRevision: o.workspace.baseRevision });
+          const references = o.adapter.id === 'fake' ? attachmentReferenceText(preparedAttachments) : '';
+          const prompt = references.length > 0 ? `${headPrompt}\n\n${references}` : headPrompt;
+          const turn = await o.adapter.startTurn(session, { prompt, ...(attachments.length > 0 ? { attachments } : {}) });
           flow.turn = turn;
           appendEvent(o.db, { runId: o.runId, type: 'head.turn_started', payload: { headAgentId: o.headAgentId, attempt, sessionId: session.sessionId, turnId: turn.turnId, promptCharacters: prompt.length } });
           if (stopped()) void o.adapter.interrupt(turn).catch(() => undefined);
@@ -465,6 +472,7 @@ export async function planWithHead(input: HeadPlanningInput, options: HeadPlanne
 
   let run: PlannedRun;
   try {
+    const attachments = validateRunAttachments(binding.runtime.adapter, input.attachments);
     input.ownership?.assertOwnership();
     if (options.existingRunId !== undefined) {
       const blocker = headPlanningResumeBlocker(input.db, options.existingRunId);
@@ -477,6 +485,7 @@ export async function planWithHead(input: HeadPlanningInput, options: HeadPlanne
       configPath: input.snapshot.path,
       requestText: input.requestText,
       requestSource: input.requestSource,
+      ...(attachments.length > 0 ? { attachments } : {}),
       paths: input.paths,
       db: input.db,
       stream: input.stream,
@@ -485,7 +494,7 @@ export async function planWithHead(input: HeadPlanningInput, options: HeadPlanne
       ...(input.checkFlags.length > 0 ? { checkFlags: input.checkFlags } : {}),
     });
   } catch (error) {
-    if (error instanceof RunSetupError) return { ok: false, code: error.code, reason: error.message, exitCode: 4 };
+    if (error instanceof RunSetupError) return { ok: false, code: error.code, reason: error.message, exitCode: error.code.includes('attachment') ? 2 : 4 };
     throw error;
   }
 
@@ -621,6 +630,7 @@ async function planInRun(input: HeadPlanningInput, run: PlannedRun, binding: Eff
     workspace,
     roster: planRoster,
     stream,
+    ...(run.attachments.length > 0 ? { attachments: run.attachments } : {}),
     turnDeadlineMs: options.turnDeadlineMs ?? run.limits.runTimeoutMinutes * 60_000,
     ...(input.sessionEnv !== undefined ? { sessionEnv: input.sessionEnv } : {}),
     ...(input.signal !== undefined ? { signal: input.signal } : {}),

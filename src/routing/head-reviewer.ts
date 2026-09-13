@@ -6,7 +6,8 @@ import { newId, nowIso } from '../core/ids.js';
 import { computeAgentSnapshot, sha256Hex } from '../core/snapshot.js';
 import { ProcessIdentitySchema, isProcessGroupAlive, matchProcessIdentity } from '../core/process.js';
 import { createAdapter, coordinationArgsFor, renderRuntimeEvent, type AdapterFactory, type RunStream } from '../core/run-direct.js';
-import type { RuntimeAdapter, RuntimeEvent, SessionHandle, TurnHandle, StopReceipt } from '../adapters/types.js';
+import type { RuntimeAdapter, RuntimeAttachment, RuntimeEvent, SessionHandle, TurnHandle, StopReceipt } from '../adapters/types.js';
+import { attachmentReferenceText, validateAttachments } from '../adapters/attachments.js';
 import { openStateStore } from '../storage/db.js';
 import { AdapterError } from '../adapters/types.js';
 import { FAKE_SCENARIO_ENV } from '../adapters/index.js';
@@ -55,6 +56,7 @@ export interface HeadReviewInput {
   readonly baseRevision: string;
   readonly combinedRevision: string;
   readonly requestText: string;
+  readonly attachments?: ReadonlyArray<RuntimeAttachment>;
   readonly tasks: ReadonlyArray<{ readonly key: string; readonly objective: string; readonly agentId?: string }>;
   readonly checks: ReadonlyArray<CheckSpec>;
   readonly receipts: ReadonlyArray<CheckReceipt>;
@@ -174,6 +176,7 @@ export async function reviewWithHead(input: HeadReviewInput): Promise<HeadReview
     emit('head.review_workspace_created', { path: workspace.path, readOnly: true });
     adapter = (input.adapterFactory ?? createAdapter)({ id: binding.runtime.id, adapter: binding.runtime.adapter, executable: binding.runtime.executable }, { runId, taskId: 'head-review', attemptId: reviewId, logsDir: path.join(paths.runArtifactsDir(runId), 'logs', 'head-review', reviewId) });
     const runtime = binding.runtime;
+    const attachments = validateAttachments(adapter.id, input.attachments);
     const settings = adapter.validateSettings({ ...(runtime.model ? { model: runtime.model } : {}), ...(runtime.effort ? { effort: runtime.effort } : {}) });
     if (!settings.ok) throw new Error('The department head runtime does not support its frozen model or effort setting.');
     const bridgeConfig = input.bridge.headReviewConfigFor({ reviewId, agentId: headAgentId, onReviewResult: (proposal) => {
@@ -214,10 +217,11 @@ export async function reviewWithHead(input: HeadReviewInput): Promise<HeadReview
       throw error;
     });
     session = await untilAbort(opening, controller.signal);
-    const prompt = composeHeadReviewPrompt({ ...input, headAgentId, diff: patch.stdout, diffHash, workspacePath: workspace.path });
-    const reviewInput = { reviewVersion: 1, headAgentId, reviewId, requestText: input.requestText, candidateRevision: input.combinedRevision, baseRevision: input.baseRevision, diffHash, tasks: input.tasks, receiptIds: input.receipts.map((receipt) => receipt.id) };
+    const basePrompt = composeHeadReviewPrompt({ ...input, headAgentId, diff: patch.stdout, diffHash, workspacePath: workspace.path });
+    const prompt = adapter.id === 'fake' && attachments.length > 0 ? `${basePrompt}\n\n${attachmentReferenceText(attachments)}` : basePrompt;
+    const reviewInput = { reviewVersion: 1, headAgentId, reviewId, requestText: input.requestText, ...(attachments.length > 0 ? { attachments: attachments.map(({ delivery: _delivery, ...attachment }) => attachment) } : {}), candidateRevision: input.combinedRevision, baseRevision: input.baseRevision, diffHash, tasks: input.tasks, receiptIds: input.receipts.map((receipt) => receipt.id) };
     writeArtifact(db, paths, { runId, type: 'head_review_input', relativePath: `head/reviews/${reviewId}/input.json`, bytes: `${JSON.stringify(reviewInput, null, 2)}\n`, provenance: { producer: 'headReviewer', headAgentId, candidateRevision: input.combinedRevision } });
-    turn = await untilAbort(adapter.startTurn(session, { prompt }), controller.signal);
+    turn = await untilAbort(adapter.startTurn(session, { prompt, ...(input.attachments?.length ? { attachments: input.attachments } : {}) }), controller.signal);
     emit('head.review_turn_started', { sessionId: session.sessionId, turnId: turn.turnId });
     const activeTurn = turn;
     await untilAbort((async () => {

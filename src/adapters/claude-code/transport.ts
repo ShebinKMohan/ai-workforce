@@ -25,7 +25,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { nowIso, randomToken } from '../../core/ids.js';
 import { isProcessAlive, isProcessGroupAlive, newSpawnToken, observeProcessIdentity, type ProcessIdentity } from '../../core/process.js';
-import { CONTROL_SUBTYPE, ControlResponseSchema, controlRequestFrame, decodeStreamLine, userFrame, type DecodedLine } from './protocol.js';
+import { CONTROL_SUBTYPE, ControlResponseSchema, controlRequestFrame, decodeStreamLine, userFrame, type DecodedLine, type UserContentBlock } from './protocol.js';
 
 /**
  * Environment variables a worker process inherits. Never the coordinator's own
@@ -303,8 +303,8 @@ export class ClaudeTransport {
   }
 
   /** Submit a user message. Returns the text that was written, for correlation with its `--replay-user-messages` echo. */
-  sendUserMessage(sessionId: string, text: string): void {
-    this.#write(userFrame(sessionId, text));
+  sendUserMessage(sessionId: string, content: string | ReadonlyArray<UserContentBlock>): void {
+    this.#write(userFrame(sessionId, content));
   }
 
   /** Send a control request and await its `control_response`. */

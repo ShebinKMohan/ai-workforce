@@ -1,6 +1,7 @@
 /** Project registration and explicit worker assignments use one revisioned save. */
 import { getJson, postJson } from '../../workspace/src/api.js';
 import { inspectionLines } from '../../workspace/src/sheets/add-project.js';
+import { createFolderPicker } from '../../workspace/src/folder-picker.js';
 
 const esc = (value = '') => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const invalid = (message, fields = {}) => Object.assign(new Error(message), { fields });
@@ -42,7 +43,7 @@ export async function saveProject(values, inspection, document, commit = postJso
   return { document: { ...document, workspace: result.workspace, revision: result.revision }, project: result.workspace.projects.find((project) => project.id === batch.projectId), projectId: batch.projectId };
 }
 
-export function createProjectManager({ element, getWorkspace = () => null, onSaved = () => {}, onClose = () => {}, loadWorkspace = () => getJson('/api/workspace'), inspect = (path) => postJson('/api/projects/inspect', { path }), commit = postJson }) {
+export function createProjectManager({ element, getWorkspace = () => null, onSaved = () => {}, onClose = () => {}, loadWorkspace = () => getJson('/api/workspace'), inspect = (path) => postJson('/api/projects/inspect', { path }), commit = postJson, browseFolders }) {
   let active = false;
   let saving = false;
   let inspecting = false;
@@ -52,12 +53,21 @@ export function createProjectManager({ element, getWorkspace = () => null, onSav
   let inspection = null;
   let inspectedPath = '';
   let draft = { path: '', name: '', checks: '', workerIds: [] };
+  const folderPicker = createFolderPicker({ id: 'pm-folder', ...(browseFolders ? { load: browseFolders } : {}), onSelect: (path) => {
+    readForm();
+    draft.path = path;
+    inspection = null;
+    inspectedPath = '';
+    render();
+    void inspectPath();
+  } });
   element.classList.add('agent-manager', 'project-manager');
   element.setAttribute('aria-label', 'Add a project');
   element.hidden = true;
 
   const header = () => '<header class="am-header"><div class="am-kicker"><span>PROJECT SETUP</span><button type="button" class="am-icon-button" data-pm="close" aria-label="Close project setup">✕</button></div><div class="am-heading-row"><h1>Add a project</h1></div><p>Connect a local repository, define verification, and choose the workers who can receive its tasks.</p></header>';
   function hide() {
+    folderPicker.close();
     active = false;
     opening += 1;
     element.hidden = true;
@@ -95,21 +105,22 @@ export function createProjectManager({ element, getWorkspace = () => null, onSav
     }).join('')}</div><p class="am-hint">Only selected workers receive access to this project. Their department head plans its tasks automatically.</p>`;
   }
   function render() {
-    const validInspection = inspection && draft.path.trim() === inspectedPath;
+    const validInspection = inspection && draft.path === inspectedPath;
     const lines = validInspection ? inspectionLines(inspection) : [];
     const canAdd = validInspection && inspection.canAdd;
     const criteria = inspection?.checks?.criteria || [];
-    element.innerHTML = `${header()}<form class="am-form" novalidate><div class="am-scroll am-form-scroll"><div class="am-form-error" data-pm-error role="alert" tabindex="-1" hidden></div><fieldset class="am-section"><legend><span>01</span>Repository</legend><div class="am-field"><label for="pm-path">Repository path</label><div class="pm-path-row"><input id="pm-path" name="path" value="${esc(draft.path)}" placeholder="/Users/you/code/my-app" autocomplete="off" spellcheck="false"><button class="am-button am-secondary" type="button" data-pm="inspect"${inspecting ? ' disabled' : ''}>${inspecting ? 'Inspecting…' : 'Inspect'}</button></div><p class="am-hint">Enter an absolute folder path or use ~/ for your home folder.</p></div>${lines.length ? `<div class="pm-inspection" role="status">${lines.map((line) => `<p class="pm-${line.tone}">${esc(line.text)}</p>`).join('')}${inspection.headRevision ? `<code>HEAD ${esc(inspection.headRevision.slice(0, 12))}</code>` : ''}</div>` : ''}${canAdd ? `<div class="am-field"><label for="pm-name">Project name</label><input id="pm-name" name="name" maxlength="80" value="${esc(draft.name)}"></div>` : ''}</fieldset>${canAdd ? `<fieldset class="am-section"><legend><span>02</span>Verification</legend>${criteria.length ? `<p class="am-hint">Detected from the committed repository. These commands run against the completed candidate.</p><ul class="pm-checks">${criteria.map((criterion) => `<li><code>${esc([criterion.command, ...(criterion.args || [])].join(' '))}</code></li>`).join('')}</ul><details class="pm-advanced"><summary>Use different checks</summary><div class="am-field"><label for="pm-checks">Check commands</label><textarea id="pm-checks" name="checks" rows="3" placeholder="npm test">${esc(draft.checks)}</textarea><p class="am-hint">One command per line. Leave empty to keep the detected checks.</p></div></details>` : `<div class="am-field"><label for="pm-checks">Check commands</label><textarea id="pm-checks" name="checks" rows="3" placeholder="npm test">${esc(draft.checks)}</textarea><p class="am-hint">${inspection.checks?.error ? `${esc(inspection.checks.error.message)} ` : 'No verification commands were detected. '}Enter one command per line. At least one check is required before work can run.</p></div>`}<p class="am-hint">Tasks use committed HEAD in an isolated candidate. Required dependencies must be available to the candidate and its verification environment.</p></fieldset><fieldset class="am-section"><legend><span>03</span>Worker access</legend>${workerRows()}</fieldset>` : ''}</div><footer class="am-form-footer"><button class="am-button am-secondary" type="button" data-pm="close">Cancel</button><button class="am-button am-primary" type="submit"${canAdd && !saving ? '' : ' disabled'}>${saving ? 'Saving…' : 'Add project'}</button></footer></form>`;
+    element.innerHTML = `${header()}<form class="am-form" novalidate><div class="am-scroll am-form-scroll"><div class="am-form-error" data-pm-error role="alert" tabindex="-1" hidden></div><fieldset class="am-section"><legend><span>01</span>Repository</legend><div class="project-folder-choice"><div><strong>${draft.path ? 'Selected folder' : 'Local Git repository'}</strong><p>${esc(draft.path || 'Choose an existing project from this computer.')}</p></div><button type="button" class="am-button am-primary" data-pm="browse"${saving || inspecting ? ' disabled' : ''}>Browse folders</button></div><div data-pm-folder-picker hidden></div><details class="project-path-fallback"><summary>Enter a path</summary><div class="am-field"><label for="pm-path">Repository path</label><div class="pm-path-row"><input id="pm-path" name="path" value="${esc(draft.path)}" placeholder="/Users/you/code/my-app" autocomplete="off" spellcheck="false"><button class="am-button am-secondary" type="button" data-pm="inspect"${inspecting ? ' disabled' : ''}>${inspecting ? 'Inspecting…' : 'Inspect'}</button></div><p class="am-hint">Use an absolute folder path or ~/ for your home folder.</p></div></details>${lines.length ? `<div class="pm-inspection" role="status">${lines.map((line) => `<p class="pm-${line.tone}">${esc(line.text)}</p>`).join('')}${inspection.headRevision ? `<code>HEAD ${esc(inspection.headRevision.slice(0, 12))}</code>` : ''}</div>` : ''}${canAdd ? `<div class="am-field"><label for="pm-name">Project name</label><input id="pm-name" name="name" maxlength="80" value="${esc(draft.name)}"></div>` : ''}</fieldset>${canAdd ? `<fieldset class="am-section"><legend><span>02</span>Verification</legend>${criteria.length ? `<p class="am-hint">Detected from the committed repository. These commands run against the completed candidate.</p><ul class="pm-checks">${criteria.map((criterion) => `<li><code>${esc([criterion.command, ...(criterion.args || [])].join(' '))}</code></li>`).join('')}</ul><details class="pm-advanced"><summary>Use different checks</summary><div class="am-field"><label for="pm-checks">Check commands</label><textarea id="pm-checks" name="checks" rows="3" placeholder="npm test">${esc(draft.checks)}</textarea><p class="am-hint">One command per line. Leave empty to keep the detected checks.</p></div></details>` : `<div class="am-field"><label for="pm-checks">Check commands</label><textarea id="pm-checks" name="checks" rows="3" placeholder="npm test">${esc(draft.checks)}</textarea><p class="am-hint">${inspection.checks?.error ? `${esc(inspection.checks.error.message)} ` : 'No verification commands were detected. '}Enter one command per line. At least one check is required before work can run.</p></div>`}<p class="am-hint">Tasks use committed HEAD in an isolated candidate. Required dependencies must be available to the candidate and its verification environment.</p></fieldset><fieldset class="am-section"><legend><span>03</span>Worker access</legend>${workerRows()}</fieldset>` : ''}</div><footer class="am-form-footer"><button class="am-button am-secondary" type="button" data-pm="close">Cancel</button><button class="am-button am-primary" type="submit"${canAdd && !saving ? '' : ' disabled'}>${saving ? 'Saving…' : 'Add project'}</button></footer></form>`;
+    folderPicker.mount(element.querySelector('[data-pm-folder-picker]'));
     const form = element.querySelector('form');
     form.elements.path.addEventListener('input', () => {
       draft.path = form.elements.path.value;
-      if (draft.path.trim() !== inspectedPath) form.querySelector('[type="submit"]').disabled = true;
+      if (draft.path !== inspectedPath) form.querySelector('[type="submit"]').disabled = true;
     });
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (saving || inspecting) return;
       readForm();
-      if (draft.path.trim() !== inspectedPath) { showError(invalid('The path changed. Inspect this repository before adding it.')); return; }
+      if (draft.path !== inspectedPath) { showError(invalid('The path changed. Inspect this repository before adding it.')); return; }
       saving = true;
       form.querySelectorAll('button').forEach((button) => { button.disabled = true; });
       try {
@@ -132,7 +143,7 @@ export function createProjectManager({ element, getWorkspace = () => null, onSav
   async function inspectPath() {
     if (saving || inspecting) return;
     readForm();
-    const path = draft.path.trim();
+    const path = draft.path;
     if (!/^(\/|~(?:\/|$)|[A-Za-z]:[\\/])/.test(path)) { showError(invalid('Enter an absolute repository path, or start with ~/.')); return; }
     const attempt = opening;
     inspecting = true;
@@ -147,7 +158,7 @@ export function createProjectManager({ element, getWorkspace = () => null, onSav
       if (!hadNameField && !draft.name) draft.name = result.suggestedName || '';
       inspecting = false;
       render();
-      element.querySelector(result.canAdd ? '#pm-name' : '#pm-path')?.focus({ preventScroll: true });
+      element.querySelector(result.canAdd ? '#pm-name' : '[data-pm="browse"]')?.focus({ preventScroll: true });
     } catch (error) {
       if (!active || attempt !== opening) return;
       readForm();
@@ -158,6 +169,7 @@ export function createProjectManager({ element, getWorkspace = () => null, onSav
   }
   async function showCreate(values = {}) {
     if (saving) return;
+    folderPicker.close();
     if (!active) opener = document.activeElement;
     active = true;
     inspection = null;
@@ -173,7 +185,7 @@ export function createProjectManager({ element, getWorkspace = () => null, onSav
       snapshot = await loadWorkspace();
       if (!active || attempt !== opening) return;
       render();
-      element.querySelector('#pm-path')?.focus({ preventScroll: true });
+      element.querySelector('[data-pm="browse"]')?.focus({ preventScroll: true });
     } catch (error) {
       if (!active || attempt !== opening) return;
       element.innerHTML = `${header()}<div class="am-scroll am-form-scroll"><div class="am-form-error" role="alert">${esc(error.message)}</div><button class="am-button am-secondary" data-pm="retry">Try again</button></div>`;
@@ -183,6 +195,7 @@ export function createProjectManager({ element, getWorkspace = () => null, onSav
     const action = event.target.closest('[data-pm]');
     if (!action || !element.contains(action)) return;
     if (action.dataset.pm === 'close') close();
+    else if (action.dataset.pm === 'browse') { readForm(); void folderPicker.open(draft.path); }
     else if (action.dataset.pm === 'inspect') inspectPath();
     else if (action.dataset.pm === 'retry') showCreate(draft);
   });

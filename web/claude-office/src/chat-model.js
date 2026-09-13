@@ -1,5 +1,7 @@
 /** Chat routing uses the same eligibility facts as the workspace task sheet. */
-import { indexWorkspace, pairBlockers, runtimeBoundary, isDirectControlReply } from '../../workspace/src/model.js';
+import { indexWorkspace, pairBlockers, runtimeBoundary, isDirectControlReply, toolFact } from '../../workspace/src/model.js';
+import { modelChoices, effortChoices } from '../../workspace/src/runtime-model-options.js';
+import { attachmentDescriptors, ATTACHMENT_LIMITS } from './attachment-model.js';
 
 export function chatRoute(document, preferences = {}, selectedDepartmentId = null) {
   const ws = indexWorkspace(document);
@@ -34,13 +36,14 @@ export function conversationEntries(messages, tasks, departmentId = null) {
   for (const task of tasks) {
     if (departmentId && task.departmentId !== departmentId) continue;
     const requestId = task.requestId || task.entry?.item?.id;
-    result.set(requestId || task.id, { id: requestId || task.id, requestId, projectId: task.projectId, departmentId: task.departmentId, text: task.entry?.item?.task || task.entry?.run?.request?.text || task.entry?.title || task.title, at: task.at || task.entry?.item?.receivedAt, task });
+    result.set(requestId || task.id, { id: requestId || task.id, requestId, projectId: task.projectId, departmentId: task.departmentId, text: task.entry?.item?.task || task.entry?.run?.request?.text || task.entry?.title || task.title, attachments: attachmentDescriptors(task.entry?.item?.attachments || task.entry?.run?.request?.attachments), at: task.at || task.entry?.item?.receivedAt, task });
   }
   for (const message of messages) {
     if (departmentId && message.departmentId !== departmentId) continue;
     const key = message.requestId || message.id;
     const existing = result.get(key);
-    result.set(key, { ...message, ...(existing ? { task: existing.task } : {}) });
+    const serverAttachments = existing?.task?.entry?.item?.attachments || existing?.task?.entry?.run?.request?.attachments;
+    result.set(key, { ...message, attachments: Array.isArray(serverAttachments) ? attachmentDescriptors(serverAttachments) : attachmentDescriptors(message.attachments), ...(existing ? { task: existing.task } : {}) });
   }
   return [...result.values()].sort((a, b) => Date.parse(a.at || 0) - Date.parse(b.at || 0)).slice(-30);
 }
@@ -53,29 +56,93 @@ export function readChatState(storage, key) {
   } catch { return { version: 1, contexts: {}, messages: [] }; }
 }
 
-/** The composer supplies repository context only. The coordinator owns all team selection. */
-export function controlCenterRoute(document, projectId = '') {
+function orchestratorRuntimes(document) {
+  const ws = indexWorkspace(document);
+  return Object.entries(ws.config?.runtimes || {}).map(([id, binding]) => {
+    const fact = toolFact(ws, binding.adapter, id);
+    return { id, binding, name: fact.name, ready: binding.adapter === 'fake' || ['codex', 'claude-code'].includes(binding.adapter) && fact.ready === true, status: fact.word };
+  });
+}
+
+function defaultOrchestrator(document, runtimes) {
+  return document?.workspace?.controlCenter?.runtime || [...runtimes].sort((a, b) => Number(b.binding.adapter === 'codex') - Number(a.binding.adapter === 'codex') || a.id.localeCompare(b.id)).find(runtime => runtime.ready)?.id || '';
+}
+
+/** Resolve visible composer inheritance without changing saved workspace or agent settings. */
+export function controlCenterBinding(document, preferences = {}, catalog = null) {
+  const runtimes = orchestratorRuntimes(document);
+  const defaultRuntimeId = defaultOrchestrator(document, runtimes);
+  const runtimeId = preferences.runtime || defaultRuntimeId;
+  const row = runtimes.find(runtime => runtime.id === runtimeId);
+  const runtime = row?.binding || null;
+  const workspaceDefault = preferences.runtime ? null : document?.workspace?.controlCenter;
+  const inheritedModel = workspaceDefault?.model || runtime?.model || '';
+  const inheritedEffort = workspaceDefault?.effort || runtime?.effort || '';
+  const model = typeof preferences.model === 'string' ? preferences.model : '';
+  const effort = typeof preferences.effort === 'string' ? preferences.effort : '';
+  const inheritLabel = preferences.runtime ? 'Runtime default' : 'Workspace default';
+  const modelOptions = modelChoices(catalog, model, { inheritLabel, inheritedModel });
+  const effortOptions = effortChoices(catalog, model, effort, { inheritLabel, inheritedModel, inheritedEffort });
+  const blockers = !document ? ['Loading Control Center settings…'] : !row ? ['Choose a configured runtime for Control Center.'] : !row.ready ? [`${row.name} is ${row.status}. Check this runtime before sending a message.`] : [];
+  const loading = !catalog || catalog.status === 'loading';
+  const reportedModel = catalog?.status === 'available' ? catalog.models?.find(entry => entry.id === (model || inheritedModel || effortOptions.effectiveModel)) : null;
+  if (!loading && model && !reportedModel) blockers.push(catalog?.status === 'available' ? 'This model is no longer reported by the selected runtime. Choose an available model or use the inherited default.' : 'Model choices are unavailable. Refresh models or use the inherited default.');
+  else if (!model && inheritedModel && catalog?.status === 'available' && !reportedModel) blockers.push('The configured default model is not reported by this runtime. Choose an available model.');
+  if (!loading && effort && (reportedModel?.effortStatus !== 'reported' || !reportedModel.efforts?.includes(effort))) blockers.push('This effort is not reported for the selected model. Choose a supported effort or use the inherited default.');
+  else if (!effort && effortOptions.inheritedUnavailable) blockers.push('The inherited effort is not supported by this model. Choose one of its reported effort levels.');
+  const overrides = Boolean(preferences.runtime || model || effort);
+  // Editing one setting while inheriting the workspace binding must not drop its other overrides.
+  const selectedModel = model || (!preferences.runtime ? inheritedModel : '');
+  const selectedEffort = effort || (!preferences.runtime ? inheritedEffort : '');
+  const payload = overrides && runtimeId ? { runtime: runtimeId, ...(selectedModel ? { model: selectedModel } : {}), ...(selectedEffort ? { effort: selectedEffort } : {}) } : undefined;
+  return { runtimeId, runtime, runtimes, defaultRuntimeId, inheritedModel, inheritedEffort, model, effort, payload, blockers, loading, sendable: blockers.length === 0 && !loading, modelOptions, effortOptions };
+}
+
+/** Identity includes the chosen AI binding; an uncertain retry keeps the same logical request. */
+export function controlSubmissionFingerprint({ text, projectId, controlCenter, attachmentIds = [] }) {
+  return JSON.stringify([String(text || '').trim(), projectId || '', controlCenter ? [controlCenter.runtime, controlCenter.model || '', controlCenter.effort || ''] : null, ...(attachmentIds.length ? [attachmentIds] : [])]);
+}
+
+/** Consent starts from resolved request settings; an uncertain retry preserves its already-sent choice. */
+export function consentRetryBinding(request = {}, savedChoice = null, previousSubmission = null) {
+  if (previousSubmission && typeof previousSubmission === 'object' && !Array.isArray(previousSubmission)) return previousSubmission.controlCenter;
+  const original = [request.controlCenter, request.submittedControlCenter, savedChoice].find(value => typeof value?.runtime === 'string' && value.runtime);
+  return original ? { runtime: original.runtime, ...(original.model ? { model: original.model } : {}), ...(original.effort ? { effort: original.effort } : {}) } : undefined;
+}
+
+/** The composer supplies repository context and an AI binding; the orchestrator chooses the team. */
+export function controlCenterRoute(document, projectId = '', controlCenter = null) {
   const ws = indexWorkspace(document);
   const projects = ws.liveProjects;
   const selectedProjectId = projectId || projects[0]?.id || '';
   const project = ws.projectById.get(selectedProjectId);
   const candidates = [...ws.eligibility.values()].filter(pair => pair.projectId === selectedProjectId && pair.sendable);
+  const runtimes = orchestratorRuntimes(document);
+  const runtimeId = controlCenter?.runtime || defaultOrchestrator(document, runtimes);
+  const orchestrator = runtimes.find(runtime => runtime.id === runtimeId);
   const blockers = !document ? ['Loading workspace configuration…']
     : !projects.length ? ['Add a Git project before sending a task.']
       : !project || project.archived ? ['Choose an active project for this request.']
-        : !ws.liveDepartments.length ? ['Create a department and its head before sending a task.']
-          : !candidates.length ? ['No configured team can receive work on this project. Assign workers and configure project checks.'] : [];
-  return { projectId: selectedProjectId, project, projects, candidates, blockers, checks: ws.checks.get(selectedProjectId), sendable: blockers.length === 0 };
+        : !orchestrator ? ['Configure or choose a runtime for Control Center.']
+          : !orchestrator.ready ? [`${orchestrator.name} is ${orchestrator.status}. Check the runtime before sending a message.`] : [];
+  return { projectId: selectedProjectId, project, projects, candidates, blockers, checks: ws.checks.get(selectedProjectId), runtimeId, sendable: blockers.length === 0 };
 }
 
 export function controlCenterSubmission(context, document) {
   if (!context.projectId) throw new Error('Choose the project for this request.');
-  const route = controlCenterRoute(document, context.projectId);
+  const selected = context.controlCenter;
+  if (selected !== undefined && (selected === null || typeof selected !== 'object' || Array.isArray(selected) || typeof selected.runtime !== 'string' || !selected.runtime || !document?.workspace?.runtimes?.[selected.runtime])) throw new Error('Choose a configured Control Center runtime.');
+  if (selected && ['model', 'effort'].some(key => Object.hasOwn(selected, key) && (typeof selected[key] !== 'string' || !selected[key].trim() || selected[key].length > 128))) throw new Error('Choose valid model and effort settings for Control Center.');
+  const route = controlCenterRoute(document, context.projectId, selected);
   if (!route.sendable) throw new Error(route.blockers.join(' '));
   const task = String(context.text || '').trim();
   if (!task) throw new Error('Describe the task before sending it.');
   if (task.length > 20_000) throw new Error('Keep this task under 20,000 characters.');
+  const attachmentIds = context.attachmentIds;
+  if (attachmentIds !== undefined && (!Array.isArray(attachmentIds) || attachmentIds.length > ATTACHMENT_LIMITS.count || attachmentIds.some(id => typeof id !== 'string' || !id.trim() || id.length > 128) || new Set(attachmentIds).size !== attachmentIds.length)) throw new Error('Choose up to 8 uploaded files with distinct attachment IDs.');
   return { projectId: context.projectId, task,
+    ...(attachmentIds?.length ? { attachmentIds: [...attachmentIds] } : {}),
+    ...(selected ? { controlCenter: { runtime: selected.runtime, ...(selected.model ? { model: selected.model } : {}), ...(selected.effort ? { effort: selected.effort } : {}) } } : {}),
     ...(context.clientRequestId ? { clientRequestId: context.clientRequestId } : {}),
     ...(context.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
     // Only a displayed, server-selected route can be reused after explicit runtime consent.

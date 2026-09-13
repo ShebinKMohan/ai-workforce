@@ -995,6 +995,62 @@ Desktop screenshots, behavioral tests and the verification scope are recorded in
 `docs/evidence/chat-refinement-2026-09-13/README.md`. This presentation refinement does not
 claim a new paid-runtime execution or change coordinator routing and acceptance authority.
 
+### Runtime model selection and AI intake refinement — 13 September 2026
+
+FR006 and FR091 now expose runtime/model/effort choices in the desktop composer, Control
+Center settings, runtime defaults and agent editors. Choices come from a passive metadata
+probe of the exact saved executable; supported efforts belong to each reported model.
+Unknown saved choices remain visible and cannot silently become another model. An
+unavailable catalog is explicit, refreshable and never replaced with a hardcoded model list.
+Metadata probes start no paid model turn and must confirm their owned process stopped.
+
+A composer choice configures Control Center for that message. Omitted choices inherit the
+saved Control Center defaults; an explicitly selected runtime inherits that binding's defaults.
+The durable request freezes the effective configuration and original selection. Changed
+model/effort choices cannot reuse the same submission ID; edits to defaults cannot retarget
+waiting messages. A changed executable binding requires a new request. Department heads
+and workers retain their own independent runtime/model/effort settings.
+
+Beyond explicit deterministic routing rules, Control Center is a bounded AI intake agent.
+It returns a structured reply, clarification or delegation using supplied workspace context.
+Greetings and workspace questions receive an actual AI response without worker execution.
+Project work still goes through the existing department planning, capacity reservation,
+verification and head review gates. This is one owned intake turn per message, not a
+persistent tool-using conversation session. A direct answer cannot certify project work.
+
+### AI Workforce harness experience amendment — 13 September 2026
+
+The user selected the local runtime harness direction and requested a clearer public name,
+multiple-file chat attachments, project folder browsing and a clearer desktop office with
+communication effects. The display name is **AI Workforce**. Existing `workforce` CLI,
+state paths, protocols and configuration identifiers remain compatible.
+
+FR020 is extended with immutable, bounded user uploads. A request records opaque attachment
+IDs, original display metadata and verified content hashes. Control Center receives actual
+native multimodal content where supported by the chosen runtime; bounded text excerpts are
+explicitly marked as document content. Unsupported native formats remain file references for
+runtime tools. Heads, workers and resumed runs retain their original attached context.
+File contents do not gain instruction authority, and uploading starts no model turn.
+
+FR089 uses a local folder browser with shortcuts and Git discovery before project registration.
+Manual paths remain an optional fallback. The loopback Host, Origin and session-token gate
+also protects directory listings; a browser file input cannot supply an arbitrary absolute
+project path by itself.
+
+FR090 desktop scene effects follow durable intake, route, running-worker and review records.
+History loads silently; active indicators stop when ownership or connection is lost. Labels,
+lighting, camera framing and contact shadows clarify the real configured workspace. Reduced
+motion and pause use static equivalents without fabricating progress.
+
+Selected FR075 scope is brought into WP10b: opt-in browser completion/blocker notifications,
+with no permission prompt until the user clicks Enable, no historical/reconnect replay and
+links to the current recorded task. Browser support and denied permission remain explicit.
+Native system background execution and sleep prevention are still deferred.
+
+The first-party comparison and remaining larger gaps (explicit follow-up context, portable
+skills/MCP management and checkpoint controls) are in `harness-research-2026-09-13.md`.
+They are not implied by this bounded refinement.
+
 ### Added feature rows
 
 FR085–FR093 are new in the authoritative master plan. Their day-one acceptance criteria below
@@ -1008,7 +1064,7 @@ replace proposals bearing those IDs in the earlier unimplemented redesign draft.
 | FR088 | Project request admission | WP10b, selected FR038 scope | One page queue manager per workspace admits one request per project at a time, respects the concurrent-project cap, refuses overlapping use of a roster worker, and runs unverified-containment rosters alone. Every queued request carries its blocking reason. Restored queued requests are held until Start; Discard starts nothing. |
 | FR089 | Guided workspace setup and editing | WP10b, selected FR016/FR018/FR072 scope | The local page offers passive tool checks, Add project with detected or entered checks, explicit atomic department/head creation, worker/project assignments and first-task submission. Project creation adds no agents. Ready requires a sendable department/project pair. Configuration operations require the existing Host/Origin/token gate and revision check; malformed files are never silently overwritten. |
 | FR090 | Recorded workspace task view | WP10b, selected FR040/FR057/FR063/FR073 scope | Home, the dynamic 3D Office within the selected Claude shell and Control center, Needs you and task history consume recorded state. Zero departments renders only the central scheduler; each configured department room grows around its complete roster without a fixed seat cap. Each task displays Sent, Department head, Work, Checks and Review, current actors, changes, checks, events and record disclosures. A passing uncompromised verifier receipt is required for green/Verified. Queueing, planning, interruption, failure and missing proof remain visibly distinct; stop/resume controls reflect actual ownership. |
-| FR091 | Control Center intake | WP10b hierarchy refinement | The primary composer sends every message to Control Center with project context and no department override. Receipt is durable before routing. Explicit saved rules can route without a model turn; other actionable requests use a bounded classifier against the saved department catalog. Ambiguity, timeout, configuration changes and missing eligibility produce explicit recorded outcomes. Routing time is measured, and duplicate submissions reuse the original receipt. |
+| FR091 | Control Center intake | WP10b hierarchy refinement | The primary composer sends every message to Control Center with project context and no department override. Receipt is durable before routing. Explicit saved rules can route without a model turn; other requests use one bounded AI turn to reply, clarify or delegate against the saved workspace context. Per-message runtime/model/effort selection is validated and frozen separately from department agent settings. Ambiguity, timeout, configuration changes and missing eligibility produce explicit recorded outcomes. Routing time is measured, and duplicate submissions reuse the original receipt. |
 | FR092 | Department head result review | WP10b hierarchy refinement | New department runs persist a required head-review policy. After passing combined-candidate checks, the frozen head reviews that exact candidate in an owned analysis session and submits a structured decision. Candidate identity, check receipts and confirmed process stop gate approval. Rejection preserves feedback and the candidate; infrastructure interruption remains resumable. Only a checks-backed approved head result produces the Control Center final reply. |
 | FR093 | Worker capacity admission | WP10b hierarchy refinement | Coordinator code selects an available bounded worker subset, reserves it before spawn and passes exact IDs plus workspace revision to the CLI. Planning, repair, fallback and resume cannot expand beyond the admitted roster or double-assign an active worker. Reservations persist through owned process settlement; the UI distinguishes reserved from currently running and reports the actual waiting reason. |
 

@@ -9,6 +9,7 @@
  * worker.
  */
 import type { DatabaseSync } from 'node:sqlite';
+import type { RuntimeAttachment } from '../adapters/types.js';
 import type { AgentConfigFile } from '../core/contracts.js';
 import type { AdapterFactory, RunStream } from '../core/run-direct.js';
 import type { PlannedRun, PlannedTaskInput } from '../core/run-planned.js';
@@ -20,6 +21,7 @@ export interface HeadPlanningInput {
   readonly requestText: string;
   /** "argument", or the absolute path of the --task-file. */
   readonly requestSource: string;
+  readonly attachments?: ReadonlyArray<RuntimeAttachment>;
   /** The project's repository root. */
   readonly repoPath: string;
   /** Committed HEAD the run will start from. */

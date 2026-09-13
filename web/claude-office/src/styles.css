@@ -38,7 +38,8 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round
 .review-button { color:var(--muted); background:transparent; border-color:transparent; }
 .review-button.has-review { color:var(--amber); background:oklch(.96 .035 85); border-color:oklch(.88 .06 85); }
 .review-button svg { width:15px; height:15px; }
-.workspace { position:relative; min-width:0; min-height:0; width:100%; overflow:hidden; display:grid; grid-template-columns:minmax(0,1fr) 7px var(--panel-width); grid-template-rows:minmax(0,1fr); }
+/* The shell is stationary: only its transcript and management panes may scroll. */
+.workspace { position:relative; min-width:0; min-height:0; width:100%; overflow:clip; display:grid; grid-template-columns:minmax(0,1fr) 7px var(--panel-width); grid-template-rows:minmax(0,1fr); }
 .office-panel { position:relative; grid-column:1; min-width:0; min-height:0; overflow:hidden; background:var(--canvas); }
 .workspace > :is(.sidebar,.agent-manager,#project-manager,#department-manager) { grid-column:3; grid-row:1; min-width:0; min-height:0; width:100%; height:100%; }
 .sidebar { z-index:5; background:var(--surface); }

@@ -39,7 +39,7 @@ export function renderSettings(ctx) {
     `<h2 id="import-title">Import an earlier setup</h2>${
       legacy
         ? `<p>An agent configuration from before workspaces was found${legacy.agentCount ? ` with ${plural(legacy.agentCount, 'agent')}` : ''}: <code>${esc(legacy.path)}</code></p><p class="muted small">Importing makes it one new department and places nobody on a project. Run this in a terminal, then check this page again:</p><p><code>${esc(legacy.command)}</code></p>`
-        : '<p class="muted">No earlier agents.json was found in the Workforce folder.</p>'
+        : '<p class="muted">No earlier agents.json was found in the AI Workforce folder.</p>'
     }`,
   );
 

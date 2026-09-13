@@ -54,7 +54,7 @@ export function beforeStartModel(ws, requestsDoc, projectId, departmentId) {
       ? {
           tools,
           names: unbounded.map((agent) => agent.name),
-          text: `${joinWords(unbounded.map((agent) => agent.name))} ${unbounded.length === 1 ? 'uses' : 'use'} ${joinWords(tools)}. Workforce cannot keep ${joinWords(tools)}'s changes inside its own copy, so ${unbounded.length === 1 ? 'it' : 'they'} could change files elsewhere on this computer, including other projects' copies and Workforce's own files. While this task runs, no other task starts, and it starts only when nothing else is running.`,
+          text: `${joinWords(unbounded.map((agent) => agent.name))} ${unbounded.length === 1 ? 'uses' : 'use'} ${joinWords(tools)}. AI Workforce cannot keep ${joinWords(tools)}'s changes inside its own copy, so ${unbounded.length === 1 ? 'it' : 'they'} could change files elsewhere on this computer, including other projects' copies and AI Workforce's own files. While this task runs, no other task starts, and it starts only when nothing else is running.`,
           label: `Let ${joinWords(tools)} change files without that boundary for this task`,
         }
       : null,
