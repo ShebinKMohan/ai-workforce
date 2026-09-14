@@ -198,6 +198,12 @@ export function parseCodexLoginStatus(result: AuthCommandOutcome): AuthObservati
   const unusable = unusableProbeObservation(result, 'codex login status');
   if (unusable !== null) return unusable;
   const text = `${result.stdout}\n${result.stderr}`;
+  // Codex 0.154.0 was checked in an empty isolated configuration: its
+  // documented status command exits 1 and writes exactly this line to stderr.
+  // Recognize the entire answer, while keeping proxy/crash substrings unknown.
+  if (result.exitCode === 1 && result.stdout.trim() === '' && result.stderr.trim() === 'Not logged in') {
+    return { auth: 'logged_out', detail: '`codex login status` reports no active login' };
+  }
   // codex prints free text and docs/runtime-codex.md records only the
   // signed-in line, so its signed-out exit code is not a verified fact here.
   // A stated absence of a login is therefore believed whatever the exit code —

@@ -35,7 +35,7 @@ export const RUN_TRANSITIONS: TransitionTable<RunState> = {
   interrupted: ['running', 'failed', 'cancelled'],
   cancelled: ['running'],
   ready_for_review: [],
-  failed: [],
+  failed: ['interrupted'],
 };
 
 export const ATTEMPT_TRANSITIONS: TransitionTable<AttemptState> = {

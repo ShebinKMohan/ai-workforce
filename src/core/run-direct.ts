@@ -12,7 +12,7 @@
  * verifier-executed receipt that passed. A runtime that says "done",
  * exits zero, or prints convincing test output changes nothing here.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { DatabaseSync } from 'node:sqlite';
@@ -595,7 +595,7 @@ export function writeObservation(adapter: string, containment: ContainmentAssess
 /** The containment paragraph for this run, written from what the adapter reported rather than from a fixed template. */
 export function renderContainmentNote(adapter: string, containment: ContainmentAssessment, observation: WriteBoundaryObservation): string {
   const shared =
-    'The candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Neither installed runtime confines reads at all — a worker can read files outside the repository, and this run did not prevent that. ' +
+    'The candidate workspace has an independent per-attempt Git repository with protected sibling administration: development isolation, not an OS security sandbox. Neither installed runtime confines reads at all — a worker can read files outside the repository, and this run did not prevent that. ' +
     'Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, with that copy, its HOME and its TMPDIR placed outside the coordinator state root, so no relative path from a check reaches coordinator state; the state root is fingerprinted on both sides of each check window, so a write that reached it by absolute path is recorded as an integrity failure instead of passing silently. Each receipt\'s `containment` and `stateRootGuard` report what was actually placed and actually measured. ' +
     'That is placement and detection, not confinement: repository test code still runs with this user\'s own filesystem privileges and can name any absolute path, so it can still read or write anything this user can — the home directory and the registered project checkout included — and an in-place overwrite that does not change a file\'s identity is recorded as an observation rather than a violation. ' +
     'An enforced execution boundary for tool and test subprocesses (FR042) is an R1 gate and is not claimed here; acceptance compensates only by refusing evidence whose fixtures the candidate changed.';
@@ -903,6 +903,8 @@ export interface PromptInput {
   readonly requestText: string;
   readonly contextRefs: ReadonlyArray<string>;
   readonly workspace: CandidateWorkspace;
+  /** Private temporary output, separate from source and from Git administration. */
+  readonly scratchPath?: string;
   readonly inspection: ProjectInspection;
   readonly contract: TaskContract;
   /** What completed dependencies produced, when this task has any. */
@@ -930,7 +932,7 @@ export function composeTaskPrompt(input: PromptInput): string {
   lines.push('');
   lines.push('--- repository context (added by the workforce coordinator; the request above is the user\'s own wording) ---');
   lines.push(`Working directory: ${workspace.path}`);
-  lines.push(`This is a candidate workspace: a linked Git worktree of ${workspace.projectRoot} on the new branch ${workspace.branch}.`);
+  lines.push(`This candidate has an independent Git repository based on ${workspace.projectRoot}, on branch ${workspace.branch}. Its Git administration is outside your write grant and belongs to the coordinator.`);
   lines.push(`Base revision: ${workspace.baseRevision} (committed HEAD${inspection.branch !== null ? ` of ${inspection.branch}` : ', detached'}).`);
   if (workspace.excludedUncommittedChanges !== null && !workspace.excludedUncommittedChanges.clean) {
     lines.push(`Uncommitted changes in the user's checkout are NOT included in this candidate (${describeDirty(workspace.excludedUncommittedChanges)}). Work from the committed base only.`);
@@ -970,7 +972,8 @@ export function composeTaskPrompt(input: PromptInput): string {
   }
   lines.push('');
   lines.push('Changed-file rules:');
-  lines.push(`- Edit files under ${workspace.path} only. A write outside it is recorded as out of scope and is not part of the candidate.`);
+  lines.push(`- Keep source changes under ${workspace.path}. Only files there are part of the delivered candidate.`);
+  if (input.scratchPath !== undefined) lines.push(`- Temporary files may also be written under ${input.scratchPath}. TMPDIR, TMP and TEMP point there. This private scratch directory is not part of the delivered candidate; keep source changes in the working directory.`);
   lines.push('- Do not create commits, branches or tags, and do not touch .git: the coordinator creates the checkpoint commit for the candidate.');
   if (contract.scope.allowedPaths.length > 0) lines.push(`- Stay within: ${contract.scope.allowedPaths.join(', ')}.`);
   if (contract.scope.forbiddenPaths.length > 0) {
@@ -1607,7 +1610,11 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       excludedDirty: inspection.dirty.clean ? null : inspection.dirty,
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
     });
-    const grants = candidateWritePaths(workspace);
+    // Each replacement attempt gets a new path. Do not reuse or remove a
+    // predecessor's scratch while an old process might still own it.
+    const scratchPath = `${workspace.path}.tmp`;
+    mkdirSync(scratchPath, { mode: 0o700 });
+    const grants = [...candidateWritePaths(workspace), scratchPath];
     // Protect the coordinator's own files. The default workspace root lives
     // under the state root, so the root itself cannot be the boundary.
     assertGrantedPathsSafe(workspace, grants, [paths.databasePath, paths.lockPath, paths.manifestPath, paths.runsDir]);
@@ -1616,7 +1623,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       taskId,
       attemptId,
       type: 'workspace.created',
-      payload: { path: workspace.path, branch: workspace.branch, baseRevision: workspace.baseRevision, excludedUncommittedChanges: workspace.excludedUncommittedChanges !== null },
+      payload: { path: workspace.path, branch: workspace.branch, baseRevision: workspace.baseRevision, gitIsolation: workspace.gitIsolation, gitAdminDir: workspace.gitAdminDir, scratchPath, excludedUncommittedChanges: workspace.excludedUncommittedChanges !== null },
     });
     stream.line(`candidate workspace ${workspace.path} on branch ${workspace.branch}`);
     stream.event({ type: 'workspace.created', path: workspace.path, branch: workspace.branch, baseRevision: workspace.baseRevision });
@@ -1632,7 +1639,9 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
 
     // ---- 7. Session and turn ---------------------------------------------
     const startupSpan = timer.begin('startup');
-    const sessionEnv: Record<string, string> = { ...(input.sessionEnv ?? {}) };
+    // Runtime transports pass explicit session variables to the actual child.
+    // Override inherited/caller temp settings without changing runtime login HOME.
+    const sessionEnv: Record<string, string> = { ...(input.sessionEnv ?? {}), TMPDIR: scratchPath, TMP: scratchPath, TEMP: scratchPath };
     const scenario = process.env[FAKE_SCENARIO_ENV];
     if (adapter.id === 'fake' && scenario !== undefined && sessionEnv[FAKE_SCENARIO_ENV] === undefined) sessionEnv[FAKE_SCENARIO_ENV] = scenario;
 
@@ -1781,6 +1790,7 @@ export async function runDirect(input: RunDirectInput): Promise<RunDirectResult>
       requestText: taskText,
       contextRefs,
       workspace,
+      scratchPath,
       inspection,
       contract,
       ...(slot?.briefing !== undefined ? { briefing: slot.briefing } : {}),

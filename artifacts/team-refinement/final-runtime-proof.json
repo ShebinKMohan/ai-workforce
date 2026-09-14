@@ -1,0 +1,188 @@
+{
+  "verifiedAt": "2026-09-14T05:46:20.833Z",
+  "server": {
+    "pid": 2660,
+    "startedAt": "2026-09-14T05:46:02.021Z",
+    "url": "http://127.0.0.1:4421/",
+    "packageRoot": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee",
+    "readOnlyDatabase": true
+  },
+  "revision": 15,
+  "departments": [
+    {
+      "id": "nathan-james-engineering",
+      "name": "Architecture & Delivery",
+      "headAgentId": "mike-slattery",
+      "agents": [
+        {
+          "id": "mike-slattery",
+          "name": "Mike Slattery",
+          "jobTitle": "Architecture & Delivery Head",
+          "role": "head",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-03"
+        },
+        {
+          "id": "russ-jeter",
+          "name": "Russ Jeter",
+          "jobTitle": "Principal Engineer / Architecture & Review",
+          "role": "worker",
+          "runtime": "claude-installed",
+          "avatarId": "portrait-05"
+        },
+        {
+          "id": "tex-nolan",
+          "name": "Tex Nolan",
+          "jobTitle": "Systems & Delivery Engineer",
+          "role": "worker",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-15"
+        }
+      ]
+    },
+    {
+      "id": "nathan-james-frontend-design",
+      "name": "Frontend & Design",
+      "headAgentId": "kara-foster",
+      "agents": [
+        {
+          "id": "kara-foster",
+          "name": "Kara Foster",
+          "jobTitle": "Frontend & Design Head",
+          "role": "head",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-02"
+        },
+        {
+          "id": "ravit-bivas",
+          "name": "Ravit Bivas",
+          "jobTitle": "Product Designer",
+          "role": "worker",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-10"
+        },
+        {
+          "id": "will-mason",
+          "name": "Will Mason",
+          "jobTitle": "Frontend Developer",
+          "role": "worker",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-11"
+        }
+      ]
+    },
+    {
+      "id": "nathan-james-backend-data",
+      "name": "Backend & Data",
+      "headAgentId": "alisha-granderson",
+      "agents": [
+        {
+          "id": "alisha-granderson",
+          "name": "Alisha Granderson",
+          "jobTitle": "Backend & Data Head",
+          "role": "head",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-04"
+        },
+        {
+          "id": "danny-green",
+          "name": "Danny Green",
+          "jobTitle": "Full Stack & Integration Engineer",
+          "role": "worker",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-07"
+        },
+        {
+          "id": "carlton-burk",
+          "name": "Carlton Burk",
+          "jobTitle": "Database Engineer",
+          "role": "worker",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-12"
+        }
+      ]
+    },
+    {
+      "id": "nathan-james-platform-security",
+      "name": "Platform & Security",
+      "headAgentId": "andrea-garnett",
+      "agents": [
+        {
+          "id": "andrea-garnett",
+          "name": "Andrea Garnett",
+          "jobTitle": "Platform & Security Head",
+          "role": "head",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-08"
+        },
+        {
+          "id": "sasha-cooper",
+          "name": "Sasha Cooper",
+          "jobTitle": "Security Engineer / Reviewer",
+          "role": "worker",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-06"
+        },
+        {
+          "id": "cameron-burk",
+          "name": "Cameron Burk",
+          "jobTitle": "Runtime & Developer Tooling Engineer",
+          "role": "worker",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-13"
+        }
+      ]
+    },
+    {
+      "id": "nathan-james-quality-engineering",
+      "name": "Quality Engineering",
+      "headAgentId": "rachel-scott",
+      "agents": [
+        {
+          "id": "rachel-scott",
+          "name": "Rachel Scott",
+          "jobTitle": "Quality Engineering Head",
+          "role": "head",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-16"
+        },
+        {
+          "id": "eric-miller",
+          "name": "Eric Miller",
+          "jobTitle": "Test Automation & Regression Engineer",
+          "role": "worker",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-09"
+        },
+        {
+          "id": "kathleen-nolan",
+          "name": "Kathleen Nolan",
+          "jobTitle": "QA & Acceptance Engineer",
+          "role": "worker",
+          "runtime": "codex-installed",
+          "avatarId": "portrait-14"
+        }
+      ]
+    }
+  ],
+  "coordinatorIncluded": true,
+  "people": 16,
+  "repeatTemplateOperations": 0,
+  "activeRequests": 0,
+  "connections": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "status": "connected",
+      "verification": "verified",
+      "tools": 7
+    },
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "status": "connected",
+      "verification": "verified",
+      "tools": 7
+    }
+  ]
+}

@@ -8,9 +8,12 @@ import { ApiError } from '../server/http.js';
 import type { RequestItem } from '../server/requests.js';
 import { IssueRecordSchema, issueTask, type CreateIssue, type IssueRecord, type StartIssue, type UpdateIssue } from './contracts.js';
 import { MAX_TASK_CHARS } from '../server/launch.js';
+import { selectIssueRequest } from './request-lineage.js';
 
 const encode = (value: unknown) => JSON.stringify(value);
 const digest = (value: unknown) => sha256Hex(encode(value));
+// Default metadata must not invalidate creation receipts from older versions.
+const creationDigest = ({ priority, ...body }: CreateIssue) => digest(priority === 'none' ? body : { ...body, priority });
 const decode = (row: unknown): IssueRecord | null => row ? IssueRecordSchema.parse(JSON.parse((row as { record_json: string }).record_json)) : null;
 const unknown = () => new ApiError(404, 'unknown_issue', 'This issue is not recorded in this workspace.');
 function conflict(issue: IssueRecord): never {
@@ -73,15 +76,15 @@ export class IssueStore {
     return this.use(true, db => {
       const previous = db!.prepare('SELECT record_json, creation_hash FROM issues WHERE project_id = ? AND creation_key = ?').get(body.projectId, body.idempotencyKey) as { record_json: string; creation_hash: string } | undefined;
       if (previous) {
-        if (previous.creation_hash !== digest(body)) throw new ApiError(409, 'issue_idempotency_conflict', 'This idempotency key was already used with different issue content. Use the original request or a new key.');
+        if (previous.creation_hash !== creationDigest(body)) throw new ApiError(409, 'issue_idempotency_conflict', 'This idempotency key was already used with different issue content. Use the original request or a new key.');
         return decode(previous)!;
       }
       const at = nowIso();
       const issue: IssueRecord = { schemaVersion: 1, id: newId(), projectId: body.projectId, revision: 1,
         title: body.title, description: body.description, kind: body.kind, source: body.source,
-        manualStatus: body.status, createdAt: at, updatedAt: at, dispatch: null };
+        manualStatus: body.status, priority: body.priority, createdAt: at, updatedAt: at, completedAt: body.status === 'done' ? at : null, dispatch: null };
       db!.prepare('INSERT INTO issues (id, project_id, creation_key, creation_hash, record_json) VALUES (?, ?, ?, ?, ?)')
-        .run(issue.id, issue.projectId, body.idempotencyKey, digest(body), encode(issue));
+        .run(issue.id, issue.projectId, body.idempotencyKey, creationDigest(body), encode(issue));
       return issue;
     });
   }
@@ -101,8 +104,14 @@ export class IssueStore {
       }
       if (body.title !== undefined) issue.title = body.title;
       if (body.description !== undefined) issue.description = body.description;
-      if (body.status !== undefined) issue.manualStatus = body.status;
-      issue.revision++; issue.updatedAt = nowIso();
+      const at = nowIso();
+      if (body.priority !== undefined) issue.priority = body.priority;
+      if (body.status !== undefined) {
+        if (body.status !== 'done') issue.completedAt = null;
+        else if (issue.manualStatus !== 'done') issue.completedAt = at;
+        issue.manualStatus = body.status;
+      }
+      issue.revision++; issue.updatedAt = at;
       this.save(db!, issue);
       if (body.idempotencyKey) db!.prepare('INSERT INTO issue_updates (issue_id, key, body_hash, record_json) VALUES (?, ?, ?, ?)').run(id, body.idempotencyKey, digest(body), encode(issue));
       return issue;
@@ -113,11 +122,12 @@ export class IssueStore {
       const issue = this.read(db, id);
       if (issue.dispatch && issue.dispatch.state !== 'refused') return { issue, claimed: false };
       if (issue.revision !== body.expectRevision) conflict(issue);
+      if (issue.manualStatus === 'cancelled') throw new ApiError(409, 'issue_cancelled', 'This issue is canceled. Reopen it before sending it to Control Center.');
       const task = issueTask(issue);
       if (task.length > MAX_TASK_CHARS) throw new ApiError(400, 'issue_brief_too_large', `The title and complete description exceed the ${MAX_TASK_CHARS}-character Control Center task limit. Shorten the brief before starting; no content was truncated.`);
       const at = nowIso();
       issue.dispatch = { clientRequestId: `issue:${id}`, task,
-        allowUnconfinedWrites: body.allowUnconfinedWrites, startedAt: at, state: 'pending', request: null, error: null };
+        allowUnconfinedWrites: body.allowUnconfinedWrites, startedAt: at, state: 'pending', request: null, retryRequest: null, retryConflict: null, error: null };
       issue.revision++; issue.updatedAt = at;
       return { issue: this.save(db!, issue), claimed: true };
     });
@@ -125,7 +135,8 @@ export class IssueStore {
   recordRequest(id: string, request: RequestItem): IssueRecord {
     return this.use(true, db => {
       const issue = this.read(db, id);
-      if (!issue.dispatch || issue.dispatch.clientRequestId !== request.clientRequestId || issue.projectId !== request.projectId || issue.dispatch.task !== request.task) {
+      const selected = selectIssueRequest(issue.dispatch ? { ...issue, dispatch: { ...issue.dispatch, retryRequest: null, retryConflict: null } } : issue, [request]);
+      if (!issue.dispatch || !selected.original || selected.original.id !== request.id || selected.conflict) {
         throw new ApiError(409, 'issue_request_mismatch', 'The request receipt does not belong to this issue.');
       }
       issue.dispatch.state = 'submitted'; issue.dispatch.request = request; issue.dispatch.error = null;
@@ -135,16 +146,20 @@ export class IssueStore {
   /** Mirror durable queue receipts before its bounded history is pruned. */
   recordRequests(requests: readonly RequestItem[]): void {
     if (!existsSync(this.filename)) return;
-    const byKey = new Map(requests.filter(request => request.clientRequestId?.startsWith('issue:')).map(request => [request.clientRequestId!, request]));
-    if (!byKey.size) return;
+    if (!requests.some(request => request.clientRequestId?.startsWith('issue:') || request.retryOfRequestId)) return;
     this.use(true, db => {
       for (const row of db!.prepare('SELECT record_json FROM issues').all()) {
         const issue = decode(row)!;
         if (!issue.dispatch) continue;
-        const request = byKey.get(issue.dispatch.clientRequestId);
-        if (!request || request.projectId !== issue.projectId || request.task !== issue.dispatch.task) continue;
-        if (JSON.stringify(request) === JSON.stringify(issue.dispatch.request)) continue;
-        issue.dispatch.state = 'submitted'; issue.dispatch.request = request; issue.dispatch.error = null;
+        const selected = selectIssueRequest(issue, requests);
+        if (selected.conflict) {
+          if (issue.dispatch.retryConflict !== selected.conflict) { issue.dispatch.retryConflict = selected.conflict; this.save(db!, issue); }
+          continue;
+        }
+        if (!selected.original || !selected.current) continue;
+        const retry = selected.current.id === selected.original.id ? null : selected.current;
+        if (JSON.stringify(selected.original) === JSON.stringify(issue.dispatch.request) && JSON.stringify(retry) === JSON.stringify(issue.dispatch.retryRequest)) continue;
+        issue.dispatch.state = 'submitted'; issue.dispatch.request = selected.original; issue.dispatch.retryRequest = retry; issue.dispatch.error = null;
         this.save(db!, issue);
       }
     });

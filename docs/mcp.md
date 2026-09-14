@@ -15,6 +15,21 @@ If setup cannot finish, the card explains the problem and keeps its retry action
 
 The MCP status panel shows the bridge identity, transport, and verified tools. Each agent has separate **Setup saved** and **Tools verified** indicators. **MCP · 2 ready** means two saved clients passed the check; it does not mean two external chats are currently connected. The advanced details show the local service address and the time of the last check.
 
+## Sign in to run tasks
+
+Each Connections card also shows whether its installed agent can run your team's tasks.
+If it says **Sign-in needed**, click **Sign in** and complete the agent's normal sign-in and
+consent in the browser it opens. Workforce checks the native account status when that login
+finishes, then refreshes execution readiness. **Cancel sign-in** stops the login process that
+Workforce started; attempts also expire after five minutes. A provider denial or failed login
+stays visible and offers a retry.
+
+This uses the detected installation's native login flow. Workforce does not request copied
+provider tokens or read credentials. Some provider environments may require a terminal or a
+code-paste fallback; complete that step in the coding agent and click **Check sign-in** here.
+MCP can remain connected while account sign-in needs attention, and execution settings stay
+disabled with the reason until that runtime is usable.
+
 ## Send a plan
 
 Finish planning in Codex or Claude, then ask it naturally:

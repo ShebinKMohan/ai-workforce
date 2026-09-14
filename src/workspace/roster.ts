@@ -16,12 +16,14 @@ import { randomToken } from '../core/ids.js';
 import { sha256Hex } from '../core/snapshot.js';
 import {
   activeHead,
+  agentJobTitle,
   eligibleWorkers,
   type WorkspaceAgent,
   type WorkspaceConfig,
   type WorkspaceDepartment,
   type WorkspaceProject,
 } from '../core/workspace-config.js';
+import { workspaceRunCapacity, type RunCapacity } from './capacity.js';
 import type { StatePaths } from '../storage/paths.js';
 import { invalidWorkspaceInput as invalid } from './errors.js';
 
@@ -102,7 +104,7 @@ export function rosterAgentIds(roster: Roster): string[] {
 }
 
 /** A v1 agent configuration holding only the roster: its runtimes, its head as the planner, its first worker as the default worker. */
-export function rosterAgentConfig(config: WorkspaceConfig, roster: Roster): AgentConfigFile {
+export function rosterAgentConfig(config: WorkspaceConfig, roster: Roster, reservation?: RunCapacity): AgentConfigFile {
   const agents = [roster.head, ...roster.workers];
   const runtimes: AgentConfigFile['runtimes'] = {};
   for (const agent of agents) {
@@ -110,14 +112,19 @@ export function rosterAgentConfig(config: WorkspaceConfig, roster: Roster): Agen
     if (runtime !== undefined) runtimes[agent.runtime] = runtime;
   }
   const limits = config.limits;
+  const fair = workspaceRunCapacity(config);
+  const admitted = reservation ?? fair;
+  if (!Number.isSafeInteger(admitted.reservedTurns) || !Number.isSafeInteger(admitted.reservedWriters) || admitted.reservedTurns < 1 || admitted.reservedWriters < 1 || admitted.reservedTurns > fair.reservedTurns || admitted.reservedWriters > Math.min(admitted.reservedTurns, fair.reservedWriters)) {
+    throw invalid('invalid_capacity_reservation', 'The requested turn/writer reservation exceeds the current workspace allocation. Admit this request again.');
+  }
   return validateAgentConfig({
     schemaVersion: AGENT_CONFIG_SCHEMA_VERSION,
     runtimes,
     defaults: {
       workerAgent: roster.workers[0]!.id,
       plannerAgent: roster.head.id,
-      maxActiveTurns: limits.maxActiveTurns,
-      maxActiveWriters: limits.maxActiveWriters,
+      maxActiveTurns: admitted.reservedTurns,
+      maxActiveWriters: admitted.reservedWriters,
       maxTasksPerRun: limits.maxTasksPerRun,
       maxDelegationDepth: limits.maxDelegationDepth,
       maxRepairAttempts: limits.maxRepairAttempts,
@@ -126,6 +133,7 @@ export function rosterAgentConfig(config: WorkspaceConfig, roster: Roster): Agen
     },
     agents: agents.map((agent) => ({
       id: agent.id,
+      jobTitle: agentJobTitle(agent),
       runtime: agent.runtime,
       instructions: agent.instructions,
       capabilities: [...agent.capabilities],

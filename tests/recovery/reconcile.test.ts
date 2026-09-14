@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { listEvents } from '../../src/storage/events.js';
 import { getOperation, recordIntent, recordReceipt } from '../../src/storage/operations.js';
-import { getAttempt, getRun, getTask, transitionRun } from '../../src/storage/records.js';
+import { getAttempt, getRun, getTask, transitionAttempt, transitionTask, transitionRun } from '../../src/storage/records.js';
 import { admitReceipt, listRunAttempts, reconcileRun } from '../../src/recovery/reconcile.js';
 import { resumeRun } from '../../src/recovery/resume.js';
 import { WORKER_PROCESS, openTempState, seedCrashedRun, type TempState } from './support.js';
@@ -161,5 +161,51 @@ describe('run-level guards', () => {
     const { plan } = resumeRun({ runId: crashed.run.id, store: state.store, probeProcess: dead });
     expect(plan.ownershipEpoch).toBe(before + 1);
     expect(getRun(state.store.db, crashed.run.id).ownership_epoch).toBe(before + 1);
+  });
+});
+
+
+describe('explicit failed-work retry', () => {
+  function failed() {
+    const crashed = seedCrashedRun(state, { dispatched: true, running: true, process: WORKER_PROCESS });
+    const db = state.store.db;
+    recordReceipt(db, crashed.operation.id, { outcome: 'failed', receipt: { reason: 'worker failed' } });
+    transitionAttempt(db, crashed.attempt.id, 'failed');
+    transitionTask(db, crashed.task.id, 'failed');
+    transitionRun(db, crashed.run.id, 'failed');
+    return crashed;
+  }
+
+  it('requires explicit retry, keeps old candidate history, and resets only the failed task generation', () => {
+    const item = failed(); const db = state.store.db;
+    const endedAt = getRun(db, item.run.id).ended_at;
+    expect(resumeRun({ runId: item.run.id, store: state.store, probeProcess: dead }).plan.complete).toBe(true);
+    expect(getTask(db, item.task.id).current_generation).toBe(1);
+    const { plan } = resumeRun({ runId: item.run.id, store: state.store, probeProcess: dead, retryFailed: true });
+    expect(plan).toMatchObject({ blocked: false, complete: false, ownershipEpoch: 1 });
+    expect(plan.steps[0]).toMatchObject({ action: 'replace', newGeneration: 2 });
+    expect(getRun(db, item.run.id)).toMatchObject({ state: 'running', ended_at: null });
+    expect(getAttempt(db, item.attempt.id)).toMatchObject({ state: 'superseded', workspace_path: '/tmp/candidate' });
+    expect(getOperation(db, item.operation.id).receipt).toEqual({ reason: 'worker failed' });
+    expect(listEvents(db, item.run.id).find(event => event.type === 'recovery.retry_requested')?.payload).toMatchObject({ previousEndedAt: endedAt });
+    expect(admitReceipt(db, item.operation.id, { outcome: 'completed', receipt: { late: true } }).accepted).toBe(false);
+  });
+
+  it.each([alive, () => 'unverifiable' as const])('never creates a replacement when prior failed worker ownership is unresolved', probeProcess => {
+    const item = failed();
+    const { plan } = resumeRun({ runId: item.run.id, store: state.store, retryFailed: true, probeProcess });
+    expect(plan.blocked).toBe(true);
+    expect(plan.steps[0]?.action).toBe('isolate');
+    expect(getTask(state.store.db, item.task.id).current_generation).toBe(1);
+    expect(listRunAttempts(state.store.db, item.run.id)).toHaveLength(1);
+  });
+
+  it('does not reinterpret explicit Retry as permission to resurrect cancelled work', () => {
+    const item = seedCrashedRun(state, { dispatched: false });
+    transitionRun(state.store.db, item.run.id, 'cancelled');
+    const { plan } = resumeRun({ runId: item.run.id, store: state.store, retryFailed: true, probeProcess: dead });
+    expect(plan.blocked).toBe(true);
+    expect(getRun(state.store.db, item.run.id)).toMatchObject({ state: 'cancelled', ownership_epoch: 0 });
+    expect(getTask(state.store.db, item.task.id).current_generation).toBe(1);
   });
 });

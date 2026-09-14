@@ -113,6 +113,21 @@ function manifestFacts(store: StateStore, runId: string): {
     manifests.push(read.manifest);
     if (artifact.relativePath === 'result.json') top = read.manifest;
   }
+  // A direct run can retry in a successor attempt without rewriting its
+  // immutable first result. Select only the artifact belonging to its one
+  // current task generation; old failed candidates remain visible as history.
+  if (typeof top?.['taskId'] === 'string') {
+    const tasks = listTasks(store.db, runId);
+    const task = tasks.length === 1 && tasks[0]?.id === top['taskId'] ? tasks[0] : undefined;
+    const attempt = task === undefined ? undefined : listAttempts(store.db, runId).find(entry => entry.task_id === task.id && entry.generation === task.current_generation);
+    if (attempt !== undefined && attempt.id !== top['attemptId']) {
+      const receipt = listArtifacts(store.db, runId).find(entry => entry.type === 'result' && entry.taskId === task!.id && entry.attemptId === attempt.id && entry.relativePath === `tasks/${attempt.id}/result.json`);
+      const current = receipt === undefined ? null : readManifest(store, receipt).manifest;
+      // Missing or mismatched successor evidence never inherits the old verdict.
+      top = current?.['runId'] === runId && current['taskId'] === task!.id && current['attemptId'] === attempt.id ? current : null;
+      if (top === null) evidenceIssues.push('The direct run has a newer attempt without a readable matching result manifest.');
+    }
+  }
   const compromised = new Set<string>();
   const passed = new Set<string>();
   for (const manifest of manifests) {

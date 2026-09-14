@@ -24,12 +24,11 @@ export function renderSettings({connected,streaming}={}){return `<div class="set
   </section>
   <section class="settings-section"><header>${icon('panel')}<div><h2>Conversation</h2><p>Small preferences for your everyday flow.</p></div></header>
     <div class="settings-row"><div><h3>Send a message</h3><p>Shift + Enter always adds a new line.</p></div>${choices('sendShortcut',[['enter','Enter'],['mod-enter','⌘ / Ctrl + Enter']])}</div>
-    <div class="settings-row"><div><h3>Automatic team selection</h3><p>Control Center selects available specialists and delegates authorized work across your projects.</p></div><span class="settings-automatic">${icon('check')}Automatic</span></div>
+    <div class="settings-row"><div><h3>Automatic team selection</h3><p>Control Center selects available teammates and delegates authorized work across your projects.</p></div><span class="settings-automatic">${icon('check')}Automatic</span></div>
   </section>
   <section class="settings-section"><header>${icon('connect')}<div><h2>Your harness</h2><p>Connected runtimes and company behavior.</p></div></header>
     <div class="settings-row"><div><h3>Runtime connection</h3><p>${connected?'Connected to your local coordinator.':'The local coordinator is unavailable.'} ${streaming?'Live event stream connected.':'Events refresh with your workspace.'}</p></div><span class="status ${connected?'completed':'blocked'}"><i class="dot"></i>${connected?'Connected':'Offline'}</span></div>
-    <div class="settings-row"><div><h3>MCP connections</h3><p>Connect Codex or Claude and send plans directly to your workforce.</p></div><button class="secondary" data-nav="connections">Open connections ${icon('arrow')}</button></div>
-    <div class="settings-row"><div><h3>Models & installations</h3><p>Discover the models available in each locally installed runtime.</p></div><button class="secondary" data-nav="runtimes">Manage runtimes ${icon('arrow')}</button></div>
+    <div class="settings-row"><div><h3>Coding tools & MCP</h3><p>Manage account readiness, available models, and plan handoffs together.</p></div><button class="secondary" data-nav="connections">Open connections ${icon('arrow')}</button></div>
     <div class="settings-row"><div><h3>Control Center</h3><p>Configure orchestration, instructions, internal repair limits, and routing.</p></div><button class="secondary" data-manage-control>Configure ${icon('arrow')}</button></div>
   </section>
   <p class="settings-footnote">Appearance and conversation preferences are stored in this browser. Company configuration is saved by your local harness.</p>

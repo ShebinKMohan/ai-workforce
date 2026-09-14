@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'no
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { IssueRecord } from '../../src/issues/contracts.js';
+import { CreateIssueSchema, StartIssueSchema, type IssueRecord } from '../../src/issues/contracts.js';
+import { IssueStore } from '../../src/issues/store.js';
 import { issueView } from '../../src/issues/projection.js';
 import type { RequestItem } from '../../src/server/requests.js';
 import { writeArtifact } from '../../src/storage/artifacts.js';
@@ -13,6 +14,7 @@ import { acquireCoordinatorLock } from '../../src/storage/lock.js';
 import { beginNewGeneration, transitionRun, transitionTask } from '../../src/storage/records.js';
 import { projectStatePaths } from '../../src/workspace/paths.js';
 import { seedAttempt, seedRun, seedTask } from '../coordination/helpers.js';
+import { sampleWorkspace } from '../workspace/helpers.js';
 
 const roots: string[] = [];
 const cleanups: Array<() => void> = [];
@@ -23,7 +25,7 @@ afterEach(() => {
 const now = '2026-09-13T12:00:00.000Z';
 
 function issue(): IssueRecord {
-  return { schemaVersion: 1, id: randomUUID(), projectId: 'example', revision: 1, title: 'Fix login', description: 'Restore the documented login behavior.', kind: 'issue', source: 'codex', manualStatus: 'backlog', createdAt: now, updatedAt: now, dispatch: null };
+  return { schemaVersion: 1, id: randomUUID(), projectId: 'example', revision: 1, title: 'Fix login', description: 'Restore the documented login behavior.', kind: 'issue', source: 'codex', manualStatus: 'backlog', priority: 'none', createdAt: now, updatedAt: now, completedAt: null, dispatch: null };
 }
 
 function request(overrides: Partial<RequestItem> = {}): RequestItem {
@@ -31,7 +33,15 @@ function request(overrides: Partial<RequestItem> = {}): RequestItem {
 }
 
 function submitted(item: RequestItem | null): IssueRecord {
-  return { ...issue(), dispatch: { clientRequestId: 'issue-submission', task: 'Frozen submitted task', allowUnconfinedWrites: false, startedAt: now, state: 'submitted', request: item, error: null } };
+  return { ...issue(), dispatch: { clientRequestId: 'issue-submission', task: item?.task ?? 'Frozen submitted task', allowUnconfinedWrites: false, startedAt: now, state: 'submitted', request: item, retryRequest: null, retryConflict: null, error: null } };
+}
+
+function answered(overrides: Partial<RequestItem> = {}): RequestItem {
+  return request({ state: 'ended', departmentId: null, exitCode: 0, endedAt: '2026-09-13T12:00:19.000Z',
+    controlReply: 'Understood. No project work was requested.',
+    result: { exitCode: 0, code: 'control_reply', message: 'Understood. No project work was requested.', details: [] },
+    route: { state: 'selected', projectId: 'example', departmentId: null, headAgentId: null, reason: 'A direct response is sufficient.', method: 'direct_reply', decidedAt: '2026-09-13T12:00:18.000Z', elapsedMs: 18000 },
+    routingSession: { sessionId: 'answer-session', process: null, state: 'stopped' }, ...overrides });
 }
 
 /** Real storage rows and registered immutable artifacts; no runtime is invoked.
@@ -100,6 +110,105 @@ function analysisFixture(reportFields: Record<string, unknown> = {}) {
 }
 
 describe('issue board execution projection', () => {
+  it('follows a validated retry to its verified run and retains that lineage after queue pruning', () => {
+    const fixture = runFixture(); fixture.review();
+    const store = new IssueStore(fixture.root);
+    const card = store.create(CreateIssueSchema.parse({ projectId: 'example', title: 'Fix login', description: '', idempotencyKey: 'original-issue' }));
+    const intent = store.beginDispatch(card.id, StartIssueSchema.parse({ expectRevision: card.revision })).issue.dispatch!;
+    const original = request({ clientRequestId: intent.clientRequestId, state: 'ended', exitCode: 1, endedAt: now });
+    store.recordRequest(card.id, original);
+    const firstRetry = request({ clientRequestId: 'retry-first', state: 'ended', exitCode: 1, endedAt: now, retryOfRequestId: original.id, retryRootRequestId: original.id, retryAttempt: 1, retryReason: 'manual' });
+    const retry = { ...fixture.item, clientRequestId: 'retry-second', state: 'ended' as const, exitCode: 0, endedAt: now, retryOfRequestId: firstRetry.id, retryRootRequestId: original.id, retryAttempt: 2, retryReason: 'manual' as const };
+    expect(issueView(store.get(card.id), fixture.root, original, false, [original, firstRetry, retry])).toMatchObject({ requestId: retry.id, runId: fixture.run.id, status: 'done', execution: { verified: true } });
+    store.recordRequests([original, firstRetry]);
+    // Queue retention has removed both preceding failures before this update.
+    store.recordRequests([retry]);
+    const reopened = new IssueStore(fixture.root).get(card.id);
+    expect(reopened.dispatch).toMatchObject({ clientRequestId: intent.clientRequestId, task: intent.task, request: { id: original.id }, retryRequest: { id: retry.id } });
+    expect(issueView(reopened, fixture.root, null)).toMatchObject({ id: card.id, title: card.title, description: card.description, requestId: retry.id, runId: fixture.run.id, status: 'done', execution: { verified: true } });
+    expect(store.create(CreateIssueSchema.parse({ projectId: 'example', title: 'Fix login', description: '', idempotencyKey: 'original-issue' })).id).toBe(card.id);
+  });
+
+  it('never adopts another project, a changed brief, or a retry of a stopped original as issue completion', () => {
+    const fixture = runFixture(); fixture.review();
+    const original = request({ state: 'ended', exitCode: 1, endedAt: now });
+    const retry = { ...fixture.item, clientRequestId: 'retry-foreign', retryOfRequestId: original.id, retryRootRequestId: original.id, retryAttempt: 1, retryReason: 'manual' as const };
+    for (const candidate of [{ ...retry, projectId: 'other' }, { ...retry, task: 'Different work' }, { ...retry, retryRootRequestId: 'unrelated' }]) {
+      expect(issueView(submitted(original), fixture.root, original, false, [original, candidate])).toMatchObject({ requestId: original.id, runId: null, execution: { verified: false } });
+    }
+    const stopped = { ...original, stopRequestedAt: now, exitCode: 130 };
+    expect(issueView(submitted(stopped), fixture.root, stopped, false, [stopped, retry])).toMatchObject({ requestId: original.id, runId: null, execution: { verified: false } });
+  });
+
+  it('retains an ambiguous retry result as unknown after the conflicting queue history is pruned', () => {
+    const fixture = runFixture(); fixture.review();
+    const store = new IssueStore(fixture.root);
+    const card = store.create(CreateIssueSchema.parse({ projectId: 'example', title: 'Fix login', description: '', idempotencyKey: 'ambiguous-issue' }));
+    const intent = store.beginDispatch(card.id, StartIssueSchema.parse({ expectRevision: card.revision })).issue.dispatch!;
+    const original = request({ clientRequestId: intent.clientRequestId, state: 'ended', exitCode: 1, endedAt: now });
+    const first = { ...fixture.item, clientRequestId: 'retry-first', state: 'ended' as const, exitCode: 0, endedAt: now, retryOfRequestId: original.id, retryRootRequestId: original.id, retryAttempt: 1, retryReason: 'manual' as const };
+    const competing = { ...first, id: randomUUID(), clientRequestId: 'retry-competing' };
+    store.recordRequests([original, first]);
+    expect(issueView(store.get(card.id), fixture.root, null).status).toBe('done');
+    store.recordRequests([original, first, competing]);
+    expect(store.get(card.id).dispatch?.retryConflict).toBeTruthy();
+    store.recordRequest(card.id, { ...original, reason: 'Original failure retained.' });
+    const reopened = new IssueStore(fixture.root).get(card.id);
+    expect(issueView(reopened, fixture.root, null)).toMatchObject({ status: 'todo', execution: { state: 'unknown', verified: false, completedAt: null } });
+    store.recordRequests([first]);
+    expect(issueView(store.get(card.id), fixture.root, null).execution.state).toBe('unknown');
+  });
+
+  it('shows a cancelled retry as cancelled and never borrows a separate successful run', () => {
+    const original = request({ state: 'ended', exitCode: 1, endedAt: now });
+    const retry = request({ clientRequestId: 'cancelled-retry', state: 'discarded', retryOfRequestId: original.id, retryRootRequestId: original.id, retryAttempt: 1, retryReason: 'manual', endedAt: now });
+    expect(issueView(submitted(original), '/does-not-exist', original, false, [original, retry])).toMatchObject({ requestId: retry.id, runId: null, status: 'cancelled', execution: { state: 'cancelled', verified: false, completedAt: null } });
+  });
+
+  it('shows a queued same-run retry while the previous run is failed, and refuses cancelled-run completion', () => {
+    const fixture = runFixture(false);
+    transitionRun(fixture.store.db, fixture.run.id, 'failed');
+    const original = { ...fixture.item, state: 'ended' as const, exitCode: 1, endedAt: now };
+    const retry = request({ kind: 'resume', clientRequestId: 'retry-resume', resumeRunId: fixture.run.id, runId: fixture.run.id, retryOfRequestId: original.id, retryRootRequestId: original.id, retryAttempt: 1, retryReason: 'manual', retryFailed: true });
+    expect(issueView(submitted(original), fixture.root, original, false, [original, retry])).toMatchObject({ requestId: retry.id, runId: fixture.run.id, status: 'todo', execution: { state: 'queued', runState: 'failed', completedAt: null, endedAt: null } });
+    fixture.store.db.prepare("UPDATE runs SET state = 'cancelled' WHERE id = ?").run(fixture.run.id);
+    expect(issueView(submitted(original), fixture.root, original, false, [original, retry])).toMatchObject({ status: 'cancelled', execution: { state: 'cancelled', verified: false, completedAt: null } });
+  });
+
+  it('keeps planning metadata separate from actual assignees and execution completion', () => {
+    const record = { ...issue(), priority: 'high' as const, manualStatus: 'done' as const, completedAt: now, updatedAt: '2026-09-14T12:00:00.000Z' };
+    expect(issueView(record, '/does-not-exist', null)).toMatchObject({ priority: 'high', completedAt: now, execution: { owners: [], startedAt: null, endedAt: null, completedAt: null, checks: null } });
+    const queued = request({ departmentId: 'engineering-platform', agentIds: ['atlas', 'nova'], workerIds: ['nova'] });
+    expect(issueView(submitted(queued), '/does-not-exist', queued, false, [], sampleWorkspace()).execution).toMatchObject({ department: { id: 'engineering-platform', name: 'Engineering' }, owners: [], startedAt: null, endedAt: null, completedAt: null, checks: null, phase: 'queued' });
+  });
+
+  it('enriches owners only from current assignments and recorded head work, with validated check counts', () => {
+    const fixture = runFixture();
+    fixture.store.db.prepare('UPDATE tasks SET owner_agent_id = ? WHERE id = ?').run('nova', fixture.task.id);
+    const replaced = seedTask(fixture.store.db, fixture.run.id);
+    fixture.store.db.prepare("UPDATE tasks SET owner_agent_id = 'forge', state = 'superseded' WHERE id = ?").run(replaced.id);
+    appendEvent(fixture.store.db, { runId: fixture.run.id, type: 'head.planning_started', payload: { headAgentId: 'atlas', departmentId: 'engineering-platform', workers: ['nova', 'forge', 'bench'] } });
+    fixture.review({ headAgentId: 'atlas' });
+    const result = issueView({ ...fixture.record, updatedAt: '2099-01-01T00:00:00.000Z' }, fixture.root, fixture.item, false, [], sampleWorkspace());
+    expect(result.execution).toMatchObject({ department: { id: 'engineering-platform', name: 'Engineering' }, checks: { passed: 1, total: 1 }, owners: [{ id: 'atlas', name: 'Atlas', role: 'head', avatarId: null }, { id: 'nova', name: 'Nova', role: 'worker', avatarId: null }], state: 'completed', verified: true });
+    expect(result.execution.startedAt).toBeTruthy(); expect(result.execution.endedAt).toBeTruthy(); expect(result.execution.completedAt).toBeTruthy();
+    expect(result.execution.completedAt).not.toBe(result.updatedAt);
+    const reassigned = sampleWorkspace();
+    reassigned.agents.find(agent => agent.id === 'atlas')!.role = 'worker';
+    reassigned.agents.find(agent => agent.id === 'nova')!.role = 'head';
+    expect(issueView(fixture.record, fixture.root, fixture.item, false, [], reassigned).execution.owners.map(person => [person.id, person.role])).toEqual([['atlas', 'head'], ['nova', 'worker']]);
+    unlinkSync(fixture.manifest!.file);
+    const unavailable = issueView(fixture.record, fixture.root, fixture.item);
+    expect(unavailable.execution).toMatchObject({ state: 'blocked', completedAt: null, checks: { passed: 0, total: 1 } });
+  });
+
+  it('does not reuse an old ended timestamp for a live resumed run or infer completion from metadata updates', () => {
+    const fixture = runFixture(false);
+    fixture.store.db.prepare('UPDATE runs SET ended_at = ? WHERE id = ?').run('2026-09-13T11:00:00.000Z', fixture.run.id);
+    const result = issueView({ ...fixture.record, completedAt: now }, fixture.root, fixture.item);
+    expect(result).toMatchObject({ completedAt: null, execution: { state: 'running', endedAt: null, completedAt: null } });
+  });
+
   it('respects every manual draft status without claiming verification or exposing dispatch secrets', () => {
     for (const status of ['backlog', 'todo', 'in_progress', 'in_review', 'done'] as const) {
       const record = { ...issue(), manualStatus: status };
@@ -109,15 +218,66 @@ describe('issue board execution projection', () => {
   });
 
   it.each([
-    ['queued', 'todo', 'queued'], ['held', 'todo', 'blocked'], ['starting', 'in_progress', 'running'], ['running', 'in_progress', 'running'], ['discarded', 'todo', 'interrupted'], ['failed_to_start', 'todo', 'blocked'],
+    ['queued', 'todo', 'queued'], ['held', 'todo', 'blocked'], ['starting', 'in_progress', 'running'], ['running', 'in_progress', 'running'], ['discarded', 'cancelled', 'cancelled'], ['failed_to_start', 'todo', 'blocked'],
   ] as const)('projects queue state %s before a run exists', (state, status, execution) => {
     const item = request({ state });
     expect(issueView(submitted(item), '/does-not-exist', item)).toMatchObject({ status, execution: { state: execution, verified: false, requestState: state } });
   });
 
-  it('never treats a successful process exit or a direct reply as completed development', () => {
-    const item = request({ state: 'ended', exitCode: 0, controlReply: 'Here is an explanation.', result: { exitCode: 0, code: 'control_reply', message: null, details: [] } });
-    expect(issueView(submitted(item), '/does-not-exist', item)).toMatchObject({ status: 'todo', execution: { state: 'blocked', verified: false } });
+  it('resolves a recorded direct reply as Answered without claiming verified development, including after retention', () => {
+    const workspace = sampleWorkspace(); workspace.controlCenter = { runtime: 'codex-local', avatarId: 'portrait-03' };
+    const item = answered({ controlCenter: { runtime: 'codex-local', avatarId: 'portrait-02' } });
+    for (const live of [item, null]) {
+      expect(issueView(submitted(item), '/does-not-exist', live, false, [], workspace)).toMatchObject({
+        status: 'done', runId: null, completedAt: null,
+        execution: { state: 'answered', phase: 'answered', reason: item.controlReply, verified: false, analysisReviewed: false, workKind: null,
+          startedAt: now, endedAt: item.endedAt, completedAt: item.endedAt, department: null, checks: null,
+          owners: [{ id: 'control-center', name: 'Control Center', role: 'control', avatarId: 'portrait-02' }] },
+      });
+    }
+  });
+
+  it('requires the complete structured direct-reply disposition and never accepts an ordinary successful exit', () => {
+    const base = answered();
+    const invalid: Partial<RequestItem>[] = [
+      { result: null }, { result: { exitCode: 0, code: 'run_completed', message: 'Done.', details: [] } },
+      { result: { ...base.result!, exitCode: 1 } }, { exitCode: 1 }, { endedAt: null },
+      { route: { ...base.route!, method: 'classifier' } }, { route: { ...base.route!, state: 'blocked' } },
+      { route: { ...base.route!, projectId: 'other' } }, { departmentId: 'engineering' },
+      { state: 'queued' }, { stopRequestedAt: now }, { signal: 'SIGINT' },
+      { routingSession: { sessionId: 'answer-session', process: null, state: 'unknown' } },
+      { controlReply: '', result: { ...base.result!, message: '' } },
+    ];
+    for (const overrides of invalid) {
+      const item = answered(overrides);
+      const projected = issueView(submitted(item), '/does-not-exist', item);
+      expect(projected.execution.state).not.toBe('answered');
+      expect(projected).not.toMatchObject({ status: 'done' });
+      expect(projected.execution).toMatchObject({ verified: false, completedAt: null });
+    }
+  });
+
+  it('does not interpret title or response cancellation keywords as a cancellation action', () => {
+    const item = answered({ task: 'Do not run — cancelled UI project-selection test', controlReply: 'Understood. I will not dispatch or execute this cancelled test.' });
+    const record = { ...submitted(item), title: item.task! };
+    expect(issueView(record, '/does-not-exist', item)).toMatchObject({ status: 'done', execution: { state: 'answered', verified: false } });
+    const queued = { ...item, state: 'queued' as const, endedAt: null, exitCode: null, result: null };
+    expect(issueView(submitted(queued), '/does-not-exist', queued)).toMatchObject({ status: 'todo', execution: { state: 'queued' } });
+  });
+
+  it('retains explicit cancellation after pruning and keeps manual cancellation separate from execution', () => {
+    const item = request({ state: 'discarded', endedAt: now });
+    expect(issueView(submitted(item), '/does-not-exist', null)).toMatchObject({ status: 'cancelled', execution: { state: 'cancelled', endedAt: now, completedAt: null, verified: false } });
+    const manual = { ...issue(), manualStatus: 'cancelled' as const };
+    expect(issueView(manual, '/does-not-exist', null)).toMatchObject({ status: 'cancelled', requestId: null, execution: { state: 'cancelled', startedAt: null, endedAt: null, completedAt: null } });
+  });
+
+  it('does not let a conversational result bypass the linked run verification gate', () => {
+    const fixture = runFixture();
+    const item = answered({ runId: fixture.run.id });
+    expect(issueView(submitted(item), fixture.root, item)).toMatchObject({ status: 'in_review', execution: { state: 'blocked', verified: false, completedAt: null } });
+    fixture.review();
+    expect(issueView(submitted(item), fixture.root, item)).toMatchObject({ status: 'done', execution: { state: 'completed', verified: true } });
   });
 
   it('keeps a pruned request without a recorded run explicitly unknown', () => {
@@ -227,7 +387,7 @@ describe('issue board execution projection', () => {
     const ended = { ...fixture.item, state: 'ended' as const, endedAt: now, exitCode: 0 };
     const otherRun = seedRun(fixture.store.db);
     transitionRun(fixture.store.db, otherRun.id, 'running');
-    const otherRequest = request({ state: 'running', runId: otherRun.id, pid: fixture.store.lock!.info.pid, pidStartedAtMs: fixture.store.lock!.info.processStartedAtMs });
+    const otherRequest = request({ clientRequestId: 'unrelated-submission', state: 'running', runId: otherRun.id, pid: fixture.store.lock!.info.pid, pidStartedAtMs: fixture.store.lock!.info.processStartedAtMs });
     expect(issueView(fixture.record, fixture.root, ended, false, [otherRequest])).toMatchObject({ status: 'todo', execution: { state: 'unknown', verified: false, runState: 'running' } });
   });
 

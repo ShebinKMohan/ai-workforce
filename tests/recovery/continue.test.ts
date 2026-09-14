@@ -15,7 +15,7 @@ import { createAdapter, type RunDirectInput, type RunDirectResult } from '../../
 import { runWithFallback } from '../../src/recovery/continue.js';
 import type { CapabilityStatus, RuntimeAdapter, RuntimeReadiness } from '../../src/adapters/types.js';
 import { listEvents } from '../../src/storage/events.js';
-import { insertAttempt, upsertAgentSnapshot } from '../../src/storage/records.js';
+import { getRun, insertAttempt, transitionRun, upsertAgentSnapshot } from '../../src/storage/records.js';
 import { computeAgentSnapshot } from '../../src/core/snapshot.js';
 import { openTempState, seedRunAndTask, sampleContract } from '../helpers/state.js';
 import { parseHandoffPacket } from '../../src/routing/handoff.js';
@@ -73,7 +73,7 @@ function failedResult(runId: string, taskId: string, attemptId: string, override
     patchPath: null,
     runDir: '/tmp/does-not-exist-run-dir',
     evidence: null,
-    stopReceipt: null,
+    stopReceipt: { sessionId: 'test-settled', state: 'process_tree_terminated', processId: null, signal: null, at: new Date().toISOString() },
     coordination: { attached: false, socketPath: null, reason: 'test', messagesDelivered: 0, messagesRecorded: 0 },
     ...overrides,
   };
@@ -132,6 +132,88 @@ function inputFor(
 }
 
 describe('continuing a task on a second runtime', () => {
+  it('uses the persistent transient budget on the same runtime before fallback and preserves the handoff context', async () => {
+    const state = openTempState();
+    const { run, task } = seedRunAndTask(state);
+    const snapshot = computeAgentSnapshot(CONFIG, 'engineer'); upsertAgentSnapshot(state.store.db, snapshot);
+    const attempt = insertAttempt(state.store.db, { taskId: task.id, agentSnapshotHash: snapshot.hash });
+    const input = inputFor(state, run.id); const calls: RunDirectInput[] = [];
+    try {
+      const result = await runWithFallback(input, { retryBaseDelayMs: 1, run: async current => {
+        calls.push(current);
+        return failedResult(run.id, task.id, current.slot?.attemptId ?? attempt.id, calls.length === 1 ? {
+          failure: { failureClass: 'provider_transient', retryable: true, signal: 'ECONNRESET', detail: 'transport interrupted', userAction: null },
+        } : { outcome: 'accepted', failure: null, acceptance: { accepted: true, criteria: [], requiredTotal: 1, requiredPassed: 1, reasons: [] } });
+      } });
+      expect(calls).toHaveLength(2); expect(calls[1]?.agentId).toBe(calls[0]?.agentId);
+      expect(calls[1]?.slot?.briefing).toContain('continuing work another worker started');
+      expect(result.result.acceptance.accepted).toBe(true); expect(result.fallback).toBeNull();
+      expect(listEvents(state.store.db, run.id).filter(event => event.type === 'runtime.retry_scheduled')).toHaveLength(1);
+    } finally { state.store.close(); }
+  });
+
+  it('refuses transient retry and handoff when the previous process stop was not confirmed', async () => {
+    const state = openTempState(); const { run, task } = seedRunAndTask(state); let calls = 0;
+    try {
+      const result = await runWithFallback(inputFor(state, run.id), { retryBaseDelayMs: 1, run: async () => {
+        calls++; return failedResult(run.id, task.id, 'first', { stopReceipt: null,
+          failure: { failureClass: 'provider_transient', retryable: true, signal: 'ECONNRESET', detail: 'transport interrupted', userAction: null } });
+      } });
+      expect(calls).toBe(1); expect(result.note).toMatch(/not confirmed stopped/);
+    } finally { state.store.close(); }
+  });
+
+  it('cancellation during transient backoff starts no successor generation or fallback runtime', async () => {
+    const state = openTempState(); const { run, task } = seedRunAndTask(state); const controller = new AbortController(); let calls = 0;
+    try {
+      const pending = runWithFallback({ ...inputFor(state, run.id), signal: controller.signal }, { retryBaseDelayMs: 100, run: async () => {
+        calls++; setTimeout(() => controller.abort(), 5);
+        return failedResult(run.id, task.id, 'first', { failure: { failureClass: 'provider_transient', retryable: true, signal: 'ECONNRESET', detail: 'transport interrupted', userAction: null } });
+      } });
+      const result = await pending;
+      expect(calls).toBe(1); expect(result.note).toMatch(/stopped/);
+      expect((state.store.db.prepare('SELECT current_generation FROM tasks WHERE id = ?').get(task.id) as { current_generation: number }).current_generation).toBe(1);
+    } finally { state.store.close(); }
+  });
+  it('reopens and settles a direct run from the actual successor verdict without erasing the first attempt timing', async () => {
+    const state = openTempState(); const { run, task } = seedRunAndTask(state); let calls = 0;
+    transitionRun(state.store.db, run.id, 'failed'); const endedAt = getRun(state.store.db, run.id).ended_at;
+    try {
+      const result = await runWithFallback(inputFor(state, run.id), { retryBaseDelayMs: 1, run: async current => {
+        calls++;
+        if (calls === 1) return failedResult(run.id, task.id, 'first', { failure: { failureClass: 'provider_transient', retryable: true, signal: 'ECONNRESET', detail: 'transport interrupted', userAction: null } });
+        expect(getRun(state.store.db, run.id)).toMatchObject({ state: 'running', ended_at: null });
+        return failedResult(run.id, task.id, current.slot!.attemptId, { outcome: 'accepted', failure: null, acceptance: { accepted: true, criteria: [], requiredTotal: 1, requiredPassed: 1, reasons: [] } });
+      } });
+      expect(result.result.runState).toBe('ready_for_review'); expect(getRun(state.store.db, run.id).state).toBe('ready_for_review');
+      expect(listEvents(state.store.db, run.id).find(event => event.type === 'runtime.recovery_started')?.payload).toMatchObject({ previousEndedAt: endedAt });
+    } finally { state.cleanup(); }
+  });
+
+  it('consumes the durable transient budget across repeated recovery callers and never loops on exhaustion', async () => {
+    const state = openTempState(); const { run, task } = seedRunAndTask(state); let calls = 0;
+    const input = inputFor(state, run.id, {});
+    const failure = { failureClass: 'provider_transient' as const, retryable: true, signal: 'ECONNRESET', detail: 'transport interrupted', userAction: null };
+    const invoke = () => runWithFallback(input, { retryBaseDelayMs: 1, run: async current => { calls++; return failedResult(run.id, task.id, current.slot?.attemptId ?? 'first', { failure }); } });
+    try {
+      await invoke(); expect(calls).toBe(3);
+      expect(listEvents(state.store.db, run.id).filter(event => event.type === 'runtime.retry_scheduled')).toHaveLength(2);
+      await invoke(); expect(calls).toBe(4);
+      expect(listEvents(state.store.db, run.id).filter(event => event.type === 'runtime.retry_scheduled')).toHaveLength(2);
+    } finally { state.cleanup(); }
+  });
+
+  it('refuses both retry and fallback after another generation takes ownership during backoff', async () => {
+    const state = openTempState(); const { run, task } = seedRunAndTask(state); let calls = 0;
+    try {
+      const result = await runWithFallback(inputFor(state, run.id), { retryBaseDelayMs: 30, run: async () => {
+        calls++; setTimeout(() => state.store.db.prepare('UPDATE tasks SET current_generation = 2 WHERE id = ?').run(task.id), 5);
+        return failedResult(run.id, task.id, 'first', { failure: { failureClass: 'provider_transient', retryable: true, signal: 'ECONNRESET', detail: 'transport interrupted', userAction: null } });
+      } });
+      expect(calls).toBe(1); expect(result.note).toMatch(/generation or run ownership changed/);
+    } finally { state.cleanup(); }
+  });
+
   it('classifies, selects, hands off and runs a second attempt on the other runtime', async () => {
     const state = openTempState();
     const { run, task } = seedRunAndTask(state);

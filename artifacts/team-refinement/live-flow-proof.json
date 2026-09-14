@@ -1,0 +1,72 @@
+{
+  "verifiedAt": "2026-09-14T05:29:19.014Z",
+  "concurrentExecution": true,
+  "runs": [
+    {
+      "requestId": "01a09e5c-b4fa-738e-a4fd-b4b5b05ddd4a",
+      "projectId": "backend-flow-check",
+      "route": {
+        "method": "classifier",
+        "departmentId": "nathan-james-backend-data",
+        "headAgentId": "alisha-granderson",
+        "model": "gpt-6-astra"
+      },
+      "workerIds": [
+        "danny-green"
+      ],
+      "startedAt": "2026-09-14T05:21:39.578Z",
+      "endedAt": "2026-09-14T05:24:10.612Z",
+      "requestState": "ended",
+      "exitCode": 0,
+      "runId": "01a09e5d-2681-757b-a4ee-9b3b1a1014e3",
+      "taskStates": [
+        {
+          "id": "01a09e5d-c303-7637-a0ee-af188eed6bd5",
+          "ownerAgentId": "danny-green",
+          "state": "accepted"
+        }
+      ],
+      "headReview": {
+        "headAgentId": "alisha-granderson",
+        "state": "passed",
+        "sessionStopped": true,
+        "at": "2026-09-14T05:24:10.595Z"
+      },
+      "sourceClean": true,
+      "sourceDiffHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "requestId": "01a09e5c-b4ec-70a1-bb71-17a6e259cc9e",
+      "projectId": "frontend-flow-check",
+      "route": {
+        "method": "classifier",
+        "departmentId": "nathan-james-frontend-design",
+        "headAgentId": "kara-foster",
+        "model": "gpt-6-astra"
+      },
+      "workerIds": [
+        "will-mason"
+      ],
+      "startedAt": "2026-09-14T05:21:24.205Z",
+      "endedAt": "2026-09-14T05:23:38.837Z",
+      "requestState": "ended",
+      "exitCode": 0,
+      "runId": "01a09e5c-ea79-77c1-ad97-60684b1469a9",
+      "taskStates": [
+        {
+          "id": "01a09e5d-969a-741f-a6fd-02e8bc60dd92",
+          "ownerAgentId": "will-mason",
+          "state": "accepted"
+        }
+      ],
+      "headReview": {
+        "headAgentId": "kara-foster",
+        "state": "passed",
+        "sessionStopped": true,
+        "at": "2026-09-14T05:23:38.820Z"
+      },
+      "sourceClean": true,
+      "sourceDiffHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

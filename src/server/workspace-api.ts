@@ -264,12 +264,11 @@ export interface WorkspaceWriteContext {
 
 /**
  * What the page sends, made into what the operations expect, exactly as the
- * CLI does it: a standard tool name becomes its runtime id, and a project
- * folder becomes its repository root (and must be a Git repository).
+ * CLI does it: a project folder becomes its repository root (and must be a
+ * Git repository). Runtime shorthand is resolved against the locked workspace
+ * during application, so an exact saved binding always takes precedence.
  */
 async function normalizeOp(op: WorkspaceOp): Promise<WorkspaceOp> {
-  if (op.op === 'agent.add') return { ...op, runtime: standardRuntimeId(op.runtime) };
-  if (op.op === 'agent.edit' && op.runtime !== undefined) return { ...op, runtime: standardRuntimeId(op.runtime) };
   if (op.op !== 'project.add') return op;
   const expanded = expandHomePath(op.repoPath);
   if (!path.isAbsolute(expanded)) return op;
@@ -306,7 +305,16 @@ export async function applyWorkspaceWrite(raw: unknown, context: WorkspaceWriteC
       context.stateRoot,
       (current) => {
         seen.before = current;
-        return applyWorkspaceOps(current, normalized, { stateRoot: context.stateRoot, projectHasLiveRun: context.projectBusy });
+        const opContext = { stateRoot: context.stateRoot, projectHasLiveRun: context.projectBusy };
+        return normalized.reduce((draft, op) => {
+          // The current locked document and earlier operations in this batch
+          // define exact IDs. Only an otherwise unknown ID is a tool alias.
+          if (op.op === 'agent.add' || op.op === 'agent.edit' && op.runtime !== undefined) {
+            const runtime = op.runtime!;
+            if (!Object.hasOwn(draft.runtimes, runtime)) return applyWorkspaceOps(draft, [{ ...op, runtime: standardRuntimeId(runtime) }], opContext);
+          }
+          return applyWorkspaceOps(draft, [op], opContext);
+        }, current);
       },
       { expectRevision: parsed.data.expectRevision },
     );

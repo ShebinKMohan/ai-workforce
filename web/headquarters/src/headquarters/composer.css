@@ -1,0 +1,52 @@
+/* Bounded composing surface: attachments scroll, the message and send control stay put. */
+.live-control-chat.cc-task-rail .cc-composer-wrap {
+  width:100%; min-width:0; max-height:none; overflow:visible; flex:0 0 auto;
+  padding:10px 12px max(8px,env(safe-area-inset-bottom)); position:relative;
+}
+.live-control-chat .cc-composer-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.live-control-chat .cc-composer-label { margin:0; font-size:11px; }
+.live-control-chat .cc-attachment-count { color:var(--muted); font-size:10px; white-space:nowrap; }
+.live-control-chat.cc-task-rail .cc-composer-bottom { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; padding:0; margin:0 0 8px; }
+.live-control-chat .cc-composer-bottom label { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:5px; min-width:0; margin:0; }
+.live-control-chat .cc-composer-bottom label > span { font-size:10px; color:var(--muted); }
+.live-control-chat .cc-composer-bottom select { width:100%; max-width:100%; min-width:0; height:30px; min-height:30px; padding:3px 5px; border:1px solid var(--line); border-radius:6px; background:var(--field-bg); color:var(--ink); font-size:11px; font-family:inherit; text-overflow:ellipsis; }
+.live-control-chat.cc-task-rail .cc-composer { display:flex; flex-direction:column; min-width:0; padding:8px; margin:0; overflow:visible; border-radius:10px; }
+.live-control-chat.cc-task-rail #atlas-message { display:block; flex:none; width:100%; height:64px; min-height:64px; max-height:96px; margin:0; padding:6px 4px; overflow:auto; resize:none; font-size:13px; line-height:1.5; outline:none; box-shadow:none; }
+.live-control-chat.cc-task-rail .cc-composer-row { display:flex; align-items:center; gap:8px; margin:0; padding:2px 0 0; }
+.live-control-chat.cc-task-rail .cc-attach-button { flex:none; width:30px; height:30px; margin:0; border-radius:6px; }
+.live-control-chat.cc-task-rail .send-button { flex:none; width:32px; height:32px; margin-left:auto; }
+.live-control-chat.cc-task-rail .composer-attachments {
+  display:flex; flex-flow:row nowrap; flex:0 0 auto; gap:6px; width:100%; min-width:0;
+  height:60px; max-height:60px; overflow-x:auto; overflow-y:hidden; overscroll-behavior:contain;
+  margin:0 0 6px; padding:0 0 6px; scrollbar-width:thin; scrollbar-color:var(--line-strong) transparent;
+}
+.live-control-chat.cc-task-rail .composer-attachments[hidden],.live-control-chat .cc-attachment-count[hidden],.live-control-chat .cc-routing-hint[hidden] { display:none; }
+.live-control-chat.cc-task-rail .attachment-chip { display:flex; flex:0 0 190px; width:190px; height:46px; max-width:100%; padding:5px 6px; gap:6px; box-sizing:border-box; border-radius:7px; }
+.live-control-chat.cc-task-rail .attachment-chip > span { display:block; flex:1; min-width:0; max-width:none; }
+.live-control-chat .attachment-chip strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; font-weight:500; }
+.live-control-chat.cc-task-rail .attachment-chip small { display:block; font-size:10px; line-height:1.4; }
+.live-control-chat.cc-task-rail .attachment-chip > button { flex:none; width:24px; height:26px; border-radius:5px; }
+.live-control-chat .attachment-chip > button:hover { background:var(--paper); color:var(--ink); }
+.live-control-chat .attachment-chip.cc-file-error { border-color:var(--warning); }
+.live-control-chat .cc-agent-settings { flex:1; position:relative; min-width:0; }
+.live-control-chat .cc-agent-settings > summary { min-height:30px; padding:0 5px; font-size:11px; border-radius:5px; }
+.live-control-chat .cc-agent-settings > summary:hover { background:var(--wash); color:var(--ink); }
+.live-control-chat .cc-settings-popover { display:none; position:absolute; z-index:10; bottom:calc(100% + 10px); left:-36px; width:min(340px,calc(100vw - 48px)); max-height:min(320px,55dvh); overflow:auto; overscroll-behavior:contain; padding:14px; border:1px solid var(--line-strong); border-radius:10px; background:var(--paper); color:var(--ink); box-shadow:var(--shadow-md); }
+.live-control-chat .cc-agent-settings[open] > .cc-settings-popover { display:block; }
+.live-control-chat .cc-settings-popover > strong { font-size:12px; }
+.live-control-chat .cc-agent-settings[open] .cc-model-pickers { display:grid; grid-template-columns:minmax(0,1fr); gap:9px; padding:12px 0; }
+.live-control-chat .cc-model-pickers .cc-select { display:grid; grid-template-columns:90px minmax(0,1fr); align-items:center; gap:8px; }
+.live-control-chat .cc-model-pickers label > span { font-size:11px; color:var(--muted); }
+.live-control-chat .cc-model-pickers select { background:var(--field-bg); border:1px solid var(--line); padding:5px; min-height:30px; font-size:11px; color:var(--ink); }
+.live-control-chat .cc-settings-popover .cc-runtime-details { margin:0; }
+.live-control-chat .cc-settings-popover .cc-runtime-popover { position:static; width:auto; max-width:none; max-height:none; margin-top:8px; box-shadow:none; padding:8px; }
+.live-control-chat .cc-refresh-settings { display:inline-flex; align-items:center; gap:6px; margin-top:10px; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--wash); color:var(--ink); font-size:11px; cursor:pointer; }
+.live-control-chat .cc-refresh-settings .icon { width:13px; height:13px; }
+.live-control-chat.cc-task-rail .cc-status-line { min-height:0; margin-top:5px; line-height:1.4; }
+.live-control-chat.cc-task-rail .cc-status-line > [data-connection] { font-size:10px; color:var(--muted); }
+.live-control-chat .cc-routing-hint { margin:6px 0 0; padding:0; font-size:10px; line-height:1.4; }
+.live-control-chat .cc-error { max-height:64px; overflow:auto; }
+.live-control-chat .cc-sent-files { max-height:92px; overflow:auto; overscroll-behavior:contain; }
+.live-control-chat .cc-composer :is(button,summary,select,[data-files]):focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+@media(min-width:1000px) { .main-columns.chat-focused .live-control-chat .cc-composer-wrap { width:min(800px,100%); margin-inline:auto; } }
+@media(max-height:600px) { .live-control-chat.cc-task-rail #atlas-message { height:44px; min-height:44px; } .live-control-chat.cc-task-rail .cc-composer-wrap { padding-block:6px; } }

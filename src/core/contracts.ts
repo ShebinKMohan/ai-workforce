@@ -133,8 +133,11 @@ export const DefaultsSchema = z.strictObject({
 });
 export type Defaults = z.infer<typeof DefaultsSchema>;
 
+export const AgentJobTitleSchema = z.string().trim().min(1).max(100).regex(/^[^\u0000-\u001f\u007f]+$/, 'Job titles must fit on one line.');
+
 export const AgentDefinitionSchema = z.strictObject({
   id: AgentIdSchema,
+  jobTitle: AgentJobTitleSchema.optional(),
   runtime: RuntimeIdSchema,
   instructions: z.string().min(1),
   capabilities: z.array(z.string().min(1).max(64)).max(32),
@@ -209,6 +212,7 @@ export const EFFECTIVE_BINDING_VERSION = 1 as const;
 export const EffectiveAgentBindingSchema = z.strictObject({
   bindingVersion: z.literal(EFFECTIVE_BINDING_VERSION),
   agentId: AgentIdSchema,
+  jobTitle: AgentJobTitleSchema.optional(),
   instructions: z.string().min(1),
   capabilities: z.array(z.string()),
   policy: PolicySchema,

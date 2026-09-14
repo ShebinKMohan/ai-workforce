@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Workforce human portraits — asset preview</title><link rel="stylesheet" href="../../avatars.css"><style>
+:root{color-scheme:light;font-family:system-ui,sans-serif;--paper:#fff;--surface:#fff;--avatar-bg:#d9e8fc;--line:#d8e1ef}body{margin:0;padding:36px;background:#f1f5fb;color:#172338}h1{font-size:26px;letter-spacing:-.6px;margin:0 0 8px}header p{color:#53657f;font-size:13px;margin:0 0 28px}.portraits{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;max-width:1000px}.portrait{display:grid;justify-items:center;gap:12px;padding:24px 12px;background:white;border:1px solid #d8e1ef;border-radius:18px;box-shadow:0 4px 18px #152b4908}.portrait strong{font-size:14px}.portrait small{color:#617087;font-size:11px}.portrait a{color:#2563eb;font-size:11px;text-decoration:none}@media(max-width:700px){body{padding:20px}.portraits{grid-template-columns:repeat(2,minmax(0,1fr))}.portrait{padding:18px 6px}.avatar-human{max-width:125px;max-height:125px}}
+</style></head><body><header><h1>Your workforce, with a human face.</h1><p>Original rendered headshots · neutral, blink, glance and smile · motion pauses offscreen and respects reduced motion</p></header><main class="portraits" id="portraits"></main><script type="module">
+import {avatarCatalog} from '../../avatar-catalog.js';
+import {renderAnimatedAvatar,startAvatarAnimations} from '../../avatar-animation.js';
+document.querySelector('#portraits').innerHTML=avatarCatalog.map(p=>`<article class="portrait">${renderAnimatedAvatar(p,160,p.id)}<strong>${p.label}</strong><small>${p.description}</small><a href="${p.spriteSrc}">View expression strip</a></article>`).join('');
+const stop=startAvatarAnimations(document);window.addEventListener('pagehide',stop,{once:true});
+</script></body></html>

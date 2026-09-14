@@ -3,9 +3,11 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { addConnectionArgs, getConnectionArgs, parseConnectionEntry, removeConnectionArgs, runConnectionCommand, type ClientId, type CommandOutcome, type ConnectionEntry, type DesiredConnection } from '../connections/cli.js';
-import { parseVersionOutput } from '../discovery/probe.js';
+import { parseAuthCommandOutcome, parseVersionOutput } from '../discovery/probe.js';
+import { AuthenticationManager, authStatusArgs, loginArgs, type AuthenticationView } from '../connections/authentication.js';
+import { capabilitiesFor, isControllable, loadVerifiedCapabilityOverrides } from '../discovery/capabilities.js';
 import { resolveExecutable, type ExecutableResolution } from '../discovery/resolve.js';
-import type { DiscoverableAdapter } from '../discovery/runtimes.js';
+import { isAtLeast, runtimeDescriptor, type DiscoverableAdapter } from '../discovery/runtimes.js';
 import { sanitizedProbeEnv, withNeutralCwd } from '../discovery/spawn.js';
 import { validateServerUrl } from '../mcp/client.js';
 import { MCP_TOOLS } from '../mcp/tools.js';
@@ -40,6 +42,8 @@ export interface ConnectionClientView {
   message: string;
   error: { code: string; message: string } | null;
   setupUrl: string;
+  authentication: AuthenticationView;
+  execution: { usable: boolean; reason: string };
 }
 interface Snapshot { view: ConnectionClientView; entry: ConnectionEntry; desired: DesiredConnection }
 export interface ConnectionsApiOptions {
@@ -52,6 +56,9 @@ export interface ConnectionsApiOptions {
   readonly bridgeCommand?: string;
   readonly bridgeEntry?: string;
   readonly bridgeExists?: () => boolean;
+  /** Invalidate workspace readiness/model caches after authentication changes. */
+  readonly onAuthenticationChanged?: () => void;
+  readonly loginTimeoutMs?: number;
 }
 
 function outcomeOk(outcome: CommandOutcome): boolean {
@@ -72,9 +79,10 @@ function emptyVerification(): ConnectionVerification { return { state: 'not_chec
 export class ConnectionsApi {
   readonly #env: NodeJS.ProcessEnv;
   readonly #run: typeof runConnectionCommand;
-  readonly #cache = new Map<ClientId, { at: number; snapshot: Promise<Snapshot> }>();
+  readonly #cache = new Map<ClientId, { at: number; key: string; snapshot: Promise<Snapshot> }>();
   readonly #active = new Map<ClientId, Promise<{ ok: true; schemaVersion: 1; client: ConnectionClientView; changed: boolean; message: string }>>();
   readonly #verification = new Map<ClientId, { key: string; value: ConnectionVerification }>();
+  readonly #authentication: AuthenticationManager;
   constructor(readonly options: ConnectionsApiOptions) {
     const environment = options.env ?? process.env;
     this.#env = sanitizedProbeEnv(environment);
@@ -82,6 +90,15 @@ export class ConnectionsApi {
     // never provider credentials. Keep them consistent between get and add.
     for (const key of ['CODEX_HOME', 'CLAUDE_CONFIG_DIR']) if (environment[key]) this.#env[key] = environment[key];
     this.#run = options.run ?? runConnectionCommand;
+    this.#authentication = new AuthenticationManager({
+      probe: async (id, executable) => {
+        const result = await this.#command(executable, authStatusArgs(id));
+        return parseAuthCommandOutcome(id === 'claude' ? 'claude-code' : 'codex', { ...result, timeoutMs: 15_000 });
+      },
+      launch: (id, executable, signal, timeoutMs) => withNeutralCwd((cwd) => this.#run({ executable, args: loginArgs(id), env: this.#env, cwd, signal, timeoutMs })),
+      onChanged: () => { this.options.onAuthenticationChanged?.(); },
+      ...(options.loginTimeoutMs !== undefined ? { timeoutMs: options.loginTimeoutMs } : {}),
+    });
   }
 
   #desired(): DesiredConnection {
@@ -108,17 +125,19 @@ export class ConnectionsApi {
   }
 
   async #inspect(id: ClientId, refresh = false): Promise<Snapshot> {
+    const definition = CLIENTS.find((client) => client.id === id)!;
+    const desired = this.#desired();
+    const resolution = this.#resolve(definition.adapter);
+    const executable = resolution.selected?.path ?? null;
+    const key = JSON.stringify([desired, executable, resolution.selected?.realPath]);
     const cached = this.#cache.get(id);
-    if (!refresh && cached && Date.now() - cached.at < CACHE_MS) return cached.snapshot;
+    if (!refresh && cached?.key === key && Date.now() - cached.at < CACHE_MS) return cached.snapshot;
     const snapshot = (async (): Promise<Snapshot> => {
-      const definition = CLIENTS.find((client) => client.id === id)!;
-      const desired = this.#desired();
-      const resolution = this.#resolve(definition.adapter);
-      const executable = resolution.selected?.path ?? null;
       const verification = this.#verificationFor(id, desired);
       const view: ConnectionClientView = { id, name: definition.name, installed: executable !== null, executable, version: null,
         status: 'not_installed', configured: false, canConnect: false, action: null, scope: 'user', toolsVerified: false,
-        verification, clientReloadRequired: false, message: `Install ${definition.name}, then choose Detect again.`, error: null, setupUrl: definition.setupUrl };
+        verification, clientReloadRequired: false, message: `Install ${definition.name}, then choose Detect again.`, error: null, setupUrl: definition.setupUrl,
+        authentication: { state: 'unknown', auth: 'unknown', canSignIn: false, message: 'Sign-in has not been checked.', checkedAt: null, login: null }, execution: { usable: false, reason: 'Execution readiness has not been checked.' } };
       if (!executable) return { view, entry: { kind: 'missing' }, desired };
       const [versionResult, getResult] = await Promise.all([this.#command(executable, ['--version']), this.#command(executable, getConnectionArgs(id))]);
       view.version = outcomeOk(versionResult) ? parseVersionOutput(definition.adapter, versionResult.stdout) : null;
@@ -145,7 +164,7 @@ export class ConnectionsApi {
       }
       return { view, entry, desired };
     })();
-    this.#cache.set(id, { at: Date.now(), snapshot });
+    this.#cache.set(id, { at: Date.now(), key, snapshot });
     try { return await snapshot; } catch {
       this.#cache.delete(id);
       throw new ApiError(503, 'connection_inspection_failed', 'The installed coding agent could not be inspected. Try Detect again.');
@@ -159,13 +178,43 @@ export class ConnectionsApi {
         await this.#verifyBridge(id, snapshot.desired);
         snapshot = await this.#inspect(id, true);
       }
-      return snapshot.view;
+      return this.#withAuthentication(snapshot.view);
     }));
     return { ok: true, schemaVersion: 1, serverUrl: this.options.serverUrl(), checkedAt: new Date().toISOString(), clients,
       bridge: { name: 'ai-workforce', transport: 'stdio', serverUrl: this.options.serverUrl(), scope: 'user',
         toolCount: MCP_TOOLS.length, clientSessionStatus: 'not_observed' },
       referenceConfiguration: { mcpServers: { 'ai-workforce': this.#desired() } } };
   }
+
+  async #withAuthentication(view: ConnectionClientView, known?: AuthenticationView): Promise<ConnectionClientView> {
+    const authentication = known ?? await this.#authentication.status(view.id, view.executable);
+    const adapter = view.id === 'claude' ? 'claude-code' : 'codex';
+    const supported = view.version !== null && isAtLeast(view.version, runtimeDescriptor(adapter).minimumSupportedVersion)
+      && isControllable(capabilitiesFor(adapter, view.version, { overrides: loadVerifiedCapabilityOverrides() }));
+    const usable = view.installed && supported && authentication.auth === 'logged_in' && authentication.state === 'connected';
+    return { ...view, authentication, execution: { usable, reason: usable ? 'The installed runtime reports an active sign-in and supported controls. Task permissions and verification still apply.'
+      : !view.installed ? 'Install this coding agent before assigning it work.' : !supported ? 'This installation does not report supported runtime controls. Update or check the installation.' : authentication.message } };
+  }
+
+  /** Cheap sign-in polling deliberately avoids MCP verification. */
+  async authenticationStatus(clientId: string) {
+    if (!CLIENT_IDS.has(clientId)) throw new ApiError(404, 'unknown_connection_client', 'Choose Codex or Claude Code.');
+    const id = clientId as ClientId;
+    const snapshot = await this.#inspect(id);
+    return { ok: true, schemaVersion: 1, client: await this.#withAuthentication(snapshot.view) };
+  }
+
+  async authenticationAction(clientId: string, action: 'sign-in' | 'cancel-sign-in', raw: unknown) {
+    if (!CLIENT_IDS.has(clientId)) throw new ApiError(404, 'unknown_connection_client', 'Choose Codex or Claude Code.');
+    if (!Body.safeParse(raw).success) throw new ApiError(400, 'invalid_body', 'The sign-in action takes an empty JSON object.');
+    const id = clientId as ClientId;
+    const snapshot = await this.#inspect(id, action === 'sign-in');
+    if (action === 'sign-in' && !snapshot.view.executable) throw new ApiError(409, 'client_not_installed', snapshot.view.message);
+    const authentication = action === 'sign-in' ? await this.#authentication.start(id, snapshot.view.executable!) : await this.#authentication.cancel(id, snapshot.view.executable);
+    return { ok: true, schemaVersion: 1, client: await this.#withAuthentication(snapshot.view, authentication) };
+  }
+
+  async close(): Promise<void> { await this.#authentication.close(); }
 
   async #verifyBridge(id: ClientId, desired: DesiredConnection): Promise<ConnectionVerification> {
     const frames = [
@@ -238,6 +287,6 @@ export class ConnectionsApi {
     const verification = await this.#verifyBridge(id, before.desired);
     const after = await this.#inspect(id, true);
     if (verification.state !== 'verified') throw new ApiError(503, 'connection_verification_failed', verification.error!, [], { client: after.view });
-    return { ok: true, schemaVersion: 1, client: after.view, changed, message: after.view.message };
+    return { ok: true, schemaVersion: 1, client: await this.#withAuthentication(after.view), changed, message: after.view.message };
   }
 }

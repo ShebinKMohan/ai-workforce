@@ -171,6 +171,8 @@ export interface ConnectionCommand {
   cwd?: string;
   timeoutMs?: number;
   stdin?: string;
+  /** Owned native login can be cancelled while its provider browser is open. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -181,10 +183,11 @@ export interface ConnectionCommand {
 export function runConnectionCommand(command: ConnectionCommand): Promise<CommandOutcome> {
   const timeoutMs = command.timeoutMs ?? 10_000;
   const empty: CommandOutcome = { stdout: '', stderr: '', exitCode: null, signal: null, timedOut: false, spawnError: null };
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 600_000
       || Buffer.byteLength(command.stdin ?? '') > MAX_INPUT_BYTES) {
     return Promise.resolve({ ...empty, spawnError: 'Connection command limits are invalid.' });
   }
+  if (command.signal?.aborted) return Promise.resolve({ ...empty, signal: 'SIGTERM' });
   return new Promise((resolve) => {
     const output: Record<'stdout' | 'stderr', Buffer[]> = { stdout: [], stderr: [] };
     const sizes = { stdout: 0, stderr: 0 };
@@ -203,6 +206,7 @@ export function runConnectionCommand(command: ConnectionCommand): Promise<Comman
       clearTimeout(deadline);
       clearTimeout(grace);
       clearTimeout(poll);
+      command.signal?.removeEventListener('abort', stop);
       resolve({ ...outcome, stdout: Buffer.concat(output.stdout).toString('utf8'), stderr: Buffer.concat(output.stderr).toString('utf8') });
     }
     try {
@@ -276,6 +280,8 @@ export function runConnectionCommand(command: ConnectionCommand): Promise<Comman
       // authoritative; protocol callers separately validate their responses.
     });
     deadline = setTimeout(() => { outcome.timedOut = true; stop(); }, timeoutMs);
+    command.signal?.addEventListener('abort', stop, { once: true });
+    if (command.signal?.aborted) stop();
     child.stdin.end(command.stdin ?? '');
   });
 }

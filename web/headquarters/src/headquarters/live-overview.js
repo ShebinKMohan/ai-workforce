@@ -1,6 +1,8 @@
 import { avatar, escape, icon } from './ui.js';
-import { requestTaskStatus, taskWorkStatus } from './task-status.js';
-import { deriveFleetJourneys, deriveFleetHandoffs } from './fleet-activity.js';
+import { latestRunRequests, requestTaskStatus, taskWorkStatus } from './task-status.js';
+import { deriveFleetJourneys, workerAttemptEnded } from './fleet-activity.js';
+import { renderDuration } from './time-display.js';
+import { taskEventLabel } from './task-rail.js';
 
 const asArray = value => Array.isArray(value) ? value : [];
 const idOf = value => String(typeof value === 'object' && value !== null ? value.id ?? '' : value ?? '');
@@ -40,25 +42,27 @@ export function deriveOverviewWorkload(data = {}) {
   const representedRuns = new Set();
   for (const [key, run] of runMap) {
     const linkedRequests = (requestsByRun.get(key) || []).slice().sort((a, b) => recordTime(b) - recordTime(a));
-    const linked = linkedRequests[0];
+    const linked = latestRunRequests(linkedRequests)[0];
     if (asArray(run.taskViews).length) representedRuns.add(key);
     for (const task of asArray(run.taskViews)) {
-      if (!task.id) continue;
+      if (!task.id || task.state === 'superseded') continue;
       const ownerId = recordAgentId(task);
       const owner = agentList.find(agent => idOf(agent.id) === ownerId);
       const departmentId = recordDepartmentId(task) || recordDepartmentId(linked) || recordDepartmentId(owner);
       let status = taskWorkStatus(task, run);
+      if (run.workKind === 'analysis' && task.state === 'validating') status = { bucket: 'backlog', label: 'Report ready', tone: 'queued' };
+      if (run.workKind === 'analysis' && task.state === 'accepted') status = { bucket: 'done', label: 'Reviewed report', tone: 'complete' };
       const journey = journeyFor(run, linked);
       if (activeBuckets.has(status.bucket) && journey && !journey.active) {
         status = journey.waiting ? { bucket: journey.tone === 'queued' ? 'backlog' : 'waiting', label: journey.status, tone: journey.tone } : { bucket: 'closed', label: journey.status, tone: journey.tone };
       }
       if (activeBuckets.has(status.bucket) && (['failed_to_start', 'failed'].includes(linked?.state) || linked?.state === 'ended' && linked?.exitCode != null && linked.exitCode !== 0)) status = { bucket: 'closed', label: 'Run failed', tone: 'error' };
-      const item = { key: `${key}:${idOf(task.id)}`, kind: 'task', taskId: idOf(task.id), runId: idOf(run.id), projectId: idOf(run.projectId), requestIds: linkedRequests.map(request => idOf(request.id)), departmentId, ownerId, state: task.state, ...status };
+      const item = { key: `${key}:${idOf(task.id)}`, kind: 'task', taskId: idOf(task.id), runId: idOf(run.id), projectId: idOf(run.projectId), requestIds: linkedRequests.map(request => idOf(request.id)), departmentId, ownerId, state: task.state, runtimeEnded: workerAttemptEnded(task), ...status };
       itemsByKey.set(item.key, item);
     }
   }
   const pendingBriefs = new Map();
-  for (const request of requestList) {
+  for (const request of latestRunRequests(requestList)) {
     const linkedRunId = request.runId || request.resumeRunId;
     const key = linkedRunId ? runKey(request.projectId, linkedRunId) : `request:${idOf(request.id)}`;
     if (representedRuns.has(key)) continue;
@@ -78,7 +82,7 @@ export function deriveOverviewWorkload(data = {}) {
   const agentStates = new Map();
   for (const item of items) {
     counts[item.bucket]++;
-    if (!item.ownerId) continue;
+    if (!item.ownerId || item.runtimeEnded && ['progress', 'backlog'].includes(item.bucket)) continue;
     const previous = agentStates.get(item.ownerId);
     if (!previous || statePriority[item.bucket] > statePriority[previous.bucket]) agentStates.set(item.ownerId, item);
   }
@@ -90,7 +94,10 @@ export function deriveOverviewWorkload(data = {}) {
       if (!prior || statePriority[prior.bucket] < statePriority.progress) agentStates.set(id, { bucket: 'progress', label: 'Reviewing', tone: 'running', runId: idOf(run.id), projectId: idOf(run.projectId) });
     }
   }
-  const activeOwners = new Set(items.filter(item => item.bucket === 'progress').map(item => item.ownerId).filter(Boolean));
+  for (const journey of journeys) if (journey.active && ['planning', 'review'].includes(journey.stage)) {
+    for (const agentId of journey.ownerIds) agentStates.set(agentId, { bucket:'progress', label:journey.status, tone:'running', runId:journey.runId, projectId:journey.projectId, requestIds:[journey.requestId].filter(Boolean) });
+  }
+  const activeOwners = new Set(items.filter(item => item.bucket === 'progress' && !item.runtimeEnded).map(item => item.ownerId).filter(Boolean));
   for (const [agentId, state] of agentStates) if (state.bucket === 'progress') activeOwners.add(agentId);
   const activeAgentIds = agentList.filter(agent => activeOwners.has(idOf(agent.id))).map(agent => idOf(agent.id));
   const byDepartment = new Map(asArray(departments).filter(department => !department.archived).map(department => {
@@ -104,6 +111,7 @@ export function deriveOverviewWorkload(data = {}) {
 
 export function agentSpecialty(agent) {
   if (agent.isCoordinator || agent.id === 'control-center') return 'Control Center · Intake & coordination';
+  if (typeof agent.jobTitle === 'string' && agent.jobTitle.trim()) return agent.jobTitle.trim();
   const explicit = String(agent.instructions || '').match(/^ROLE:\s*([^\n]+)/i)?.[1];
   if (explicit) return explicit.toLowerCase().replace(/(^|[ /&–-])([a-z])/g, (_, space, letter) => space + letter.toUpperCase()).replace(/\b(ui|api|qa|mcp|sdk)\b/gi, word => word.toUpperCase());
   if (agent.isHead || agent.runtimeRole === 'head' || agent.role === 'head') return 'Department head';
@@ -125,7 +133,25 @@ export function deriveFleetAgentState(agent, data = {}, workload = deriveOvervie
   if (owned) return { bucket: owned.waiting ? 'waiting' : 'progress', tone: owned.tone, label: owned.status, title: owned.title, projectId: owned.projectId, runId: owned.runId, requestIds: [owned.requestId].filter(Boolean) };
   const reservation = asArray(data.requests).find(request => ['starting', 'running', 'stopping'].includes(request.state) && request.admissionReady && asArray(request.workerIds).includes(idOf(agent.id)));
   if (reservation) return { bucket: 'backlog', tone: 'queued', label: 'Reserved', title: String(reservation.task || 'Reserved for the current request'), projectId: idOf(reservation.projectId), runId: idOf(reservation.runId), requestIds: [idOf(reservation.id)] };
+  const readiness = asArray(data.runtimeReadiness?.reports || data.runtimeReadiness).find(report => report.runtimeId === agent.runtime);
+  if (readiness?.auth === 'logged_out') return { bucket: 'unavailable', tone: 'blocked', label: 'Sign-in needed', title: 'Connect this runtime account to make this agent available' };
+  if (readiness?.installed === false || readiness?.readiness === 'missing') return { bucket: 'unavailable', tone: 'blocked', label: 'Runtime missing', title: 'Install or connect this agent’s runtime' };
+  if (readiness?.usable === false) return { bucket: 'unavailable', tone: 'blocked', label: 'Runtime unavailable', title: 'This runtime is not ready to accept work' };
+  if (data.runtimeReadiness && agent.runtime && (!readiness || data.runtimeReadiness.error)) return { bucket: 'unknown', tone: 'unknown', label: 'Readiness unknown', title: 'Waiting for this runtime’s status' };
+  if (agent.isCoordinator || agent.id === 'control-center') {
+    const intake = asArray(data.requests).filter(request => ['queued', 'received', 'routing', 'starting', 'running'].includes(request.state) && request.route?.state === 'pending' && !request.stopRequestedAt);
+    if (intake.length) return { bucket: 'backlog', tone: 'queued', label: 'Requests in intake', title: 'Requests awaiting department routing', note: `${intake.length} request${intake.length === 1 ? '' : 's'} awaiting routing`, intakeCount: intake.length, requestIds: intake.map(request => idOf(request.id)) };
+  }
   return { bucket: 'idle', tone: 'idle', label: 'Available', title: 'Ready for work across projects' };
+}
+/** Visual signals consume the same availability state as counts and assignment labels. */
+export function fleetAgentSignal(state = {}) {
+  if (state.bucket === 'idle' && state.label === 'Available') return 'available';
+  if (state.bucket === 'progress' && state.tone === 'running') return 'working';
+  if (state.bucket === 'unavailable') return state.label === 'Sign-in needed' ? 'sign-in' : 'unavailable';
+  if (state.bucket === 'waiting') return 'attention';
+  if (state.bucket === 'backlog') return 'waiting';
+  return 'unknown';
 }
 const statusPill = state => `<span class="fleet-status" data-tone="${escape(state.tone || 'idle')}"><i aria-hidden="true"></i>${escape(state.label || state.status)}</span>`;
 const shortText = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 360) : '';
@@ -151,18 +177,40 @@ function commandActivity(payload) {
 const projectName = (projectId, data) => asArray(data.projects).find(project => idOf(project.id) === idOf(projectId))?.name || projectId || 'Workspace';
 const dateValue = at => Date.parse(at || '') || 0;
 const phaseLabel = phase => ({ intake: 'Intake', planning: 'Planning', work: 'Implementation', checks: 'Verification', review: 'Head review', done: 'Delivered' })[phase] || 'Recorded work';
-function ageLabel(start, end = Date.now()) {
-  const from = dateValue(start), to = typeof end === 'number' ? end : dateValue(end);
-  if (!from || !to) return '';
-  const seconds = Math.max(0, Math.floor((to - from) / 1000));
-  return seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`;
+function updatedMarkup(at) {
+  if (!dateValue(at)) return '';
+  return `<time datetime="${escape(at)}" title="${escape(new Date(at).toLocaleString())}">${escape(new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }))}</time>`;
 }
-function timeMarkup(at, suffix = 'ago', end) {
-  const label = ageLabel(at, end);
-  return label ? `<time datetime="${escape(at)}" data-fleet-time="${escape(suffix)}"${end ? ` data-fleet-end="${escape(typeof end === 'number' ? new Date(end).toISOString() : end)}"` : ''} title="${escape(new Date(at).toLocaleString())}">${escape(label)}${suffix ? ` ${suffix}` : ''}</time>` : '';
+/** Worker time is the current attempt's own interval, never the request's queue time. */
+function workerTiming(task, active, connected = true) {
+  const attempt = task?.attempt;
+  const start = dateValue(attempt?.startedAt) ? attempt.startedAt : null;
+  const end = dateValue(attempt?.endedAt) && dateValue(attempt.endedAt) >= dateValue(start) ? attempt.endedAt : null;
+  return { startedAt: start, endedAt: end, timingActive: connected !== false && active && task.state === 'running' && !!start && !attempt.endedAt && (!attempt.state || attempt.state === 'running'), timingLabel: end ? 'Worker time' : 'Elapsed', timingSource: 'attempt' };
+}
+/** Pair lifecycle records within one actor, project, run and review/planning generation. */
+export function deriveAgentPhaseTiming(agentId, operation, data = {}, phase) {
+  if (!operation?.runId || !operation.projectId) return null;
+  const run = asArray(data.runs).find(item => idOf(item.id) === operation.runId && idOf(item.projectId) === operation.projectId);
+  const kinds = phase ? [phase] : ['planning', 'review'];
+  const records = eventRecords(data).filter(event => idOf(event.projectId) === operation.projectId && idOf(event.runId) === operation.runId && [event.agentId, event.headAgentId, event.payload?.agentId, event.payload?.headAgentId].some(value => idOf(value) === idOf(agentId)))
+    .sort((a, b) => dateValue(a.timestamp || a.at) - dateValue(b.timestamp || b.at) || Number(a.sequence || a.cursor || 0) - Number(b.sequence || b.cursor || 0));
+  const intervals = [];
+  for (const kind of kinds) {
+    const expectedId = kind === 'review' ? run?.headReview?.reviewId : run?.headPlanning?.planningId;
+    const identity = event => event?.payload?.[`${kind === 'review' ? 'review' : 'planning'}Id`] || event?.[`${kind === 'review' ? 'review' : 'planning'}Id`];
+    const started = records.filter(event => event.type === `head.${kind}_started` && (!expectedId || identity(event) === expectedId)).at(-1);
+    const summary = kind === 'review' ? run?.headReview : run?.headPlanning;
+    const startedAt = started?.timestamp || started?.at || (summary?.state === 'running' && idOf(summary.headAgentId) === idOf(agentId) ? summary.startedAt || summary.at : null);
+    if (!dateValue(startedAt)) continue;
+    const finished = started && records.slice(records.indexOf(started) + 1).find(event => event.type === `head.${kind}_finished` && dateValue(event.timestamp || event.at) >= dateValue(startedAt) && (!identity(event) || identity(event) === identity(started)));
+    const endedAt = finished?.timestamp || finished?.at || null;
+    intervals.push({ startedAt, endedAt, timingActive: data.connected !== false && !endedAt && operation.active && operation.stage === kind, timingLabel: kind === 'review' ? 'Review time' : 'Planning time', timingSource: `head.${kind}`, phase: kind === 'review' ? operation.workKind === 'analysis' ? 'Report review' : 'Head review' : 'Planning' });
+  }
+  return intervals.sort((a, b) => dateValue(b.endedAt || b.startedAt) - dateValue(a.endedAt || a.startedAt))[0] || null;
 }
 function activityLabel(event) {
-  return visibleActivity(event) ? compactSummary(activityText(event), 140) : '';
+  return event && visibleActivity(event) ? compactSummary(taskEventLabel({ ...event, type:String(event.type || '').replace(/^head\.runtime\./, 'runtime.') }), 140) : '';
 }
 function activityText(event) {
   if (!event || !visibleActivity(event)) return '';
@@ -201,7 +249,7 @@ function operationReason(request, run) {
 export function deriveFleetOperations(data = {}, workload = deriveOverviewWorkload(data)) {
   const requests = asArray(data.requests), runs = asArray(data.runs), events = eventRecords(data);
   const latest = new Map();
-  for (const request of requests) {
+  for (const request of latestRunRequests(requests)) {
     const runId = request.runId || request.resumeRunId;
     if (!runId) continue;
     const identity = runKey(request.projectId, runId), prior = latest.get(identity);
@@ -214,88 +262,136 @@ export function deriveFleetOperations(data = {}, workload = deriveOverviewWorklo
     const tasks = items.map(item => {
       const task = asArray(run?.taskViews).find(record => idOf(record.id) === item.taskId);
       const activity = latestActivity(events, journey.projectId, journey.runId, journey.requestId, item.taskId, idOf(task?.attempt?.id));
-      const at = activity?.timestamp || activity?.at || task?.lastEvent?.timestamp || task?.updatedAt || task?.attempt?.startedAt;
-      return { ...item, title: String(task?.objective || task?.title || 'Assigned task'), ownerName: asArray(data.agents).find(agent => idOf(agent.id) === item.ownerId)?.name || item.ownerId || 'Unassigned', activity: activityLabel(activity) || activityLabel(task?.lastEvent), updatedAt: at, startedAt: task?.attempt?.startedAt, endedAt: task?.attempt?.endedAt, receipts: task?.receipts || {} };
+      const at = activity?.timestamp || activity?.at || (activityLabel(task?.lastEvent) ? task.lastEvent.timestamp : null) || task?.updatedAt || task?.attempt?.startedAt;
+      return { ...item, title: String(task?.objective || task?.title || 'Assigned task'), ownerName: asArray(data.agents).find(agent => idOf(agent.id) === item.ownerId)?.name || item.ownerId || 'Unassigned', activity: activityLabel(activity) || activityLabel(task?.lastEvent), updatedAt: at, ...workerTiming(task, activeBuckets.has(item.bucket) && journey.active, data.connected), receipts: task?.receipts || {} };
     });
     const activity = latestActivity(events, journey.projectId, journey.runId, journey.requestId);
     const failed = ['failed_to_start', 'failed'].includes(request?.state) || request?.state === 'ended' && request?.exitCode != null && request.exitCode !== 0;
     const historical = failed ? { status: run ? 'Run failed' : 'No work started', tone: 'error', active: false, waiting: false, stage: run ? journey.stage : null } : {};
     return { ...journey, ...historical, workKind: run?.workKind || request?.workKind || 'implementation', analysis: run?.analysis, projectName: projectName(journey.projectId, data), tasks, completed: tasks.filter(task => task.bucket === 'done').length, total: tasks.length, bucket: failed ? 'closed' : journey.active ? 'progress' : journey.waiting ? journey.tone === 'queued' ? 'backlog' : 'waiting' : journey.tone === 'complete' ? 'done' : 'closed',
       activity: activityLabel(activity), updatedAt: activity?.timestamp || activity?.at || request?.endedAt || run?.updatedAt || request?.startedAt || request?.receivedAt,
-      startedAt: request?.startedAt || request?.receivedAt || run?.createdAt, endedAt: failed || request?.state === 'held' || !journey.active && !journey.waiting ? request?.endedAt || request?.heldAt || run?.updatedAt || request?.receivedAt : null,
+      startedAt: request?.receivedAt || request?.startedAt || run?.createdAt, endedAt: failed || request?.state === 'held' || !journey.active && !journey.waiting ? request?.endedAt || request?.heldAt || run?.updatedAt || request?.receivedAt : null,
       reason: operationReason(request, run), requestState: request?.state,
     };
-  });
+  }).sort((a, b) => statePriority[b.bucket] - statePriority[a.bucket] || dateValue(b.startedAt) - dateValue(a.startedAt) || a.id.localeCompare(b.id));
 }
 
-function taskMarkup(task, operation, data) {
-  const status = data.connected === false ? { tone: 'unknown', label: 'Status unavailable' } : task;
-  return `<article class="fleet-task-row" data-fleet-key="task:${escape(task.key)}"><div class="fleet-task-owner">${task.ownerId ? `<button type="button" data-lo-action="agent" data-lo-id="${escape(task.ownerId)}" aria-label="Inspect ${escape(task.ownerName)}">${avatar(task.ownerName, 28, { id:task.ownerId })}<span>${escape(task.ownerName)}</span></button>` : '<span>Owner not assigned</span>'}</div><div class="fleet-task-detail"><div><strong>${escape(compactWorkTitle(task.title))}</strong>${statusPill(status)}</div>${task.activity ? `<p class="fleet-latest-action">${escape(task.activity)}</p>` : `<p class="fleet-latest-action">${escape(task.bucket === 'backlog' ? 'Queued for its dependency or an available worker' : 'Waiting for the next recorded action')}</p>`}<span class="fleet-task-meta">${task.startedAt ? `${timeMarkup(task.startedAt, task.endedAt ? 'total' : 'elapsed', task.endedAt || undefined)}` : ''}${task.updatedAt ? `<span>Updated ${timeMarkup(task.updatedAt)}</span>` : ''}${task.receipts.verifierExecutedPassed ? `<span>${task.receipts.verifierExecutedPassed} checks passed</span>` : ''}</span></div>${operation.requestId ? `<button type="button" class="fleet-row-open" data-lo-action="task" data-lo-id="${escape(task.taskId)}" data-lo-request="${escape(operation.requestId)}" data-lo-project="${escape(task.projectId)}" data-lo-run="${escape(task.runId)}" aria-label="Open task: ${escape(compactWorkTitle(task.title))}">${icon('northeast')}</button>` : ''}</article>`;
-}
-function operationMarkup(operation, data) {
-  const owners = operation.ownerNames.length ? operation.ownerNames.join(' · ') : operation.active ? 'Assigning an owner' : '';
-  const displayedOwners = operation.ownerNames.filter((_, index) => !operation.tasks.some(task => task.ownerId === operation.ownerIds[index])).join(' · ');
-  return `<article class="fleet-operation" data-fleet-key="operation:${escape(operation.id)}" data-fleet-operation data-project="${escape(operation.projectId)}" data-work-bucket="${operation.bucket}" data-fleet-search="${escape(`${operation.projectName} ${operation.title} ${owners} ${operation.tasks.map(task => `${task.title} ${task.ownerName} ${task.activity}`).join(' ')}`.toLowerCase())}"><header class="fleet-operation-heading"><div class="fleet-operation-main"><span class="fleet-project-label">${icon('book')}${escape(operation.projectName)}</span><h3>${escape(compactWorkTitle(operation.title))}</h3></div>${statusPill(data.connected === false ? { tone: 'unknown', label: 'Status unavailable' } : operation)}</header><div class="fleet-operation-summary"><span class="fleet-phase">${escape(operation.status === 'No work started' ? 'Not started' : operation.workKind === 'analysis' && operation.stage === 'work' ? 'Codebase analysis' : phaseLabel(operation.stage))}</span>${operation.workKind === 'analysis' ? `<span>${operation.analysis?.sourceUnchanged === true ? 'Source unchanged' : 'Read-only investigation'}</span>${operation.analysis?.reportCount ? `<span>${operation.analysis.reportCount} report${operation.analysis.reportCount === 1 ? '' : 's'}</span>` : ''}` : operation.total ? `<span>${operation.completed} of ${operation.total} tasks checked</span>` : ''}${displayedOwners ? `<span>${escape(displayedOwners)}</span>` : ''}${operation.startedAt ? timeMarkup(operation.startedAt, operation.endedAt ? 'total' : 'elapsed', operation.endedAt || undefined) : ''}${operation.requestId ? `<button type="button" class="fleet-text-button" data-lo-action="request" data-lo-id="${escape(operation.requestId)}">Open request ${icon('northeast')}</button>` : ''}</div>${operation.reason ? `<p class="fleet-operation-reason">${escape(operation.reason)}</p>` : ''}${operation.tasks.length ? `<div class="fleet-task-list">${operation.tasks.map(task => taskMarkup(task, operation, data)).join('')}</div>` : `<div class="fleet-request-activity"><span>${escape(operation.activity || (operation.active ? 'Waiting for the next recorded action' : operation.status))}</span>${operation.updatedAt ? `<small>Updated ${timeMarkup(operation.updatedAt)}</small>` : ''}</div>`}</article>`;
-}
-function workEmptyState() {
-  const filtered = !!view.project || !!view.query.trim() || ['progress', 'waiting'].includes(view.workFilter);
-  return { filtered, title: filtered ? 'No work matches these filters' : 'No work running' };
-}
-function renderWork(data, operations) {
-  const empty = workEmptyState();
-  const latestResult = operations.filter(operation => operation.bucket === 'done' && operation.requestId).sort((a, b) => dateValue(b.updatedAt) - dateValue(a.updatedAt))[0];
-  return `<section class="fleet-work" aria-label="Work across projects"><div class="fleet-section-heading"><h2>Work across projects</h2><div class="fleet-work-filters" role="group" aria-label="Filter work">${[['open', 'Open'], ['progress', 'Running'], ['waiting', 'Needs attention'], ['all', 'Include history']].map(([key, label]) => `<button type="button" data-lo-action="work-filter" data-lo-id="${key}" aria-pressed="${view.workFilter === key}">${label}</button>`).join('')}</div></div><div class="fleet-operations">${operations.map(operation => operationMarkup(operation, data)).join('')}</div><div class="fleet-work-empty"${operations.some(operation => activeBuckets.has(operation.bucket)) ? ' hidden' : ''}><span class="fleet-empty-label">${escape(empty.title)}</span>${latestResult ? `<button type="button" class="fleet-last-result" data-lo-action="request" data-lo-id="${escape(latestResult.requestId)}"${empty.filtered ? ' hidden' : ''}><span>${escape(latestResult.status)}</span><strong>${escape(latestResult.projectName)} · ${escape(compactWorkTitle(latestResult.title))}</strong>${icon('northeast')}</button>` : ''}</div></section>`;
-}
-function agentMarkup(agent, data, workload, journeys, operations) {
+/** A person's assignment combines ownership, current stage and its own latest event. */
+export function deriveFleetAgentView(agent, data = {}, workload = deriveOverviewWorkload(data), journeys = deriveFleetJourneys(data), operations = deriveFleetOperations(data, workload)) {
   const state = deriveFleetAgentState(agent, data, workload, journeys);
-  const assignments = operations.flatMap(operation => operation.tasks.filter(task => task.ownerId === idOf(agent.id) && activeBuckets.has(task.bucket)).map(task => ({ ...task, projectName: operation.projectName, projectId: operation.projectId, requestId: operation.requestId })));
-  if (!assignments.length && activeBuckets.has(state.bucket)) {
+  const assignments = operations.flatMap(operation => operation.tasks.filter(task => task.ownerId === idOf(agent.id) && activeBuckets.has(task.bucket)).map(task => ({
+    ...task, projectName: operation.projectName, projectId: operation.projectId, requestId: operation.requestId,
+    phase: operation.workKind === 'analysis' ? task.state === 'validating' ? 'Report review' : 'Codebase analysis' : task.label,
+    ...(task.runtimeEnded ? { completed:true, completionLabel:'Worker finished', activity:'', updatedAt:null, timingActive:false } : {}),
+  })));
+  if (!assignments.length && activeBuckets.has(state.bucket) && !state.intakeCount) {
     const operation = operations.find(item => item.id === state.requestIds?.[0] || item.runId && item.runId === state.runId && item.projectId === state.projectId);
-    assignments.push({ title: state.title, projectName: projectName(state.projectId, data), projectId: state.projectId, activity: operation?.activity, updatedAt: operation?.updatedAt, requestId: operation?.requestId });
+    // A run's newest event may belong to another worker. A head or coordinator
+    // row only attributes an action when the record names that actor.
+    const ownedEvents = eventRecords(data).filter(event => [event.agentId, event.headAgentId, event.payload?.agentId, event.payload?.headAgentId].some(identity => idOf(identity) === idOf(agent.id)));
+    const event = latestActivity(ownedEvents, state.projectId, state.runId, operation?.requestId);
+    const activity = operation?.workKind === 'analysis' && event?.type === 'head.review_started' ? 'Reviewing the analysis report' : activityLabel(event);
+    const timing = deriveAgentPhaseTiming(agent.id, operation, data, operation?.stage);
+    assignments.push({ title: state.title, phase: state.label, projectName: projectName(state.projectId, data), projectId: state.projectId, activity, updatedAt: event?.timestamp || event?.at, requestId: operation?.requestId, ...timing });
+  }
+  if (!assignments.length && !activeBuckets.has(state.bucket)) {
+    const completed = operations.flatMap(operation => {
+      const tasks = operation.tasks.filter(task => task.ownerId === idOf(agent.id) && ['done', 'closed'].includes(task.bucket) && task.startedAt && task.endedAt).map(task => ({ ...task, phase: task.label, projectName: operation.projectName, projectId: operation.projectId, requestId: operation.requestId, activity: '', updatedAt: null, completed: true, completionLabel: task.bucket === 'done' ? 'Completed' : 'Attempt ended' }));
+      const timing = deriveAgentPhaseTiming(agent.id, operation, data);
+      if (timing?.endedAt) tasks.push({ ...timing, title: operation.title, projectName: operation.projectName, projectId: operation.projectId, requestId: operation.requestId, completed: true, completionLabel: 'Finished' });
+      return tasks;
+    }).sort((a, b) => dateValue(b.endedAt) - dateValue(a.endedAt));
+    // One latest owned result keeps completion visible without recreating a history feed.
+    if (completed[0]) assignments.push(completed[0]);
   }
   const department = asArray(data.departments).find(item => idOf(item.id) === recordDepartmentId(agent));
-  const match = `${agent.name} ${agentSpecialty(agent)} ${department?.name || ''} ${assignments.map(item => `${item.projectName} ${item.title} ${item.activity}`).join(' ')}`.toLowerCase();
+  const headId = idOf(department?.headAgentId || department?.lead?.id);
+  const head = asArray(data.agents).find(item => idOf(item.id) === headId);
+  return { agent, state, assignments, jobTitle: agentSpecialty(agent), departmentId: idOf(department?.id), departmentName: department?.name || '', isHead: headId ? idOf(agent.id) === headId : !!agent.isHead,
+    reportsTo: headId && headId !== idOf(agent.id) ? { id: headId, name: head?.name || department?.lead?.name || headId } : null };
+}
+
+export function deriveFleetTeams(data = {}, workload = deriveOverviewWorkload(data), journeys = deriveFleetJourneys(data), operations = deriveFleetOperations(data, workload)) {
+  const agents = asArray(data.agents).filter(agent => !agent.archived && !agent.isCoordinator && agent.id !== 'control-center');
+  const departments = asArray(data.departments).filter(department => !department.archived);
+  const represented = new Set();
+  const groups = departments.map(department => {
+    const people = agents.filter(agent => recordDepartmentId(agent) === idOf(department.id));
+    people.forEach(agent => represented.add(idOf(agent.id)));
+    const members = people.map(agent => deriveFleetAgentView(agent, data, workload, journeys, operations)).sort((a, b) => Number(b.isHead) - Number(a.isHead));
+    const tasks = workload.items.filter(item => item.departmentId === idOf(department.id) && item.kind === 'task');
+    return { id: idOf(department.id), name: department.name || department.id, purpose: department.purpose || department.note || '', colorName: department.colorName || department.color || 'blue', icon: department.icon || 'layers', members,
+      head: members.find(member => member.isHead) || null, working: members.filter(member => member.state.bucket === 'progress').length, ready: members.filter(member => member.state.bucket === 'idle').length,
+      taskCount: tasks.filter(task => activeBuckets.has(task.bucket)).length, completedTasks: tasks.filter(task => task.bucket === 'done').length };
+  });
+  const unassigned = agents.filter(agent => !represented.has(idOf(agent.id)));
+  if (unassigned.length) { const members = unassigned.map(agent => deriveFleetAgentView(agent, data, workload, journeys, operations)); groups.push({ id: 'unassigned', name: 'Unassigned team', purpose: 'Agents without a current department', icon: 'people', members, head: null, working: members.filter(member => member.state.bucket === 'progress').length, ready: members.filter(member => member.state.bucket === 'idle').length, taskCount: 0, completedTasks: 0 }); }
+  return groups;
+}
+
+function operationMarkup(operation, data) {
+  const owners = operation.ownerNames.length ? operation.ownerNames.join(' · ') : operation.active ? 'Assigning an owner' : '';
+  const displayedOwners = operation.ownerNames.join(' · ');
+  return `<article class="fleet-operation" data-fleet-key="operation:${escape(operation.id)}" data-fleet-operation data-project="${escape(operation.projectId)}" data-work-bucket="${operation.bucket}" data-fleet-search="${escape(`${operation.projectName} ${operation.title} ${owners} ${operation.tasks.map(task => `${task.title} ${task.ownerName} ${task.activity}`).join(' ')}`.toLowerCase())}"><header class="fleet-operation-heading"><div class="fleet-operation-main"><span class="fleet-project-label">${icon('book')}${escape(operation.projectName)}</span><h3>${escape(compactWorkTitle(operation.title))}</h3></div>${statusPill(data.connected === false ? { tone: 'unknown', label: 'Status unavailable' } : operation)}</header><div class="fleet-operation-summary"><span class="fleet-phase">${escape(operation.status === 'No work started' ? 'Not started' : operation.workKind === 'analysis' && operation.stage === 'work' ? 'Codebase analysis' : phaseLabel(operation.stage))}</span>${operation.workKind === 'analysis' ? `<span>${operation.analysis?.sourceUnchanged === true ? 'Source unchanged' : 'Read-only investigation'}</span>${operation.analysis?.reportCount ? `<span>${operation.analysis.reportCount} report${operation.analysis.reportCount === 1 ? '' : 's'}</span>` : ''}` : operation.total ? `<span>${operation.completed} of ${operation.total} tasks checked</span>` : ''}${displayedOwners ? `<span>${escape(displayedOwners)}</span>` : ''}${operation.startedAt ? renderDuration({ start: operation.startedAt, end: operation.endedAt, active: data.connected !== false && activeBuckets.has(operation.bucket), label: 'Request time' }) : ''}${operation.requestId ? `<button type="button" class="fleet-text-button" data-lo-action="request" data-lo-id="${escape(operation.requestId)}">Open request ${icon('northeast')}</button>` : ''}</div>${operation.reason ? `<p class="fleet-operation-reason">${escape(operation.reason)}</p>` : ''}${!operation.tasks.length && operation.activity ? `<div class="fleet-request-activity"><span>${escape(operation.activity)}</span> ${operation.updatedAt ? `<small><span aria-hidden="true">·</span> Updated ${updatedMarkup(operation.updatedAt)}</small>` : ''}</div>` : ''}</article>`;
+}
+function renderWork(data, operations) {
+  const current = operations.filter(operation => activeBuckets.has(operation.bucket));
+  return `<section class="fleet-work" aria-label="Work across projects"${current.length ? '' : ' hidden'}><div class="fleet-section-heading"><h2>Active work</h2><span class="fleet-section-note">${current.length} open request${current.length === 1 ? '' : 's'}</span></div><div class="fleet-operations">${current.map(operation => operationMarkup(operation, data)).join('')}</div></section>`;
+}
+function agentMarkup(agent, data, workload, journeys, operations, supplied) {
+  const person = supplied || deriveFleetAgentView(agent, data, workload, journeys, operations);
+  const { state, assignments, jobTitle, departmentName, isHead, reportsTo } = person;
+  const match = `${agent.name} ${jobTitle} ${departmentName} ${assignments.map(item => `${item.projectName} ${item.title} ${item.activity}`).join(' ')}`.toLowerCase();
   const projectIds = [...new Set(assignments.map(item => item.projectId).filter(Boolean))];
   const name = agent.name || agent.id;
-  const specialty = agentSpecialty(agent);
-  const visibleAssignments = assignments.map(item => ({ ...item, title: compactWorkTitle(item.title) }));
-  const work = visibleAssignments.map(item => `<span class="fleet-agent-assignment"><span class="fleet-agent-task" title="${escape(`${item.projectName} · ${item.title}`)}"><span class="fleet-agent-project">${escape(item.projectName)}</span><span aria-hidden="true"> · </span>${escape(item.title)}</span>${item.activity ? `<span class="fleet-agent-action" title="${escape(item.activity)}">${escape(item.activity)}</span>` : ''}</span>`).join('');
-  return `<button type="button" class="fleet-agent" data-lo-action="agent" data-lo-id="${escape(agent.id)}" data-lo-node="agent:${escape(agent.id)}" data-fleet-search="${escape(match)}" data-bucket="${escape(state.bucket)}" data-fleet-department-id="${escape(recordDepartmentId(agent))}" data-projects="${escape(JSON.stringify(projectIds))}" data-has-work="${assignments.length > 0}" data-office-selected="${view.selectedAgent === agent.id}" aria-label="Inspect ${escape(name)}: ${escape(specialty)}, ${escape(state.label)}${assignments.length ? `, ${escape(visibleAssignments.map(item => `${item.projectName}: ${item.title}`).join('; '))}` : ''}"><span class="fleet-agent-person">${avatar(name, 36, { id:agent.id, avatarId:agent.avatarId })}<span class="fleet-agent-identity"><strong>${escape(name)}</strong><span title="${escape(specialty)}">${escape(specialty)}</span></span></span><span class="fleet-agent-work">${work}</span><span class="fleet-agent-state">${statusPill(state)}${assignments.length > 1 ? `<small>${assignments.length} assignments</small>` : ''}</span>${icon('chevron')}</button>`;
+  const work = assignments.map(item => `<span class="fleet-agent-assignment"><span class="fleet-agent-task" title="${escape(item.title)}">${item.completed ? `<span class="fleet-completed-label">${escape(item.completionLabel || 'Completed')} · </span>` : ''}${escape(compactWorkTitle(item.title))}</span><span class="fleet-agent-context"><span class="fleet-agent-project">${escape(item.projectName)}</span><span aria-hidden="true">·</span><span>${escape(item.phase || state.label)}</span></span>${item.activity ? `<span class="fleet-agent-action" title="${escape(item.activity)}">${escape(item.activity)}</span>` : ''}${item.startedAt ? `<span class="fleet-agent-duration">${renderDuration({ start: item.startedAt, end: item.endedAt, active: item.timingActive, label: item.timingLabel || 'Elapsed' })}</span>` : ''}${item.updatedAt ? `<span class="fleet-agent-updated">Updated ${updatedMarkup(item.updatedAt)}</span>` : ''}</span>`).join('');
+  return `<button type="button" class="fleet-agent" data-lo-action="agent" data-lo-id="${escape(agent.id)}" data-lo-node="agent:${escape(agent.id)}" data-fleet-search="${escape(match)}" data-bucket="${escape(state.bucket)}" data-fleet-signal="${fleetAgentSignal(state)}" data-fleet-department-id="${escape(recordDepartmentId(agent))}" data-projects="${escape(JSON.stringify(projectIds))}" data-has-work="${assignments.some(item => !item.completed)}" data-office-selected="${view.selectedAgent === agent.id}" aria-label="Inspect ${escape(name)}: ${escape(jobTitle)}, ${escape(state.label)}${reportsTo ? `, reports to ${escape(reportsTo.name)}` : ''}${assignments.length ? `, ${escape(assignments.map(item => `${item.completed ? 'Finished: ' : ''}${item.projectName}: ${compactWorkTitle(item.title)}`).join('; '))}` : ''}"><span class="fleet-agent-person">${avatar(name, 44, { id:agent.id, avatarId:agent.avatarId })}<span class="fleet-agent-identity"><strong>${escape(name)}${isHead ? '<span class="fleet-head-badge">Head</span>' : ''}</strong><span class="fleet-agent-job" title="${escape(jobTitle)}">${escape(jobTitle)}</span></span></span><span class="fleet-agent-state">${statusPill(state)}${state.note ? `<small>${escape(state.note)}</small>` : ''}${assignments.length > 1 ? `<small>${assignments.length} assignments</small>` : ''}</span><span class="fleet-agent-work">${work}</span>${icon('chevron')}</button>`;
 }
-function activityMarkup(data) {
-  const handoffs = deriveFleetHandoffs(data).slice(0, 4);
-  if (!handoffs.length) return '';
-  return `<details class="fleet-recent" data-fleet-details="handoffs"><summary>Recent handoffs <span>${handoffs.length}</span>${icon('down')}</summary><div class="fleet-handoff-list">${handoffs.map(event => `<${event.requestId ? 'button type="button"' : 'div'} class="fleet-handoff" data-fleet-key="handoff:${escape(event.id)}" data-project="${escape(event.projectId)}"${event.requestId ? ` data-lo-action="request" data-lo-id="${escape(event.requestId)}"` : ''}><span class="fleet-handoff-people">${escape(event.from)} ${icon('arrow')} ${escape(event.to)}</span><span class="fleet-handoff-label">${escape(event.label)} · ${escape(projectName(event.projectId, data))}</span>${timeMarkup(event.at)}</${event.requestId ? 'button' : 'div'}>`).join('')}</div></details>`;
+function departmentMarkup(team, data, workload, journeys, operations) {
+  const description = team.head ? `Led by ${team.head.agent.name || team.head.agent.id}` : 'Department head not configured';
+  return `<section class="fleet-department" data-color="${escape(team.colorName || 'blue')}" data-lo-department="${escape(team.id)}" aria-label="${escape(team.name)} team"><header class="fleet-department-heading"><button type="button" class="fleet-department-title" data-lo-action="department" data-lo-id="${escape(team.id)}">${icon(team.icon)}<span><strong>${escape(team.name)}</strong><span>${escape(description)}</span></span>${icon('northeast')}</button><span class="fleet-department-count">${team.members.length} agents · ${team.ready} ready${team.working ? ` · ${team.working} working` : ''}${team.taskCount ? ` · ${team.taskCount} open tasks` : ''}</span></header><div class="fleet-agent-grid">${team.members.map(person => agentMarkup(person.agent, data, workload, journeys, operations, person)).join('')}</div>${team.members.length ? '' : '<p class="fleet-department-empty">No agents in this department.</p>'}</section>`;
+}
+export function deriveFleetMetrics(data = {}, model = overviewModel(data)) {
+  const known = data.connected !== false;
+  return { working:known ? model.counts.progress : null, available:known ? model.counts.idle : null, reserved:known ? model.counts.reserved : null, needsAuth:known ? model.counts.needsAuth : null, activeProjects:known ? model.activeProjects.size : null };
+}
+function metricsMarkup(data, model) {
+  const metrics = deriveFleetMetrics(data, model);
+  return `<dl class="fleet-metrics" aria-label="${data.connected === false ? 'Live counts unavailable — connection lost' : 'Live workforce counts'}">${[['working','Working'],['available','Available'],...(metrics.reserved > 0 ? [['reserved','Reserved']] : []),['needsAuth','Needs sign-in'],['activeProjects','Active projects']].map(([key,label])=>`<div class="fleet-metric" data-fleet-metric="${key}"${metrics[key] === null ? ' title="Connection lost; current count unavailable"' : ''}><dt>${label}</dt><dd>${metrics[key] === null ? '—' : metrics[key]}</dd></div>`).join('')}</dl>`;
 }
 
 /** The whole live workforce is visible; selection never selects an execution project. */
-function systemStrip(data, running, waiting, available) {
-  const mcp = data.mcp || { state:'checking', readyCount:0, description:'Checking coding-agent setup' };
-  const connectionsReady = mcp.state === 'ready' || mcp.state === 'attention' && mcp.readyCount > 0;
-  const mcpValue = connectionsReady ? `${mcp.readyCount} ready` : mcp.state === 'checking' ? 'Checking' : mcp.state === 'unavailable' ? 'Unavailable' : 'Set up';
-  const values = [
-    ['runtime','Runtime',data.connected === false ? 'Offline' : 'Online',data.connected === false ? 'attention' : 'ready','runtimes',data.connected === false ? 'Reconnect the local coordinator' : 'Local coordinator connected'],
-    ['mcp','MCP link',mcpValue,connectionsReady ? mcp.state : mcp.state === 'checking' ? 'idle' : 'attention','connections',mcp.description],
-    ['queue','Work queue',`${running} running`,running ? 'working' : waiting ? 'attention' : 'ready','assignments',`${waiting} queued or waiting`],
-    ['team','Team',`${available} available`,available ? 'ready' : 'working','people','Specialists are selected automatically for each project'],
-  ];
-  return `<div class="deck-status-grid" aria-label="Workspace systems">${values.map(([id,label,value,status,nav,title])=>`<button type="button" class="deck-system" data-system="${id}" data-state="${status}" data-nav="${nav}" aria-label="${escape(label)}: ${escape(value)}" title="${escape(title)}"><span>${label}</span><i aria-hidden="true"></i><strong>${escape(value)}</strong>${icon('northeast')}</button>`).join('')}</div>`;
-}
-
-export function renderOverview(data = {}) {
+function overviewModel(data = {}) {
   const departments = asArray(data.departments).filter(item => !item.archived);
   const agents = asArray(data.agents).filter(agent => !agent.archived && !agent.isCoordinator && agent.id !== data.controlCenter?.id && agent.departmentId !== 'company');
   const control = data.controlCenter?.id ? { ...data.controlCenter, isCoordinator: true } : null;
   const people = [...(control ? [control] : []), ...agents];
   data = { ...data, departments, agents: people };
   const workload = deriveOverviewWorkload(data), journeys = deriveFleetJourneys(data), operations = deriveFleetOperations(data, workload);
-  const open = operations.filter(item => activeBuckets.has(item.bucket)), running = operations.filter(item => item.active), activeProjects = new Set(running.map(item => item.projectId));
-  const counts = { all: people.length, progress: 0, waiting: 0, idle: 0 };
-  people.forEach(agent => { const state = deriveFleetAgentState(agent, data, workload, journeys); if (state.bucket === 'progress') counts.progress++; if (['waiting', 'backlog'].includes(state.bucket)) counts.waiting++; if (state.bucket === 'idle') counts.idle++; });
+  const teams = deriveFleetTeams(data, workload, journeys, operations);
+  const running = operations.filter(item => item.active), activeProjects = new Set(running.map(item => item.projectId).filter(Boolean));
+  const counts = { all: people.length, progress: 0, waiting: 0, idle: 0, reserved:0, needsAuth:0 };
+  people.forEach(agent => { const state = deriveFleetAgentState(agent, data, workload, journeys); if (state.bucket === 'progress') counts.progress++; if (['waiting', 'backlog', 'unavailable'].includes(state.bucket)) counts.waiting++; if (state.bucket === 'idle') counts.idle++; if (state.label === 'Reserved') counts.reserved++; if (state.label === 'Sign-in needed') counts.needsAuth++; });
   const projects = new Map(asArray(data.projects).filter(project => !project.archived).map(project => [idOf(project.id), project]));
   operations.forEach(item => { if (item.projectId && !projects.has(item.projectId)) projects.set(item.projectId, { id: item.projectId, name: item.projectName }); });
-  const ordered = people.slice().sort((a, b) => Number(b.isCoordinator) - Number(a.isCoordinator) || ({ progress: 4, waiting: 3, backlog: 2, idle: 1 }[deriveFleetAgentState(b, data, workload, journeys).bucket] || 0) - ({ progress: 4, waiting: 3, backlog: 2, idle: 1 }[deriveFleetAgentState(a, data, workload, journeys).bucket] || 0));
-  return `<section class="live-overview fleet-dashboard" data-lo-root aria-label="Interactive agent fleet"><header class="fleet-toolbar"><div><div class="deck-eyebrow">${icon('compass')}Live operations</div><h1>Headquarters</h1><p>${data.connected === false ? 'Connection lost · last received state' : `${running.length} running request${running.length === 1 ? '' : 's'} across ${activeProjects.size} project${activeProjects.size === 1 ? '' : 's'}`}<span>·</span>${people.length} agents</p></div><button type="button" class="fleet-primary" data-chat-open>${icon('plus')}New request</button></header><div class="fleet-scroll"><div class="fleet-content">${systemStrip(data,running.length,open.filter(item=>!item.active).length,counts.idle)}<div class="fleet-global-filters"><label class="fleet-project-filter"><span>Project</span><select data-fleet-project aria-label="Filter projects"><option value="">All projects</option>${[...projects.values()].map(project => `<option value="${escape(project.id)}"${view.project === project.id ? ' selected' : ''}>${escape(project.name || project.id)}</option>`).join('')}</select></label><label class="fleet-search">${icon('search')}<input type="search" data-fleet-search-input placeholder="Find a project, task or agent…" aria-label="Find a project, task or agent" value="${escape(view.query)}"></label></div>${renderWork(data, operations)}<section class="fleet-people" aria-label="Your departments and agents"><div class="fleet-section-heading"><div><h2>Team workload</h2><p class="fleet-section-note">Current assignments, actions and availability across projects</p></div><div class="fleet-filters" role="group" aria-label="Filter agents">${[['all', 'Everyone'], ['progress', 'Working'], ['waiting', 'Waiting'], ['idle', 'Available']].map(([key, label]) => `<button type="button" data-lo-action="filter" data-lo-id="${key}" aria-pressed="${view.filter === key}">${label}<span>${counts[key]}</span></button>`).join('')}</div></div>${departments.length > 1 ? `<select data-fleet-department aria-label="Filter departments"><option value="">All departments</option>${departments.map(department => `<option value="${escape(department.id)}"${view.department === department.id ? ' selected' : ''}>${escape(department.name)}</option>`).join('')}</select>` : ''}<div class="fleet-agent-grid">${ordered.map(agent => agentMarkup(agent, data, workload, journeys, operations)).join('')}</div><div class="fleet-empty-fleet"${people.length ? ' hidden' : ''}><h2>Your workforce is empty</h2><p>Add a team to start handling project requests.</p><button type="button" class="fleet-text-button" data-nav="company">Open team setup ${icon('arrow')}</button></div><div class="fleet-no-results" hidden><h3>No agents match these filters</h3><p>Available agents stay visible when you select a project.</p><button type="button" class="fleet-text-button" data-lo-action="clear">Clear filters</button></div></section>${activityMarkup(data)}<footer class="fleet-footer">Statuses and task counts come from recorded work. Open a request or inspect an agent for its full activity.</footer></div></div><span class="fleet-announcement sr-only" role="status" aria-live="polite"></span></section>`;
+  const coordinator = control ? deriveFleetAgentView(control, data, workload, journeys, operations) : null;
+  return { data, departments, people, control, coordinator, workload, journeys, operations, teams, running, activeProjects, counts, projects };
+}
+/** Only rendered facts participate: polling metadata and elapsed wall time do not. */
+export function overviewStructureSignature(data = {}, model = overviewModel(data)) {
+  const { connected } = model.data;
+  const assignment = item => [item.title, item.phase, item.projectName, item.projectId, item.activity, item.updatedAt, item.startedAt, item.endedAt, item.timingActive, item.timingLabel, item.completed, item.completionLabel];
+  const person = value => value && [value.agent.id, value.agent.name, value.agent.avatarId, recordDepartmentId(value.agent), value.jobTitle, value.departmentName, value.isHead, value.reportsTo, value.state.bucket, value.state.tone, value.state.label, value.state.note, value.assignments.map(assignment)];
+  return JSON.stringify([
+    connected !== false, model.counts, [...model.projects.values()].map(project => [project.id, project.name]), person(model.coordinator),
+    model.operations.filter(operation => activeBuckets.has(operation.bucket)).map(operation => [operation.id, operation.projectId, operation.projectName, operation.title, operation.bucket, operation.active, operation.waiting, operation.status, operation.tone, operation.stage, operation.workKind, operation.analysis?.sourceUnchanged, operation.analysis?.reportCount, operation.completed, operation.total, operation.ownerNames, operation.startedAt, operation.endedAt, operation.requestId, operation.reason, !operation.tasks.length && [operation.activity, operation.activity && operation.updatedAt], operation.tasks.map(task => [task.title, task.ownerName, task.activity])]),
+    model.teams.map(team => [team.id, team.name, team.colorName, team.icon, team.ready, team.working, team.taskCount, team.members.map(person)]),
+  ]);
+}
+export function renderOverview(data = {}, model = overviewModel(data)) {
+  const { departments, people, control, coordinator, workload, journeys, operations, teams, running, activeProjects, counts, projects } = model;
+  data = model.data;
+  return `<section class="live-overview fleet-dashboard" data-lo-root aria-label="Interactive agent fleet"><header class="fleet-toolbar"><div class="fleet-heading-row"><div class="fleet-title"><h1>Headquarters</h1><p>${departments.length} department${departments.length === 1 ? '' : 's'}<span>·</span>${people.length} agents<span class="sr-only">${data.connected === false ? 'Connection lost · last received state' : `${running.length} running request${running.length === 1 ? '' : 's'} across ${activeProjects.size} project${activeProjects.size === 1 ? '' : 's'}`}</span></p></div>${metricsMarkup(data,model)}</div><div class="fleet-controls"><label class="fleet-project-filter"><select data-fleet-project aria-label="Filter projects"><option value="">All projects</option>${[...projects.values()].map(project => `<option value="${escape(project.id)}"${view.project === project.id ? ' selected' : ''}>${escape(project.name || project.id)}</option>`).join('')}</select></label><label class="fleet-search">${icon('search')}<input type="search" data-fleet-search-input placeholder="Search people or tasks…" aria-label="Find a project, task or agent" value="${escape(view.query)}"></label><div class="fleet-filters" role="group" aria-label="Filter workforce status">${[['all', 'All'], ['progress', 'Working'], ['waiting', 'Waiting']].map(([key, label]) => `<button type="button" data-lo-action="filter" data-lo-id="${key}" aria-pressed="${view.filter === key}">${label}${key !== 'all' && counts[key] ? `<span>${counts[key]}</span>` : ''}</button>`).join('')}</div><button type="button" class="fleet-primary" data-chat-open>${icon('plus')}New request</button></div></header><div class="fleet-scroll"><div class="fleet-content">${control ? `<section class="fleet-control-row" data-fleet-signal="${fleetAgentSignal(coordinator.state)}" aria-label="Control Center coordination">${agentMarkup(control,data,workload,journeys,operations,coordinator)}<button type="button" class="fleet-control-message" aria-label="Message Control Center" data-lo-action="control" data-lo-id="${escape(control.id)}">${icon('connect')}Message</button></section>` : ''}${renderWork(data,operations)}<section class="fleet-people" aria-label="Your departments and agents"><div class="fleet-department-grid">${teams.map(team => departmentMarkup(team,data,workload,journeys,operations)).join('')}</div><div class="fleet-empty-fleet"${people.length ? ' hidden' : ''}><h2>Your workforce is empty</h2><p>Add a team to start handling project requests.</p><button type="button" class="fleet-text-button" data-nav="company">Open team setup ${icon('arrow')}</button></div><div class="fleet-no-results" hidden><strong>No agents match these filters</strong><button type="button" class="fleet-text-button" data-lo-action="clear">Clear filters</button></div></section><span class="sr-only">Task counts come from recorded work.</span></div></div><span class="fleet-announcement sr-only" role="status" aria-live="polite"></span></section>`;
 }
 
 function domKey(node) {
@@ -319,42 +415,37 @@ export function wireOverview(element, { onDepartment, onAgent, onRequest, onCont
   if (!root) return { update: () => false, animateEvent: () => false, destroy() {} };
   if (lastController && !lastController.root.isConnected) lastController.destroy();
   const abort = new AbortController(), seen = new Set();
-  let destroyed = false;
+  let destroyed = false, currentSignature = null;
   const setInput = (selector, value) => { const input = root.querySelector(selector); if (input) input.value = value; };
   function applyFilters() {
     const query = view.query.toLowerCase().trim();
     root.querySelectorAll('[data-lo-action="filter"]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.loId === view.filter)));
-    root.querySelectorAll('[data-lo-action="work-filter"]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.loId === view.workFilter)));
     let visibleOperations = 0;
     for (const operation of root.querySelectorAll('[data-fleet-operation]')) {
       const { project, workBucket, fleetSearch } = operation.dataset;
-      const statusMatch = view.workFilter === 'all' || view.workFilter === 'open' && activeBuckets.has(workBucket) || workBucket === view.workFilter;
+      const statusMatch = view.filter === 'all' || view.filter === 'waiting' && ['waiting', 'backlog'].includes(workBucket) || workBucket === view.filter;
       operation.hidden = !statusMatch || !!view.project && project !== view.project || !!query && !fleetSearch.includes(query);
       if (!operation.hidden) visibleOperations++;
     }
-    const workEmpty = root.querySelector('.fleet-work-empty');
-    if (workEmpty) {
-      workEmpty.hidden = visibleOperations > 0;
-      const empty = workEmptyState();
-      const label = workEmpty.querySelector('.fleet-empty-label');
-      if (label) label.textContent = empty.title;
-      const latestResult = workEmpty.querySelector('.fleet-last-result');
-      if (latestResult) latestResult.hidden = empty.filtered;
-    }
+    const work = root.querySelector('.fleet-work');
+    if (work) work.hidden = visibleOperations === 0;
     let visibleAgents = 0;
     for (const node of root.querySelectorAll('.fleet-agent')) {
       const { bucket, fleetDepartmentId: department, fleetSearch } = node.dataset;
       let projectIds = []; try { projectIds = JSON.parse(node.dataset.projects || '[]'); } catch { /* missing context stays unassigned */ }
-      const projectMatch = !view.project || bucket === 'idle' || node.dataset.loNode === 'agent:control-center' || projectIds.includes(view.project);
-      const statusMatch = view.filter === 'all' || view.filter === 'waiting' && ['waiting', 'backlog'].includes(bucket) || bucket === view.filter;
+      const projectMatch = !view.project || ['idle', 'unavailable', 'unknown'].includes(bucket) || node.dataset.loNode === 'agent:control-center' || projectIds.includes(view.project);
+      const statusMatch = view.filter === 'all' || view.filter === 'waiting' && ['waiting', 'backlog', 'unavailable'].includes(bucket) || bucket === view.filter;
       node.hidden = !projectMatch || !statusMatch || !!view.department && department !== view.department || !!query && !fleetSearch.includes(query);
       if (!node.hidden) visibleAgents++;
     }
     const noResults = root.querySelector('.fleet-no-results');
     if (noResults) noResults.hidden = visibleAgents > 0 || !root.querySelector('.fleet-agent');
-    for (const node of root.querySelectorAll('.fleet-handoff')) node.hidden = !!view.project && node.dataset.project !== view.project;
-    const recent = root.querySelector('.fleet-recent');
-    if (recent) recent.hidden = ![...recent.querySelectorAll('.fleet-handoff')].some(node => !node.hidden);
+    for (const department of root.querySelectorAll('.fleet-department')) {
+      const members = [...department.querySelectorAll('.fleet-agent')];
+      department.hidden = members.length ? !members.some(node => !node.hidden) : !!view.query || !!view.department && department.dataset.loDepartment !== view.department || view.filter !== 'all';
+    }
+    const control = root.querySelector('.fleet-control-row');
+    if (control) control.hidden = control.querySelector('.fleet-agent')?.hidden;
   }
   function resetFilters() {
     view.query = ''; view.filter = 'all'; view.workFilter = 'open'; view.department = ''; view.project = '';
@@ -398,20 +489,14 @@ export function wireOverview(element, { onDepartment, onAgent, onRequest, onCont
     // Arrival updates the records; it never invents avatar movements or progress.
     return true;
   }
-  function updateTimes() {
-    if (document.hidden) return;
-    for (const time of root.querySelectorAll('time[data-fleet-time]')) {
-      const suffix = time.dataset.fleetTime, label = ageLabel(time.getAttribute('datetime'), time.dataset.fleetEnd || undefined);
-      if (label) time.textContent = `${label}${suffix ? ` ${suffix}` : ''}`;
-    }
-  }
-  const clock = setInterval(updateTimes, 5000);
   const controller = { root, animateEvent, update(data) {
     if (destroyed || !root.isConnected) return false;
-    const template = document.createElement('template'); template.innerHTML = renderOverview(data);
-    patchNode(root, template.content.firstElementChild); applyFilters(); return true;
+    const model = overviewModel(data), signature = overviewStructureSignature(data, model);
+    if (signature === currentSignature) return false;
+    const template = document.createElement('template'); template.innerHTML = renderOverview(data, model);
+    patchNode(root, template.content.firstElementChild); applyFilters(); currentSignature = signature; return true;
   }, focusAgent, focusDepartment(id) { view.department = id; setInput('[data-fleet-department]', id); applyFilters(); return true; }, fit: resetFilters, refreshConnections() {}, getCamera: () => null,
-    destroy() { if (destroyed) return; destroyed = true; abort.abort(); clearInterval(clock); if (lastController === controller) lastController = null; } };
+    destroy() { if (destroyed) return; destroyed = true; abort.abort(); if (lastController === controller) lastController = null; } };
   applyFilters(); lastController = controller; return controller;
 }
 export function animateEvent(event, element) {

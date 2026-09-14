@@ -27,8 +27,10 @@ import type { RuntimeAdapter, RuntimeAttachment, RuntimeEvent, RuntimeReadiness,
 import { attachmentReferenceText, validateAttachments } from '../adapters/attachments.js';
 import { HEAD_BRIDGE_TOOL_NAMES } from '../coordination/bridge.js';
 import type { CoordinationBridge } from '../coordination/index.js';
+import { agentJobTitle } from '../core/workspace-config.js';
 import type { EffectiveAgentBinding } from '../core/contracts.js';
 import { newId } from '../core/ids.js';
+import type { ProcessIdentity } from '../core/process.js';
 import { RunSetupError, coordinationArgsFor, createAdapter, forTask, renderRuntimeEvent, validateRunAttachments, type RunStream } from '../core/run-direct.js';
 import { createPlannedRun, type PlannedRun } from '../core/run-planned.js';
 import { writeLineFrom } from '../core/run-stream.js';
@@ -39,7 +41,7 @@ import type { StatePaths } from '../storage/paths.js';
 import { recordRuntimeEvent } from '../telemetry/events.js';
 import { redactText } from '../telemetry/redaction.js';
 import type { HeadAssignedTask, HeadPlanner, HeadPlanningInput, HeadPlanningOutcome } from '../workspace/planning.js';
-import { createCandidateWorkspace, removeCandidateWorkspace, type CandidateWorkspace } from '../workspaces/candidate.js';
+import { assertCandidateGitIdentity, createCandidateWorkspace, removeCandidateWorkspace, type CandidateWorkspace } from '../workspaces/candidate.js';
 import { git } from '../workspaces/git.js';
 import { headPlanningResumeBlocker, recordHeadPlanning } from './head-planning-record.js';
 import {
@@ -103,7 +105,7 @@ export function composeHeadPrompt(input: HeadPromptInput): string {
   lines.push('Workers you can assign. Every task goes to exactly one of these ids, never to you and never to anyone else:');
   if (input.workKind === 'analysis') lines.push('This request is read-only analysis. Assign inspection and explanation tasks only. The coordinator enforces the analysis policy on every worker. Workers must inspect source, cite concrete file paths, explain findings and limitations, and change no files. Repository test setup is not required to answer a codebase question. Prefer one appropriately skilled worker for a single codebase walkthrough.');
   for (const worker of roster) {
-    lines.push(`- ${worker.id} — ${worker.name}; runtime ${worker.runtime}; capabilities: ${worker.capabilities.length > 0 ? worker.capabilities.join(', ') : '(none listed)'}`);
+    lines.push(`- ${worker.id} — ${worker.name}${worker.jobTitle ? ` (${worker.jobTitle})` : ''}; runtime ${worker.runtime}; capabilities: ${worker.capabilities.length > 0 ? worker.capabilities.join(', ') : '(none listed)'}`);
   }
   lines.push('');
   lines.push(
@@ -170,6 +172,7 @@ export interface HeadRoundReport {
   /** A rejected request cannot be repaired by asking the same head to plan again. */
   readonly runtimeActionRequired: boolean;
   readonly sessionStopped: boolean;
+  readonly process: ProcessIdentity | null;
 }
 
 export interface HeadPlannerClientOptions {
@@ -389,7 +392,7 @@ export class HeadPlannerClient implements PlannerClient {
     }
 
     if (flow.stopReason !== null) flow.conclusion = flow.stopReason;
-    this.#lastRound = { attempt, proposals: proposals.length, conclusion: flow.conclusion, detail: flow.detail, runtimeActionRequired: flow.runtimeActionRequired, sessionStopped: flow.session === null || flow.stopReceipt?.state === 'process_tree_terminated' };
+    this.#lastRound = { attempt, proposals: proposals.length, conclusion: flow.conclusion, detail: flow.detail, runtimeActionRequired: flow.runtimeActionRequired, sessionStopped: flow.session === null || flow.stopReceipt?.state === 'process_tree_terminated', process: flow.session?.process ?? null };
     return proposals.length === 0 ? undefined : proposals[proposals.length - 1];
   }
 
@@ -643,7 +646,7 @@ async function planInRun(input: HeadPlanningInput, run: PlannedRun, binding: Eff
   });
   const rosterEntries = roster.workers.map((worker) => {
     const runtime = input.workspace.runtimes[worker.runtime];
-    return { id: worker.id, name: worker.name, capabilities: [...worker.capabilities], runtime: runtime === undefined ? worker.runtime : `${worker.runtime} (${runtime.adapter})` };
+    return { id: worker.id, name: worker.name, jobTitle: agentJobTitle(worker), capabilities: [...worker.capabilities], runtime: runtime === undefined ? worker.runtime : `${worker.runtime} (${runtime.adapter})` };
   });
 
   // ---- Propose, validate, and at most one retry -------------------------------
@@ -718,7 +721,7 @@ async function planInRun(input: HeadPlanningInput, run: PlannedRun, binding: Eff
   } finally {
     // A live/uncertain head retains its isolated copy; cleanup cannot revoke
     // an unconfined process's write access and must not race it.
-    if (client.lastRound?.sessionStopped === true) await retireHeadWorkspace(db, run, head.id, planningId, workspace);
+    if (client.lastRound?.sessionStopped === true) await retireHeadWorkspace(db, run, head.id, planningId, workspace, client.lastRound.process);
   }
 
   if (failure !== null) return end(failure);
@@ -771,28 +774,25 @@ export function workerObjective(task: HeadPlannedTask, workKind?: 'analysis' | '
 }
 
 /**
- * Remove the head's copy. A head plans and writes nothing; if it wrote anyway
- * (a runtime whose read-only profile is not enforced), that is said out loud
- * and the files are discarded with the copy — they are part of no candidate.
+ * Remove only an unchanged head copy after confirmed process termination.
+ * Unexpected writes or uncertain identity remain preserved for inspection.
  */
-async function retireHeadWorkspace(db: DatabaseSync, run: PlannedRun, headId: string, planningId: string, workspace: CandidateWorkspace): Promise<void> {
+async function retireHeadWorkspace(db: DatabaseSync, run: PlannedRun, headId: string, planningId: string, workspace: CandidateWorkspace, writer: ProcessIdentity | null): Promise<void> {
   try {
+    await assertCandidateGitIdentity(workspace);
     const status = await git(['status', '--porcelain', '--untracked-files=all'], { cwd: workspace.path });
     const changed = status.stdout
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
     if (changed.length > 0) {
-      run.unresolved.push(`head "${headId}" changed ${changed.length} path(s) in its read-only copy of the project while planning; those changes were discarded and are part of no candidate`);
+      run.unresolved.push(`head "${headId}" changed ${changed.length} path(s) in its read-only copy of the project while planning; those changes are preserved for inspection and are part of no delivered candidate`);
       appendEvent(db, { runId: run.runId, type: 'head.wrote_files', payload: { headAgentId: headId, planningId, count: changed.length, paths: changed.slice(0, 20) } });
     }
-  } catch {
-    // Whether it wrote is unknown; the copy is removed below either way.
-  }
-  try {
-    await removeCandidateWorkspace(workspace, { disposition: 'rejected' });
-  } catch {
-    // The copy stays under the coordinator's own workspace root.
+    const cleanup = await removeCandidateWorkspace(workspace, { disposition: 'rejected', readOnly: { quiesced: true, writer } });
+    if (!cleanup.removed) appendEvent(db, { runId: run.runId, type: 'head.workspace_retained', payload: { headAgentId: headId, planningId, path: workspace.path, reason: cleanup.reason } });
+  } catch (error) {
+    appendEvent(db, { runId: run.runId, type: 'head.workspace_retained', payload: { headAgentId: headId, planningId, path: workspace.path, reason: messageOf(error) } });
   }
 }
 

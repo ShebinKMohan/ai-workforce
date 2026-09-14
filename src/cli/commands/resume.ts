@@ -47,6 +47,7 @@ export interface ResumeCommandArgs {
   readonly agents?: string;
   /** Accept a continued attempt whose runtime enforces no write boundary, exactly as `run` does. */
   readonly allowUnconfinedWrites?: boolean;
+  readonly retryFailed?: boolean;
   readonly json: boolean;
 }
 
@@ -112,10 +113,11 @@ export async function commandResume(args: ResumeCommandArgs, options: ResumeComm
     // demanding a configuration for it would refuse a report it can honestly
     // give.
     const preview = reconcileRun(store.db, runId, {
+      ...(args.retryFailed ? { retryFailed: true } : {}),
       ...(options.probeProcess !== undefined ? { probeProcess: options.probeProcess } : {}),
       ...(options.sessionResumable !== undefined ? { sessionResumable: options.sessionResumable } : {}),
     });
-    const continuable = run.state !== 'cancelled' && !TERMINAL_RUN_STATES.has(run.state) && !preview.blocked;
+    const continuable = run.state !== 'cancelled' && (!TERMINAL_RUN_STATES.has(run.state) || args.retryFailed === true && run.state === 'failed') && !preview.blocked;
     // `--agents` is the fallback binding, not the primary one: the run's own
     // recorded configuration is what its attempts ran under.
     let fallback: LoadedAgentConfig | undefined;
@@ -140,6 +142,7 @@ export async function commandResume(args: ResumeCommandArgs, options: ResumeComm
     let started;
     try {
       started = resumeRun({
+        ...(args.retryFailed ? { retryFailed: true } : {}),
         runId,
         store,
         // The continuation inserts the attempt row for the slot it dispatches,

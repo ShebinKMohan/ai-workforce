@@ -49,5 +49,37 @@ describe('fleet read-only history cache',()=>{
   expect(cache.runs([{...run,eventCount:3}])[0].taskViews).toEqual(run.taskViews);
   expect(cache.eventPages()[0].events.map((event:{type:string})=>event.type)).toEqual(['runtime.command_exec']);cache.dispose();
  });
+ it('retains task context while the same department-head review is active',async()=>{
+  const headReview={state:'running',headAgentId:'head'};
+  const detail={run:{id:'run',state:'running',updatedAt:'now'},eventCount:2,headReview,taskViews:[{id:'task',state:'validating',objective:'Inspect API',attempt:{startedAt:'then'}}]};
+  const api=vi.fn(async(url:string)=>url.includes('/events?')?{events:[],hasMore:false}:detail);
+  const cache=createFleetRecords({api});
+  try{await cache.refresh([{...run,headReview}]);expect(cache.runs([{...run,headReview}])[0].taskViews[0].objective).toBe('Inspect API');expect(cache.runs([{...run,headReview:{state:'passed'}}])[0].taskViews).toEqual(run.taskViews);}finally{cache.dispose();}
+ });
+ it('recovers final delivery context but excludes head raw and reasoning payloads',async()=>{
+  const events=[{sequence:1,type:'head.runtime.raw',payload:{text:'private raw'}},{sequence:2,type:'head.runtime.reasoning_delta',payload:{text:'private reasoning'}},{sequence:3,type:'control.final_reply',payload:{verificationStatus:'reviewed_analysis'}},{sequence:4,type:'run.analysis_reviewed'}];
+  const api=vi.fn(async(url:string)=>url.includes('/events?')?{events,hasMore:false}:{messages:[]});
+  const cache=createFleetRecords({api});
+  try{await cache.refresh([run]);expect(cache.eventPages()[0].events.map((event:{type:string})=>event.type)).toEqual(['control.final_reply','run.analysis_reviewed']);}finally{cache.dispose();}
+ });
+
+ it('does not notify on an unchanged TTL refresh but notifies changed activity and removal',async()=>{
+  let current=0,changed=false;
+  const onChange=vi.fn();
+  const api=vi.fn(async(url:string)=>url.includes('/events?')?{events:changed?[{sequence:3,type:'runtime.command_exec',taskId:'task',payload:{command:'npm test'}}]:[],hasMore:false}:{run:{id:'run',state:'running',updatedAt:'now'},eventCount:2,taskViews:[{id:'task',state:'running'}],messages:[]});
+  const cache=createFleetRecords({api,onChange,now:()=>current});
+  try{
+   await cache.refresh([run]);expect(onChange).toHaveBeenCalledTimes(1);
+   current=5000;await cache.refresh([structuredClone(run)]);expect(api).toHaveBeenCalledTimes(4);expect(onChange).toHaveBeenCalledTimes(1);
+   current=10000;changed=true;await cache.refresh([run]);expect(onChange).toHaveBeenCalledTimes(2);
+   await cache.refresh([]);expect(onChange).toHaveBeenCalledTimes(3);expect(cache.eventPages()).toEqual([]);
+  }finally{cache.dispose();}
+ });
+ it('retains exact head lifecycle identities for recorded phase durations',async()=>{
+  const events=[{sequence:1,type:'head.review_started',timestamp:'2026-09-14T10:00:00Z',payload:{headAgentId:'head',reviewId:'review-one'}},{sequence:2,type:'head.review_finished',timestamp:'2026-09-14T10:02:00Z',payload:{headAgentId:'head',reviewId:'review-one',verdict:'passed'}}];
+  const api=vi.fn(async(url:string)=>url.includes('/events?')?{events,hasMore:false}:{messages:[]});
+  const cache=createFleetRecords({api});
+  try{await cache.refresh([run]);expect(cache.eventPages()[0].events).toEqual(events);}finally{cache.dispose();}
+ });
 
 });

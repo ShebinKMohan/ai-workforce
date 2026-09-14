@@ -25,7 +25,7 @@
  */
 import path from 'node:path';
 import { z } from 'zod';
-import { AgentIdSchema, EffortSchema, ModelSchema, PolicySchema, RuntimeConfigSchema, RuntimeIdSchema, formatZodIssues } from './contracts.js';
+import { AgentJobTitleSchema, AgentIdSchema, EffortSchema, ModelSchema, PolicySchema, RuntimeConfigSchema, RuntimeIdSchema, formatZodIssues } from './contracts.js';
 
 export const WORKSPACE_SCHEMA_VERSION = 2 as const;
 
@@ -51,8 +51,10 @@ const count = (max: number) => z.number().int().min(1).max(max);
  * Workspace limits: how many project runs may be live at once, plus the
  * per-run limits every run is started with (the v1 `defaults` limits).
  */
-export const WorkspaceLimitsSchema = z.strictObject({
+const WorkspaceLimitsShape = z.strictObject({
   maxConcurrentProjectRuns: count(32).default(2),
+  maxTotalActiveTurns: count(256).default(2),
+  maxTotalActiveWriters: count(256).default(2),
   maxActiveTurns: count(64).default(2),
   maxActiveWriters: count(64).default(2),
   maxTasksPerRun: count(1000).default(8),
@@ -60,7 +62,20 @@ export const WorkspaceLimitsSchema = z.strictObject({
   maxRepairAttempts: z.number().int().min(0).max(100).default(2),
   maxTransientRetries: z.number().int().min(0).max(100).default(2),
   runTimeoutMinutes: count(24 * 60 * 7).default(30),
+}).superRefine((limits, ctx) => {
+  for (const field of ['maxTotalActiveTurns', 'maxTotalActiveWriters'] as const) {
+    if (limits[field] < limits.maxConcurrentProjectRuns) ctx.addIssue({ code: 'custom', path: [field], message: 'must reserve at least one slot per concurrent project run' });
+  }
 });
+/** Older files have only a project count. Derive absent totals in memory so
+ * opening a saved workspace does not invalidate it or rewrite user settings. */
+export const WorkspaceLimitsSchema = z.preprocess((input) => {
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) return input;
+  const raw = input as Record<string, unknown>;
+  const projects = typeof raw['maxConcurrentProjectRuns'] === 'number' && Number.isSafeInteger(raw['maxConcurrentProjectRuns']) ? raw['maxConcurrentProjectRuns'] : 2;
+  const legacyTotal = Math.max(2, projects);
+  return { ...raw, maxTotalActiveTurns: raw['maxTotalActiveTurns'] === undefined ? legacyTotal : raw['maxTotalActiveTurns'], maxTotalActiveWriters: raw['maxTotalActiveWriters'] === undefined ? legacyTotal : raw['maxTotalActiveWriters'] };
+}, WorkspaceLimitsShape);
 export type WorkspaceLimits = z.infer<typeof WorkspaceLimitsSchema>;
 
 export const WorkspaceProjectSchema = z.strictObject({
@@ -100,6 +115,7 @@ export type AgentAvatarId = z.infer<typeof AgentAvatarIdSchema>;
 export const WorkspaceAgentSchema = z.strictObject({
   id: AgentIdSchema,
   name: z.string().trim().min(1).max(60),
+  jobTitle: AgentJobTitleSchema.optional(),
   avatarId: AgentAvatarIdSchema.optional(),
   role: AgentRoleSchema,
   departmentId: SlugSchema,
@@ -116,6 +132,15 @@ export const WorkspaceAgentSchema = z.strictObject({
   archived: z.boolean().default(false),
 });
 export type WorkspaceAgent = z.infer<typeof WorkspaceAgentSchema>;
+
+/** Saved job titles win; older role-prefixed instructions retain their visible specialization. */
+export function agentJobTitle(agent: { readonly jobTitle?: string | undefined; readonly instructions?: string | undefined; readonly role?: AgentRole | undefined }): string {
+  if (agent.jobTitle) return agent.jobTitle;
+  const firstLine = (agent.instructions ?? '').split(/\r?\n/, 1)[0] ?? '';
+  const legacy = /^\s*ROLE:\s*(.+?)\s*$/i.exec(firstLine)?.[1];
+  if (legacy && AgentJobTitleSchema.safeParse(legacy).success) return legacy.trim();
+  return agent.role === 'head' ? 'Department Head' : 'Worker';
+}
 
 export const RetiredIdsSchema = z.strictObject({
   projects: z.array(SlugSchema).default([]),

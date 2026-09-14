@@ -135,6 +135,10 @@ const TAGS: Readonly<Record<string, FailureClass>> = {
   // than having a class guessed on its behalf.
   authentication: 'authentication',
   provider_transient: 'provider_transient',
+  quota: 'quota',
+  permission: 'permission',
+  protocol: 'protocol',
+  code_failure: 'code_failure',
 };
 
 const USER_ACTIONS: Readonly<Record<FailureClass, string | null>> = {

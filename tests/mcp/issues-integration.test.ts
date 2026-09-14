@@ -49,12 +49,17 @@ it('uses the real issue API for durable MCP saves and bounded pages of 33 large 
     const detail = await exchange('workforce_get_issue', { issueId: seeded[0]!.id });
     expect(detail.issue.description).toBe(description);
 
-    const args = { projectId: 'one', title: 'Save without execution', description: '# Full text\n\nLiteral `$(no)` and Unicode 日本語.\n', kind: 'prd', idempotencyKey: 'mcp-save:v1' };
+    const args = { projectId: 'one', title: 'Save without execution', description: '# Full text\n\nLiteral `$(no)` and Unicode 日本語.\n', kind: 'prd', priority: 'high', idempotencyKey: 'mcp-save:v1' };
     const saved = await exchange('workforce_submit_plan', args);
     const replayed = await exchange('workforce_submit_plan', args);
     expect(replayed.issue.id).toBe(saved.issue.id);
     expect(saved.issue.description).toBe(args.description);
     expect(saved.issue.requestId).toBeNull();
+    expect(saved.issue.priority).toBe('high');
+    const updated = await exchange('workforce_update_issue', { issueId: saved.issue.id, expectRevision: saved.issue.revision, priority: 'urgent', idempotencyKey: 'mcp-priority:v1' });
+    expect(updated.issue.priority).toBe('urgent');
+    const priorityDetail = await exchange('workforce_get_issue', { issueId: saved.issue.id });
+    expect(priorityDetail.issue.priority).toBe('urgent');
     expect(new IssueStore(root).list('one')).toHaveLength(34);
     expect(spawns).toBe(0);
   } finally {

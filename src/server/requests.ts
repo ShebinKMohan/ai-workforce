@@ -1,4 +1,6 @@
 import { WorkKindSchema, inferWorkKind, isReadOnlyRequest } from '../routing/control-intake.js';
+import { workspaceRunCapacity, globalCapacity, capacityAvailable, type RunCapacity } from '../workspace/capacity.js';
+import { classifyFailure, planRetry, FAILURE_CLASSES } from '../recovery/classify.js';
 import { rankAvailableWorkers } from '../workspace/worker-selection.js';
 /**
  * `POST /api/requests` — sending work to a department, and the queue that
@@ -108,6 +110,10 @@ export const RequestBodySchema = z.strictObject({
 });
 
 export const ResumeBodySchema = z.strictObject({ allowUnconfinedWrites: z.boolean().optional() });
+export const RetryBodySchema = z.strictObject({
+  clientRequestId: z.string().min(1).max(128).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/),
+  allowUnconfinedWrites: z.boolean().optional(),
+});
 export const EmptyBodySchema = z.strictObject({});
 
 export const REQUEST_STATES = ['queued', 'held', 'starting', 'running', 'ended', 'failed_to_start', 'discarded'] as const;
@@ -123,6 +129,19 @@ export const RequestItemSchema = z.strictObject({
   id: z.string().min(1),
   /** Optional for queues written before submission deduplication was added. */
   clientRequestId: z.string().min(1).max(128).optional(),
+  retryOfRequestId: z.string().optional(),
+  retryRootRequestId: z.string().optional(),
+  retryAttempt: z.number().int().nonnegative().optional(),
+  retryReason: z.enum(['manual', 'provider_transient']).optional(),
+  automaticRetriesUsed: z.number().int().nonnegative().optional(),
+  reservedTurns: z.number().int().min(1).max(64).optional(),
+  reservedWriters: z.number().int().min(1).max(64).optional(),
+  retryNotBefore: z.string().optional(),
+  retryFailed: z.boolean().optional(),
+  recoveryPolicy: z.strictObject({ maxTransientRetries: z.number().int().min(0).max(100), deadlineAt: z.string() }).optional(),
+  recovery: z.strictObject({ canRetry: z.boolean(), action: z.enum(['retry', 'resume']).nullable(), reason: z.string(),
+    failureClass: z.enum(FAILURE_CLASSES), automaticRetriesRemaining: z.number().int().nonnegative(),
+    nextRequestId: z.string().nullable() }).optional(),
   /** Original routing override, before automatic intake selected a department. */
   submittedDepartmentId: z.string().nullable().optional(),
   submittedControlCenter: ControlSelectionSchema.optional(),
@@ -239,10 +258,12 @@ export interface RequestQueueOptions {
   readonly validateControl?: (settings: ControlCenterConfig, runtime: RuntimeConfig, reports: ReadonlyArray<RuntimeReadinessReport>, attachments?: ReadonlyArray<RuntimeAttachment>) => Promise<void>;
   /** Receipts are durable before this metadata mirror runs; a failed mirror postpones retention. */
   readonly onPersist?: (items: readonly RequestItem[]) => void;
+  /** Test seam for the bounded persisted intake backoff; production uses 1s. */
+  readonly retryBaseDelayMs?: number;
 }
 
 /** A project run that is live now, from this server's queue or from a project lock. */
-interface LiveRun {
+interface LiveRun extends RunCapacity {
   readonly projectId: string;
   readonly requestId: string | null;
   readonly pid: number | null;
@@ -254,6 +275,8 @@ interface LiveRun {
 }
 
 interface RosterFacts {
+  readonly reservedTurns?: number;
+  readonly reservedWriters?: number;
   readonly agentIds: string[];
   readonly workerIds: string[];
   readonly exclusive: boolean;
@@ -274,7 +297,7 @@ function exclusiveRuntime(runtimeId: string, runtime: AgentConfigFile['runtimes'
 function workspaceRosterFacts(config: WorkspaceConfig, roster: Roster, reports?: ReadonlyArray<RuntimeReadinessReport> | null): RosterFacts {
   const agents = [roster.head, ...roster.workers];
   const unconfined = agents.filter((agent) => exclusiveRuntime(agent.runtime, config.runtimes[agent.runtime], reports)).map((agent) => config.runtimes[agent.runtime]?.adapter ?? agent.runtime);
-  return { agentIds: rosterAgentIds(roster), workerIds: roster.workers.map((worker) => worker.id), exclusive: unconfined.length > 0, unconfinedRuntimes: uniqueLabels(unconfined) };
+  return { ...workspaceRunCapacity(config), agentIds: rosterAgentIds(roster), workerIds: roster.workers.map((worker) => worker.id), exclusive: unconfined.length > 0, unconfinedRuntimes: uniqueLabels(unconfined) };
 }
 
 /** The same facts from a recorded v1 configuration (a roster snapshot or a run's config snapshot). */
@@ -282,6 +305,8 @@ function snapshotRosterFacts(config: AgentConfigFile, reports?: ReadonlyArray<Ru
   const planner = config.defaults.plannerAgent;
   const unconfined = config.agents.filter((agent) => exclusiveRuntime(agent.runtime, config.runtimes[agent.runtime], reports)).map((agent) => config.runtimes[agent.runtime]?.adapter ?? agent.runtime);
   return {
+    reservedTurns: config.defaults.maxActiveTurns,
+    reservedWriters: config.defaults.maxActiveWriters,
     agentIds: config.agents.map((agent) => agent.id),
     workerIds: config.agents.filter((agent) => agent.id !== planner).map((agent) => agent.id),
     exclusive: unconfined.length > 0,
@@ -359,6 +384,7 @@ export class RequestQueue {
   private routing: { id: string; controller: AbortController; exclusive: boolean } | null = null;
   private reports: ReadonlyArray<RuntimeReadinessReport> | null = null;
   private readonly directRouting = new Set<string>();
+  private readonly retrying = new Map<string, Promise<RequestItem>>();
 
   constructor(private readonly options: RequestQueueOptions) {
     this.root = path.resolve(options.stateRoot);
@@ -660,6 +686,8 @@ export class RequestQueue {
         projectId: item.projectId,
         requestId: item.id,
         pid: item.pid,
+        reservedTurns: item.reservedTurns ?? globalCapacity(workspace).reservedTurns,
+        reservedWriters: item.reservedWriters ?? globalCapacity(workspace).reservedWriters,
         workerIds: new Set(item.workerIds),
         exclusive: item.exclusive,
         label: item.unconfinedRuntimes[0] ?? null,
@@ -686,6 +714,8 @@ export class RequestQueue {
         projectId,
         requestId: null,
         pid: info.pid,
+        reservedTurns: facts?.reservedTurns ?? globalCapacity(workspace).reservedTurns,
+        reservedWriters: facts?.reservedWriters ?? globalCapacity(workspace).reservedWriters,
         workerIds: new Set(facts?.workerIds ?? []),
         exclusive: facts === null ? true : facts.exclusive,
         label: facts?.unconfinedRuntimes[0] ?? null,
@@ -718,6 +748,11 @@ export class RequestQueue {
 
     for (const item of queued) {
       const admissionBegan = performance.now();
+      if (item.retryNotBefore && Date.parse(item.retryNotBefore) > Date.now()) {
+        wait(item, `Waiting to retry a temporary provider connection failure at ${item.retryNotBefore}.`);
+        projectsAhead.add(item.projectId);
+        continue;
+      }
       if (item.route?.state === 'pending' || item.admissionReady === false) {
         wait(item, item.route?.state === 'pending' ? (item.reason?.startsWith('waiting: Control Center') ? item.reason : 'Control Center is routing your request.') : 'Checking the selected department before dispatch.');
         projectsAhead.add(item.projectId);
@@ -776,7 +811,7 @@ export class RequestQueue {
           continue;
         }
       } else {
-        facts = { agentIds: item.agentIds, workerIds: item.workerIds, exclusive: item.exclusive, unconfinedRuntimes: item.unconfinedRuntimes };
+        facts = { reservedTurns: item.reservedTurns ?? globalCapacity(workspace).reservedTurns, reservedWriters: item.reservedWriters ?? globalCapacity(workspace).reservedWriters, agentIds: item.agentIds, workerIds: item.workerIds, exclusive: item.exclusive, unconfinedRuntimes: item.unconfinedRuntimes };
       }
       // Admission recorded an exact-runtime version check. A synchronous
       // roster refresh must not erase that restriction using an adapter-wide
@@ -798,6 +833,7 @@ export class RequestQueue {
       else if (facts.exclusive && live.length > 0) {
         reason = `waiting: a ${label} task runs on its own, so this starts when ${live.length === 1 ? 'the running task finishes' : `the ${live.length} running tasks finish`}`;
       } else if (live.length >= max) reason = `waiting: ${live.length} tasks are already running (your limit is ${max})`;
+      else if (!capacityAvailable(globalCapacity(workspace), live, { reservedTurns: facts.reservedTurns!, reservedWriters: facts.reservedWriters! }, this.routing === null ? 0 : 1)) reason = 'waiting: the workspace turn or writer budget is reserved by active work';
       else if (busyWorker !== undefined) reason = `waiting: ${agentName(busyWorker.id)} is busy on ${projectName(busyWorker.run!.projectId)}`;
 
       if (reason !== null) {
@@ -808,7 +844,7 @@ export class RequestQueue {
       }
       item.admissionElapsedMs = performance.now() - admissionBegan;
       if (this.launch(item, facts)) {
-        live.push({ projectId: item.projectId, requestId: item.id, pid: item.pid, workerIds: new Set(facts.workerIds), exclusive: facts.exclusive, label: facts.unconfinedRuntimes[0] ?? null, known: true });
+        live.push({ reservedTurns: item.reservedTurns!, reservedWriters: item.reservedWriters!, projectId: item.projectId, requestId: item.id, pid: item.pid, workerIds: new Set(facts.workerIds), exclusive: facts.exclusive, label: facts.unconfinedRuntimes[0] ?? null, known: true });
       }
       changed = true;
     }
@@ -821,12 +857,13 @@ export class RequestQueue {
     item.reason = null;
     item.result = { exitCode: null, code, message, details };
     item.controlReply = message;
+    this.scheduleAutomaticRetry(item);
   }
 
   /** The argv after the CLI entry: every value its own element, the task text one `--task=` element. */
   argvFor(item: RequestItem): string[] {
     if (item.kind === 'resume') {
-      return ['resume', item.resumeRunId!, '--json', `--state-dir=${projectStateRoot(this.root, item.projectId)}`, ...(item.allowUnconfinedWrites ? ['--allow-unconfined-writes'] : [])];
+      return ['resume', item.resumeRunId!, '--json', `--state-dir=${projectStateRoot(this.root, item.projectId)}`, ...(item.retryFailed ? ['--retry-failed'] : []), ...(item.allowUnconfinedWrites ? ['--allow-unconfined-writes'] : [])];
     }
     return [
       'run',
@@ -836,6 +873,7 @@ export class RequestQueue {
       `--work-kind=${item.workKind ?? 'implementation'}`,
       ...item.workerIds.map((id) => `--worker=${id}`),
       ...(item.admittedWorkspaceRevision === undefined ? [] : [`--workspace-revision=${item.admittedWorkspaceRevision}`]),
+      ...(item.reservedTurns === undefined ? [] : [`--capacity-turns=${item.reservedTurns}`, `--capacity-writers=${item.reservedWriters}`]),
       `--task=${taskWithConversation(item)}`,
       ...(item.attachments ?? []).map((file) => `--attachment=${file.id}`),
       ...(item.allowUnconfinedWrites ? ['--allow-unconfined-writes'] : []),
@@ -847,6 +885,8 @@ export class RequestQueue {
     const launchId = newId();
     const dir = path.join(this.root, SERVE_DIR_NAME, 'launches');
     mkdirSync(dir, { recursive: true, mode: 0o700 });
+    item.reservedTurns = facts.reservedTurns!;
+    item.reservedWriters = facts.reservedWriters!;
     item.agentIds = facts.agentIds;
     item.workerIds = facts.workerIds;
     item.exclusive = facts.exclusive;
@@ -901,6 +941,7 @@ export class RequestQueue {
   // ---- routes ---------------------------------------------------------------------
 
   private newItem(fields: Pick<RequestItem, 'kind' | 'projectId' | 'departmentId' | 'task' | 'resumeRunId' | 'allowUnconfinedWrites' | 'clientRequestId'> & RosterFacts): RequestItem {
+    const limits = readWorkspace(this.root).loaded?.config.limits;
     return {
       id: newId(),
       ...fields,
@@ -920,6 +961,8 @@ export class RequestQueue {
       exitCode: null,
       signal: null,
       result: null,
+      recoveryPolicy: { maxTransientRetries: limits?.maxTransientRetries ?? 2,
+        deadlineAt: new Date(Date.now() + (limits?.runTimeoutMinutes ?? 30) * 60_000).toISOString() },
     };
   }
 
@@ -944,6 +987,108 @@ export class RequestQueue {
     return structuredClone(previous);
   }
 
+  private recoveryView(item: RequestItem, records = this.lock !== null ? this.items : this.readItems(false)): NonNullable<RequestItem['recovery']> {
+    const failure = classifyFailure({ source: 'runtime', errorTag: item.route?.failureClass ?? null, code: item.result?.code ?? null, message: item.result?.message ?? item.reason, exitCode: item.exitCode, signal: item.signal });
+    const rootId = item.retryRootRequestId ?? item.id;
+    const used = Math.max(item.automaticRetriesUsed ?? 0, ...records.filter(entry => entry.id === rootId || entry.retryRootRequestId === rootId).map(entry => entry.automaticRetriesUsed ?? 0));
+    const next = records.find(entry => entry.retryOfRequestId === item.id);
+    const base = { failureClass: failure.failureClass, automaticRetriesRemaining: Math.max(0, (item.recoveryPolicy?.maxTransientRetries ?? 0) - used), nextRequestId: next?.id ?? null };
+    const refuse = (reason: string): NonNullable<RequestItem['recovery']> => ({ ...base, canRetry: false, action: null, reason });
+    if (next) return refuse('This request already has a recorded retry. Open that attempt to continue.');
+    if (WAITING_STATES.has(item.state) || LIVE_STATES.has(item.state)) return refuse('This request is already waiting or running.');
+    if (item.state === 'discarded' || item.stopRequestedAt || item.exitCode === 130 || item.signal === 'SIGINT') return refuse('Stopped or discarded work is never retried automatically. Use its explicit Resume action when available.');
+    if (item.routingSession && item.routingSession.state !== 'stopped') return refuse('The earlier routing process has not been confirmed stopped.');
+    if (!this.processGone(item)) return refuse('The earlier coordinator process is still active or its identity is uncertain.');
+    const runId = item.runId ?? item.resumeRunId;
+    if (runId) {
+      try {
+        if (projectHasLiveRun(this.root, item.projectId)) return refuse('A coordinator still owns this project.');
+        const store = openStateStore(projectStatePaths(this.root, item.projectId), { mode: 'read-only' });
+        try {
+          const run = findRun(store.db, runId);
+          if (!run) return refuse('The linked run record is unavailable; inspect its history before retrying.');
+          if (run.state === 'cancelled' || run.state === 'ready_for_review') return refuse(`The recorded run is ${run.state}; retry would be inappropriate.`);
+          return { ...base, canRetry: true, action: 'resume', reason: 'Retry continues the recorded run with its original configuration and preserves accepted work.' };
+        } finally { store.close(); }
+      } catch { return refuse('The linked run ownership or evidence could not be checked.'); }
+    }
+    if (item.state === 'ended' && item.exitCode === 0) return refuse('This request finished successfully.');
+    if (item.task === null) return refuse('The original task is unavailable.');
+    return { ...base, canRetry: true, action: 'retry', reason: failure.userAction ?? 'Retry sends the preserved request through admission again.' };
+  }
+
+  private present(item: RequestItem, records?: RequestItem[]): RequestItem {
+    return { ...structuredClone(item), recovery: this.recoveryView(item, records) };
+  }
+
+  /** One successor per failed request, even with distinct double-click keys. */
+  async retry(id: string, raw: unknown): Promise<RequestItem> {
+    const parsed = RetryBodySchema.safeParse(raw);
+    if (!parsed.success) throw invalidBody(parsed.error.issues, 'the retry request');
+    const body = parsed.data;
+    const underway = this.retrying.get(id);
+    if (underway) return underway;
+    this.ensureOwner();
+    const previous = this.find(id);
+    const existing = this.items.find(item => item.retryOfRequestId === id);
+    if (existing) return this.present(existing);
+    const keyOwner = this.items.find(item => item.clientRequestId === body.clientRequestId);
+    if (keyOwner) throw new ApiError(409, 'request_id_conflict', 'This retry submission ID belongs to a different request.');
+    const recovery = this.recoveryView(previous);
+    if (!recovery.canRetry) throw new ApiError(409, 'request_not_retryable', recovery.reason);
+    const work = this.prepareRetry(previous, body);
+    this.retrying.set(id, work);
+    try { return await work; } finally { this.retrying.delete(id); }
+  }
+
+  private retryItem(previous: RequestItem, clientRequestId: string, reason: 'manual' | 'provider_transient'): RequestItem {
+    const item = this.newItem({ kind: 'request', clientRequestId, projectId: previous.projectId, departmentId: null, task: previous.task,
+      resumeRunId: null, allowUnconfinedWrites: previous.allowUnconfinedWrites, agentIds: [], workerIds: [], exclusive: false, unconfinedRuntimes: [] });
+    for (const key of ['submittedDepartmentId', 'submittedControlCenter', 'submittedWorkKind', 'mode', 'workKind', 'priorRequestId', 'conversation', 'submittedAttachmentIds', 'attachments', 'controlCenter', 'controlRuntime', 'approvedRosterHash'] as const) {
+      if (previous[key] !== undefined) Object.assign(item, { [key]: structuredClone(previous[key]) });
+    }
+    item.retryOfRequestId = previous.id; item.retryRootRequestId = previous.retryRootRequestId ?? previous.id;
+    item.retryAttempt = (previous.retryAttempt ?? 0) + 1; item.retryReason = reason;
+    item.automaticRetriesUsed = (previous.automaticRetriesUsed ?? 0) + (reason === 'provider_transient' ? 1 : 0);
+    if (previous.recoveryPolicy) item.recoveryPolicy = structuredClone(previous.recoveryPolicy);
+    item.route = { state: 'pending', projectId: item.projectId, departmentId: null, headAgentId: null, reason: 'Retrying the saved Control Center request.', decidedAt: null, elapsedMs: 0, method: 'pending' };
+    item.admissionReady = false;
+    return item;
+  }
+
+  private async prepareRetry(previous: RequestItem, body: z.infer<typeof RetryBodySchema>): Promise<RequestItem> {
+    const runId = previous.runId ?? previous.resumeRunId;
+    if (runId) {
+      return this.resume(previous.projectId, runId, { allowUnconfinedWrites: body.allowUnconfinedWrites ?? previous.allowUnconfinedWrites }, { previous, clientRequestId: body.clientRequestId });
+    }
+    if (previous.attachments?.length) await resolveAttachments(this.root, previous.attachments.map(file => file.id));
+    this.ensureOwner();
+    const existing = this.items.find(item => item.retryOfRequestId === previous.id);
+    if (existing) return this.present(existing);
+    if (!this.recoveryView(previous).canRetry) throw new ApiError(409, 'request_not_retryable', 'The original request ownership changed while retrying.');
+    const config = loadWorkspace(this.root).config;
+    if (!config.projects.some(project => project.id === previous.projectId && !project.archived)) throw new ApiError(409, 'retry_project_unavailable', 'The original project is no longer active.');
+    if (previous.controlCenter && previous.controlRuntime && JSON.stringify(config.runtimes[previous.controlCenter.runtime]) !== JSON.stringify(previous.controlRuntime)) throw new ApiError(409, 'control_runtime_changed', 'The original runtime binding changed. Send a new request to select the new binding.');
+    const item = this.retryItem(previous, body.clientRequestId, 'manual');
+    item.allowUnconfinedWrites = body.allowUnconfinedWrites ?? previous.allowUnconfinedWrites;
+    return this.present(this.accept(item));
+  }
+
+  private scheduleAutomaticRetry(previous: RequestItem): void {
+    if (this.closed || this.lock === null || previous.runId || previous.resumeRunId || previous.pid !== null || previous.stopRequestedAt || previous.kind !== 'request') return;
+    if (previous.routingSession && previous.routingSession.state !== 'stopped') return;
+    const policy = previous.recoveryPolicy;
+    if (!policy || Date.parse(policy.deadlineAt) <= Date.now() || this.items.some(item => item.retryOfRequestId === previous.id)) return;
+    const used = previous.automaticRetriesUsed ?? 0;
+    const decision = planRetry({ source: 'runtime', errorTag: previous.route?.failureClass ?? null, code: previous.result?.code ?? null, message: previous.result?.message ?? null }, used,
+      { maxTransientRetries: policy.maxTransientRetries, ...(this.options.retryBaseDelayMs === undefined ? {} : { baseDelayMs: this.options.retryBaseDelayMs }) });
+    if (!decision.retry || Date.now() + decision.delayMs >= Date.parse(policy.deadlineAt)) return;
+    const item = this.retryItem(previous, `retry:${previous.id}`, 'provider_transient');
+    item.retryNotBefore = new Date(Date.now() + decision.delayMs).toISOString();
+    item.reason = `Waiting ${decision.delayMs} ms before retrying a temporary provider connection failure.`;
+    this.items.push(item); // caller persists failure and retry intent together before dispatch
+  }
+
   private workerReady(config: WorkspaceConfig, runtimeId: string): boolean {
     const runtime = config.runtimes[runtimeId];
     if (runtime === undefined) return false;
@@ -962,8 +1107,14 @@ export class RequestQueue {
    * It never waits for a project's execution lock or claims a worker. */
   private queueRouting(): void {
     if (this.closed || this.lock === null || this.routing !== null) return;
-    const item = this.items.find((entry) => entry.state === 'queued' && entry.route?.state === 'pending' && !this.directRouting.has(entry.id));
+    const item = this.items.find((entry) => entry.state === 'queued' && entry.route?.state === 'pending' && !this.directRouting.has(entry.id) && (!entry.retryNotBefore || Date.parse(entry.retryNotBefore) <= Date.now()));
     if (item === undefined) return;
+    const workspace = readWorkspace(this.root).loaded?.config ?? null;
+    if (!capacityAvailable(globalCapacity(workspace), this.liveRuns(workspace), { reservedTurns: 1, reservedWriters: 0 })) {
+      const reason = 'waiting: Control Center is waiting for a workspace turn slot';
+      if (item.reason !== reason) { item.reason = reason; this.persist(); }
+      return;
+    }
     const controller = new AbortController();
     if (this.items.some((entry) => entry.routingSession?.state === 'unknown')) return;
     this.routing = { id: item.id, controller, exclusive: false };
@@ -989,7 +1140,10 @@ export class RequestQueue {
       if (!active()) return;
       const attachments = files.map((file) => ({ path: file.path, name: file.name, mimeType: file.mimeType, sizeBytes: file.size, sha256: file.sha256 }));
       const input = { workspace: controlWorkspace, projectId: item.projectId, task: item.task!, ...(item.mode ? { mode: item.mode } : {}), ...(item.conversation ? { conversation: item.conversation } : {}), ...(attachments.length ? { attachments } : {}) };
-      const direct = directControlRoute(input);
+      const explicit = item.submittedDepartmentId;
+      const direct = explicit ? { route: { state: 'selected' as const, projectId: item.projectId, departmentId: explicit,
+        headAgentId: config.departments.find(department => department.id === explicit)?.headAgentId ?? null,
+        method: 'explicit' as const, reason: 'Retry preserves the original explicit department.', decidedAt: nowIso(), elapsedMs: 0, workspaceRevision: config.revision } } : directControlRoute(input);
       if (direct === null) {
         const readiness = await this.options.readiness();
         if (!active()) return;
@@ -1037,6 +1191,7 @@ export class RequestQueue {
         if (loadWorkspace(this.root).config.revision !== config.revision) throw new ApiError(409, 'routing_workspace_changed', 'Workspace routing configuration changed during classification. Send the message again to use the current departments.');
         const ready = await this.preflight({ projectId: item.projectId, departmentId: item.departmentId!, workKind: item.workKind, allowUnconfinedWrites: item.allowUnconfinedWrites });
         if (!active()) return;
+        if (item.retryOfRequestId && item.approvedRosterHash && item.approvedRosterHash !== this.rosterHash(ready.config, ready.roster)) throw new ApiError(409, 'retry_configuration_changed', 'The originally admitted team or project configuration changed. Send a new request to use the changed configuration.');
         Object.assign(item, workspaceRosterFacts(ready.config, ready.roster, ready.reports));
         item.approvedRosterHash = this.rosterHash(ready.config, ready.roster);
         item.admissionReady = true;
@@ -1178,7 +1333,7 @@ export class RequestQueue {
   }
 
   /** `POST /api/projects/:id/runs/:runId/resume`: `workforce resume` with the project's state root, through the queue. */
-  async resume(projectId: string, runId: string, raw: unknown): Promise<RequestItem> {
+  async resume(projectId: string, runId: string, raw: unknown, retry?: { previous: RequestItem; clientRequestId: string }): Promise<RequestItem> {
     const parsed = ResumeBodySchema.safeParse(raw);
     if (!parsed.success) throw invalidBody(parsed.error.issues, 'the resume request');
     const workspace = readWorkspace(this.root).loaded?.config ?? null;
@@ -1188,7 +1343,9 @@ export class RequestQueue {
     try {
       const store = openStateStore(paths, { mode: 'read-only' });
       try {
-        if (findRun(store.db, runId) === null) throw unknownRun;
+        const run = findRun(store.db, runId);
+        if (run === null) throw unknownRun;
+        if (retry && (run.state === 'cancelled' || run.state === 'ready_for_review')) throw new ApiError(409, 'request_not_retryable', `The run is ${run.state}; it cannot be retried.`);
       } finally {
         store.close();
       }
@@ -1213,15 +1370,28 @@ export class RequestQueue {
     }
     const department = typeof snapshot.configPath === 'string' ? /^([a-z0-9][a-z0-9-]{0,47})\.r\d+\./.exec(path.basename(snapshot.configPath))?.[1] ?? null : null;
     this.ensureOwner();
+    if (retry) {
+      const existing = this.items.find(item => item.retryOfRequestId === retry.previous.id);
+      if (existing) return this.present(existing);
+      if (!this.recoveryView(retry.previous).canRetry) throw new ApiError(409, 'request_not_retryable', 'The original ownership changed while retrying.');
+    }
     // Keep the duplicate check and acceptance together, after every await and
     // after loading the durable queue under ownership. Concurrent resume clicks
     // must not both pass admission while passive discovery is still pending.
     if (this.items.some((item) => item.kind === 'resume' && item.resumeRunId === runId && item.projectId === projectId && (LIVE_STATES.has(item.state) || WAITING_STATES.has(item.state)))) {
       throw new ApiError(409, 'resume_already_requested', `run ${runId} already has a resume waiting or in progress`);
     }
-    return this.accept(
-      this.newItem({ kind: 'resume', projectId, departmentId: department, task: null, resumeRunId: runId, allowUnconfinedWrites: parsed.data.allowUnconfinedWrites === true, ...snapshotRosterFacts(config, 'reports' in readiness ? readiness.reports : null) }),
-    );
+    const item = this.newItem({ kind: 'resume', projectId, departmentId: department, task: null, resumeRunId: runId, allowUnconfinedWrites: parsed.data.allowUnconfinedWrites === true, ...snapshotRosterFacts(config, 'reports' in readiness ? readiness.reports : null) });
+    if (retry) {
+      item.clientRequestId = retry.clientRequestId; item.retryOfRequestId = retry.previous.id;
+      item.retryRootRequestId = retry.previous.retryRootRequestId ?? retry.previous.id;
+      item.retryAttempt = (retry.previous.retryAttempt ?? 0) + 1; item.retryReason = 'manual'; item.retryFailed = true;
+      item.automaticRetriesUsed = retry.previous.automaticRetriesUsed ?? 0;
+      item.runId = runId; item.task = retry.previous.task;
+      if (retry.previous.attachments) item.attachments = structuredClone(retry.previous.attachments);
+      if (retry.previous.recoveryPolicy) item.recoveryPolicy = structuredClone(retry.previous.recoveryPolicy);
+    }
+    return this.present(this.accept(item));
   }
 
   private find(id: string): RequestItem {
@@ -1231,7 +1401,7 @@ export class RequestQueue {
   }
 
   get(id: string): RequestItem {
-    return structuredClone(this.find(id));
+    return this.present(this.find(id));
   }
 
   /** Held → queued. It then starts when the rules allow, in its original place. */
@@ -1321,6 +1491,7 @@ export class RequestQueue {
       requestId: run.requestId,
       startedOutsideThisPage: run.requestId === null,
       pid: run.pid,
+      reservedTurns: run.reservedTurns, reservedWriters: run.reservedWriters,
       workerIds: [...run.workerIds],
       runsOnItsOwn: run.exclusive,
       runsOnItsOwnBecause: run.exclusive ? (run.known ? `${run.label ?? 'a runtime'} has no verified file boundary` : 'what it runs on could not be read') : null,
@@ -1329,10 +1500,11 @@ export class RequestQueue {
       ok: true,
       accepting: this.ownerRefusal === null && !this.closed,
       managedElsewhere: this.ownerRefusal,
+      workspaceRevision: workspace?.revision ?? null,
       notice: this.notice,
-      limits: { maxConcurrentProjectRuns: workspace?.limits.maxConcurrentProjectRuns ?? 2 },
+      limits: { maxConcurrentProjectRuns: workspace?.limits.maxConcurrentProjectRuns ?? 2, maxTotalActiveTurns: globalCapacity(workspace).reservedTurns, maxTotalActiveWriters: globalCapacity(workspace).reservedWriters },
       live,
-      items: [...items].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || b.id.localeCompare(a.id)).map((item) => structuredClone(item)),
+      items: [...items].sort((a, b) => b.receivedAt.localeCompare(a.receivedAt) || b.id.localeCompare(a.id)).map((item) => this.present(item, items)),
     };
   }
 }

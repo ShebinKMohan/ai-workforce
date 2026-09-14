@@ -54,7 +54,7 @@ async function makeCandidate(prepared: Prepared, overrides: Partial<Parameters<t
 }
 
 describe('createCandidateWorkspace (FR041)', () => {
-  it('creates a linked worktree on a new branch and leaves the user checkout alone', async () => {
+  it('creates an independent candidate worktree on a new branch and leaves the user checkout alone', async () => {
     const prepared = await prepare();
     const before = await fingerprintCheckout(prepared.repo);
 
@@ -221,13 +221,29 @@ describe('snapshotCandidate freezes the candidate (FR041)', () => {
     await expect(snapshotCandidate(workspace, { writer })).rejects.toThrow(/still running/);
     await expect(snapshotCandidate(workspace, { writer })).rejects.toMatchObject({ code: 'writer_not_quiesced' });
     // Nothing was committed while the writer was alive.
-    expect(await gitTextOrNull(['rev-parse', workspace.branch], { cwd: prepared.repo })).toBe(prepared.headRevision);
+    expect(await gitTextOrNull(['rev-parse', '--verify', workspace.branch], { cwd: prepared.repo })).toBeNull();
 
     process.kill(-child.pid!, 'SIGKILL');
     await new Promise((resolve) => child.on('exit', resolve));
     // A dead writer no longer blocks the snapshot.
     const snapshot = await snapshotCandidate(workspace, { writer });
     expect(snapshot.checkpointCreated).toBe(true);
+  });
+
+  it('refuses to freeze after the leader exits while an owned child is still alive', async () => {
+    const prepared = await prepare();
+    const workspace = await makeCandidate(prepared);
+    writeFileSync(path.join(workspace.path, 'src', 'pagination.js'), fixedPaginationSource());
+    const script = `setTimeout(() => { require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }).unref(); process.exit(0); }, 150);`;
+    const leader = spawn(process.execPath, ['-e', script], { stdio: 'ignore', detached: true });
+    registerCleanup(() => { try { process.kill(-leader.pid!, 'SIGKILL'); } catch { /* fixture group has already stopped */ } });
+    const writer = observeProcessIdentity(leader.pid!, newSpawnToken());
+    await new Promise(resolve => leader.once('exit', resolve));
+    // The leader's PID is gone, but its subprocess still belongs to this group.
+    expect(() => process.kill(-leader.pid!, 0)).not.toThrow();
+    await expect(snapshotCandidate(workspace, { writer })).rejects.toMatchObject({ code: 'writer_not_quiesced' });
+    expect(await gitTextOrNull(['rev-parse', 'HEAD'], { cwd: workspace.path })).toBe(prepared.headRevision);
+    expect(await gitTextOrNull(['rev-parse', '--verify', workspace.branch], { cwd: prepared.repo })).toBeNull();
   });
 
   it('does not run repository hooks when it creates the checkpoint commit', async () => {

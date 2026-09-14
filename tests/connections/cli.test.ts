@@ -145,7 +145,7 @@ describe('bounded connection command runner', () => {
   it('cleans a remaining descendant even when its parent exited successfully', async () => {
     const result = await runConnectionCommand({
       executable: process.execPath,
-      args: ['-e', 'const {spawn}=require("node:child_process"); const child=spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"}); process.stdout.write(String(child.pid)); child.unref();'],
+      args: ['--input-type=commonjs', '-e', 'const {spawn}=require("node:child_process"); const child=spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"}); process.stdout.write(String(child.pid)); child.unref();'],
       env: {}, timeoutMs: 3_000,
     });
     expect(result).toMatchObject({ exitCode: 0, timedOut: false, spawnError: null });

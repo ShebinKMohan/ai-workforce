@@ -326,7 +326,7 @@ export function handleCoordinationRequest(
       throw new CoordinationError('review_closed', 'this review session is no longer taking results');
     }
     const parsed = HeadReviewResultSchema.safeParse(rawParams);
-    if (!parsed.success) throw new CoordinationError('invalid_params', formatIssues(parsed.error));
+    if (!parsed.success) throw new CoordinationError('invalid_params', `No review decision was recorded. Correct the reported fields and resubmit using the same candidate identity: ${formatIssues(parsed.error)}`);
     return options.reviewResult(parsed.data);
   }
   if (identity.role === 'head-review') {

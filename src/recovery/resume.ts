@@ -83,6 +83,7 @@ export class ResumeError extends Error {
 }
 
 export interface ResumeRunInput {
+  readonly retryFailed?: boolean;
   readonly runId: string;
   /** State root to resume under. Ignored when `store` is given. */
   readonly stateRoot?: string;
@@ -150,6 +151,7 @@ export function resumeRun(input: ResumeRunInput): ResumeRunResult {
     if (run === null) throw new ResumeError('unknown_run', `run ${input.runId} not found under ${store.paths.root}`);
 
     const reconciliation = reconcileRun(db, input.runId, {
+      ...(input.retryFailed ? { retryFailed: true } : {}),
       ...(input.probeProcess !== undefined ? { probeProcess: input.probeProcess } : {}),
       ...(input.sessionResumable !== undefined ? { sessionResumable: input.sessionResumable } : {}),
       now,
@@ -177,7 +179,7 @@ export function resumeRun(input: ResumeRunInput): ResumeRunResult {
       return { plan, store, ownsStore };
     }
 
-    if (TERMINAL_RUN_STATES.has(run.state)) {
+    if (TERMINAL_RUN_STATES.has(run.state) && !(input.retryFailed && run.state === 'failed')) {
       const preserved = reconciliation.findings.map((finding) => finding.attemptId);
       const plan: ResumePlan = {
         runId: input.runId,
@@ -198,6 +200,12 @@ export function resumeRun(input: ResumeRunInput): ResumeRunResult {
     // New ownership epoch: anything still holding the previous epoch is stale.
     const ownershipEpoch = bumpOwnershipEpoch(db, input.runId, now);
     appendEvent(db, { runId: input.runId, type: 'recovery.ownership_taken', payload: { ownershipEpoch, previousEpoch: run.ownership_epoch }, timestamp: now });
+
+    if (input.retryFailed && run.state === 'failed') {
+      appendEvent(db, { runId: input.runId, type: 'recovery.retry_requested', payload: { previousState: run.state, previousEndedAt: run.ended_at, ownershipEpoch, preservedCandidates: reconciliation.findings.map(finding => ({ attemptId: finding.attemptId, workspacePath: finding.workspacePath })) }, timestamp: now });
+      transitionRun(db, input.runId, 'interrupted', now);
+      db.prepare('UPDATE runs SET ended_at = NULL WHERE id = ?').run(input.runId);
+    }
 
     // The crash is recorded as an interruption before anything replaces it.
     if (run.state === 'running' || run.state === 'waiting') {

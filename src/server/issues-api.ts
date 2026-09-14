@@ -4,6 +4,7 @@ import { IssueStore } from '../issues/store.js';
 import { issueView } from '../issues/projection.js';
 import { ApiError } from './http.js';
 import type { RequestItem, RequestQueue } from './requests.js';
+import type { WorkspaceConfig } from '../core/workspace-config.js';
 import { invalidBody, readWorkspace } from './workspace-api.js';
 
 /** A board dispatch is an ordinary Control Center submission. This API never spawns. */
@@ -25,17 +26,18 @@ export class IssuesApi {
     if (write && project.archived) throw new ApiError(409, 'project_archived', 'Unarchive this project before adding or starting work.');
   }
   private requests(): RequestItem[] { return this.queue.list()['items'] as RequestItem[]; }
-  private view(issue: IssueRecord, requests = this.requests()): ReturnType<typeof issueView> {
+  private view(issue: IssueRecord, requests = this.requests(), workspace: WorkspaceConfig | null = readWorkspace(this.root).loaded?.config ?? null): ReturnType<typeof issueView> {
     const request = issue.dispatch ? requests.find(request => request.clientRequestId === issue.dispatch!.clientRequestId && request.projectId === issue.projectId) ?? null : null;
     if (request && JSON.stringify(issue.dispatch!.request) !== JSON.stringify(request)) this.store.recordRequest(issue.id, request);
-    return issueView(issue, this.root, request, this.starting.has(issue.id), requests);
+    return issueView(issue, this.root, request, this.starting.has(issue.id), requests, workspace);
   }
   list(projectId?: string, query?: URLSearchParams) {
     if (projectId !== undefined) this.project(projectId);
     const requests = this.requests();
+    const workspace = readWorkspace(this.root).loaded?.config ?? null;
     const summary = query?.get('summary') === '1';
     const paged = summary || query?.has('after') || query?.has('limit');
-    if (!paged) return { ok: true, schemaVersion: 1, columns: ISSUE_COLUMNS, issues: this.store.list(projectId).map(issue => this.view(issue, requests)) };
+    if (!paged) return { ok: true, schemaVersion: 1, columns: ISSUE_COLUMNS, issues: this.store.list(projectId).map(issue => this.view(issue, requests, workspace)) };
     const rawLimit = query?.get('limit') ?? '50';
     if (!/^\d+$/.test(rawLimit) || Number(rawLimit) < 1 || Number(rawLimit) > 100) throw new ApiError(400, 'invalid_issue_limit', 'Issue page limit must be between 1 and 100.');
     const after = query?.get('after') ?? undefined;
@@ -43,7 +45,7 @@ export class IssuesApi {
     const limit = Number(rawLimit);
     const rows = this.store.list(projectId, { limit: limit + 1, ...(after ? { after } : {}) });
     const hasMore = rows.length > limit;
-    const page = rows.slice(0, limit).map(issue => this.view(issue, requests));
+    const page = rows.slice(0, limit).map(issue => this.view(issue, requests, workspace));
     const issues = summary ? page.map(({ description: _description, ...issue }) => issue) : page;
     return { ok: true, schemaVersion: 1, columns: ISSUE_COLUMNS, issues, hasMore,
       nextCursor: hasMore ? page.at(-1)!.id : null };

@@ -60,10 +60,12 @@ export function resolveAgentBinding(config: AgentConfigFile, agentId: string): E
   }
   const model = agent.model ?? runtime.model;
   const effort = agent.effort ?? runtime.effort;
+  const instructions = agent.jobTitle === undefined ? agent.instructions : `ROLE: ${agent.jobTitle}\n${agent.instructions.replace(/^\s*ROLE:[^\r\n]*(?:\r?\n|$)/i, '')}`;
   const binding: EffectiveAgentBinding = {
     bindingVersion: EFFECTIVE_BINDING_VERSION,
     agentId: agent.id,
-    instructions: agent.instructions,
+    ...(agent.jobTitle !== undefined ? { jobTitle: agent.jobTitle } : {}),
+    instructions,
     capabilities: [...agent.capabilities],
     policy: agent.policy,
     runtime: {

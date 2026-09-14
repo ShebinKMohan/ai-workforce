@@ -134,7 +134,8 @@ export async function commandRunProject(args: RunCommandArgs, deps: RunCommandDe
 
   let rosterConfig;
   try {
-    rosterConfig = rosterAgentConfig(workspace.config, roster);
+    if ((args.capacityTurns === undefined) !== (args.capacityWriters === undefined)) throw new CliError(EXIT_CODES.invalidInput, 'invalid_capacity_reservation', '--capacity-turns and --capacity-writers must be supplied together');
+    rosterConfig = rosterAgentConfig(workspace.config, roster, args.capacityTurns === undefined ? undefined : { reservedTurns: args.capacityTurns, reservedWriters: args.capacityWriters! });
   } catch (error) {
     throw new CliError(EXIT_CODES.invalidInput, 'invalid_roster', `the roster of department "${roster.department.id}" on project "${project.id}" does not form a valid configuration: ${(error as Error).message}`);
   }

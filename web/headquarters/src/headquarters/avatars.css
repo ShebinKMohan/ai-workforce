@@ -58,6 +58,11 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--line, #dbe3ef) 70%, transparent);
 }
 .avatar-portrait > img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 180ms ease; }
+.avatar.avatar-human { position: relative; isolation: isolate; background: var(--avatar-bg, #d9e8fc); }
+.avatar-human-frame { display: block; width: 100%; height: 100%; background-repeat: no-repeat; background-size: 400% auto; background-position: 0% 0%; }
+.avatar.avatar-human::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px #ffffff22; pointer-events: none; }
+/* Expressions use rendered human frames. The portrait itself never floats or rocks. */
+@media (prefers-reduced-motion: reduce) { .avatar-human-frame { background-position: 0% 0% !important; } }
 .cm-avatar-picker { margin: 22px 0 0; padding: 0; border: 0; min-width: 0; }
 .cm-avatar-picker > legend { padding: 0; font-size: 13px; font-weight: 650; color: var(--ink, #172338); }
 .cm-avatar-preview { display: flex; align-items: center; gap: 14px; padding: 14px 0; }

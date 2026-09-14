@@ -25,7 +25,7 @@ import { HELD_REASON, RequestQueue } from '../../src/server/requests.js';
 import { openStateStore } from '../../src/storage/db.js';
 import { appendEvent } from '../../src/storage/events.js';
 import { ensureRunDir } from '../../src/storage/paths.js';
-import { insertRun } from '../../src/storage/records.js';
+import { insertRun, transitionRun } from '../../src/storage/records.js';
 import { applyWorkspaceOps, parseWorkspaceOps } from '../../src/workspace/operations.js';
 import { projectStatePaths, projectStateRoot } from '../../src/workspace/paths.js';
 import { buildRoster, rosterAgentConfig, writeRosterSnapshot } from '../../src/workspace/roster.js';
@@ -264,7 +264,7 @@ describe('a request becomes exactly one `workforce run --project --department` a
     expect(call!.options.detached).toBe(true);
     expect((call!.options.stdio as unknown[])[0]).toBe('ignore');
     expect(call!.command).toBe(STUB_INVOCATION.command);
-    expect(call!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--work-kind=implementation', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, `--task=${hostile}`, `--state-dir=${stateRoot}`]);
+    expect(call!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--work-kind=implementation', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--capacity-turns=1', '--capacity-writers=1', `--task=${hostile}`, `--state-dir=${stateRoot}`]);
     const parsed = parseCliArgs(call!.cliArgv);
     expect(parsed).toMatchObject({ command: 'run', positionals: [], project: 'checkout', department: 'eng', task: hostile, stateDir: stateRoot, json: true, allowUnconfinedWrites: false, help: false });
 
@@ -284,7 +284,7 @@ describe('a request becomes exactly one `workforce run --project --department` a
     const h = harness();
     const target = await office(stateRoot, h, { passStateDir: false });
     await send(target, 'checkout', 'eng', 'Fix it.');
-    expect(h.calls[0]!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--work-kind=implementation', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--task=Fix it.']);
+    expect(h.calls[0]!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--work-kind=implementation', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--capacity-turns=1', '--capacity-writers=1', '--task=Fix it.']);
   });
 
   it('refuses what the run would refuse — and asks for consent for a writer without a file boundary — before anything is queued', async () => {
@@ -379,7 +379,7 @@ describe('when a request starts', () => {
     expect(search).toMatchObject({ state: 'queued', reason: 'waiting: 2 tasks are already running (your limit is 2)' });
     const queue = json(await rawRequest(target.server, { path: '/api/requests' }));
     expect(queue.live.map((run: { projectId: string }) => run.projectId).sort()).toEqual(['billing', 'checkout']);
-    expect(queue.limits).toEqual({ maxConcurrentProjectRuns: 2 });
+    expect(queue.limits).toEqual({ maxConcurrentProjectRuns: 2, maxTotalActiveTurns: 2, maxTotalActiveWriters: 2 });
 
     h.release('billing-2');
     await until(target, search.id, running);
@@ -389,7 +389,7 @@ describe('when a request starts', () => {
     const more = await send(target, 'billing', 'eng', 'more billing work');
     expect(more.reason).toBe('waiting: 2 tasks are already running (your limit is 2)');
     const revision = loadWorkspace(stateRoot).config.revision;
-    expect((await post(target, '/api/workspace/ops', { expectRevision: revision, ops: [{ op: 'limits.set', limits: { maxConcurrentProjectRuns: 3 } }] })).status).toBe(200);
+    expect((await post(target, '/api/workspace/ops', { expectRevision: revision, ops: [{ op: 'limits.set', limits: { maxConcurrentProjectRuns: 3, maxTotalActiveTurns: 3, maxTotalActiveWriters: 3 } }] })).status).toBe(200);
     await until(target, more.id, running);
   });
 
@@ -407,7 +407,7 @@ describe('when a request starts', () => {
 
     h.release('checkout-1');
     await until(target, claude.id, running);
-    expect(h.calls[1]!.cliArgv).toEqual(['run', '--json', '--project=search', '--department=research', '--work-kind=implementation', '--worker=forge', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--task=search work', '--allow-unconfined-writes', `--state-dir=${stateRoot}`]);
+    expect(h.calls[1]!.cliArgv).toEqual(['run', '--json', '--project=search', '--department=research', '--work-kind=implementation', '--worker=forge', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--capacity-turns=1', '--capacity-writers=1', '--task=search work', '--allow-unconfined-writes', `--state-dir=${stateRoot}`]);
     expect(await item(target, later.id)).toMatchObject({ state: 'queued', reason: 'waiting: a Claude Code task runs on its own' });
     const queue = json(await rawRequest(target.server, { path: '/api/requests' }));
     expect(queue.live).toEqual([expect.objectContaining({ projectId: 'search', runsOnItsOwn: true, runsOnItsOwnBecause: 'Claude Code has no verified file boundary' })]);
@@ -570,6 +570,31 @@ describe('held on restart', () => {
 });
 
 describe('stop and resume', () => {
+  it('retries an ended failed request as one new resume receipt against the original frozen run', async () => {
+    const stateRoot = await workspace(); const h = harness({ billing: 'refuse' });
+    const first = await office(stateRoot, h);
+    const original = await send(first, 'billing', 'eng', 'Original saved PRD'); await until(first, original.id, ended);
+    await first.server.close();
+    const config = loadWorkspace(stateRoot).config;
+    const roster = buildRoster(config, { projectId: 'billing', departmentId: 'eng' });
+    const paths = projectStatePaths(stateRoot, 'billing'); const store = openStateStore(paths, { mode: 'mutating' });
+    const runId = insertRun(store.db, { request: sampleRequest(), policy: 'local-development', limits: TEST_LIMITS }).id;
+    transitionRun(store.db, runId, 'failed'); store.close(); ensureRunDir(paths, runId);
+    writeFileSync(paths.runConfigSnapshotPath(runId), JSON.stringify({ configPath: path.join(paths.root, 'rosters', `eng.r${config.revision}.0123456789ab.json`), raw: rosterAgentConfig(config, roster) }));
+    const file = path.join(stateRoot, 'serve', 'requests.json'); const saved = JSON.parse(readFileSync(file, 'utf8'));
+    saved.items.find((entry: { id: string }) => entry.id === original.id).runId = runId; writeFileSync(file, JSON.stringify(saved));
+    const next = await office(stateRoot, h);
+    expect((await item(next, original.id)).recovery).toMatchObject({ canRetry: true, action: 'resume' });
+    const responses = await Promise.all([post(next, `/api/requests/${original.id}/retry`, { clientRequestId: 'retry-one' }), post(next, `/api/requests/${original.id}/retry`, { clientRequestId: 'retry-two' })]);
+    expect(responses.map(response => response.status)).toEqual([202, 202]);
+    const a = json(responses[0]!).request; const b = json(responses[1]!).request;
+    expect(a.id).toBe(b.id); expect(a).toMatchObject({ retryOfRequestId: original.id, retryAttempt: 1, retryFailed: true, resumeRunId: runId, task: 'Original saved PRD' });
+    expect(h.calls).toHaveLength(2); expect(h.calls[1]?.cliArgv).toContain('--retry-failed');
+    expect(parseCliArgs(h.calls[1]!.cliArgv)).toMatchObject({ command: 'resume', retryFailed: true });
+    expect((await item(next, original.id))).toMatchObject({ state: 'ended', recovery: { canRetry: false, nextRequestId: a.id } });
+    h.release('resume-2'); await until(next, a.id, ended);
+  });
+
   it('admits only one concurrent resume while passive discovery is pending', async () => {
     const stateRoot = await workspace();
     const config = loadWorkspace(stateRoot).config;
@@ -757,4 +782,52 @@ describe('analysis admission survives restart',()=>{
   expect(restarted.status).toBe(200);await until(second,waiting.id,running);
   expect(h.calls[1]?.cliArgv).toContain('--work-kind=analysis');h.release('docs-2');await until(second,waiting.id,ended);
  });
+});
+
+
+describe('workspace-wide runtime reservations', () => {
+  it('reserves the enforced snapshot ceilings and shares the global turn budget with intake', async () => {
+    const stateRoot = await workspace(); const h = harness(); let routed = 0;
+    const queue = new RequestQueue({ stateRoot, passStateDir: true, env: {}, spawner: h.spawner, invocation: STUB_INVOCATION,
+      pollMs: 20, readiness: async () => ({ checkedAt: new Date().toISOString(), reports: [codexReport()] }), routeControl: async input => {
+        routed++;
+        return { route: { state: 'blocked', projectId: input.projectId, departmentId: null, headAgentId: null, reason: 'Fixture routing stopped', code: 'test_stop', method: 'classifier', elapsedMs: 1, decidedAt: new Date().toISOString() } };
+      } });
+    registerCleanup(() => queue.close());
+    const a = await queue.submit({ projectId: 'checkout', departmentId: 'eng', task: 'Fix checkout' });
+    const b = await queue.submit({ projectId: 'billing', departmentId: 'eng', task: 'Fix billing' });
+    const c = await queue.submit({ projectId: 'search', task: 'A request requiring classification.' });
+    await sleep(100); expect(routed).toBe(0);
+    const snapshot = queue.list();
+    expect((snapshot['live'] as Array<Record<string, unknown>>).map(entry => entry['reservedTurns'])).toEqual([1, 1]);
+    expect(h.calls.every(call => call.cliArgv.includes('--capacity-turns=1') && call.cliArgv.includes('--capacity-writers=1'))).toBe(true);
+    expect(queue.get(c.id).reason).toContain('workspace turn slot');
+    h.release('checkout-1');
+    for (let n = 0; n < 100 && queue.get(c.id).state !== 'failed_to_start'; n++) await sleep(20);
+    expect(queue.get(a.id).state).toBe('ended'); expect(queue.get(c.id).state).toBe('failed_to_start');
+    expect(routed).toBe(1); expect(h.calls).toHaveLength(2);
+    h.release('billing-2');
+    for (let n = 0; n < 100 && queue.get(b.id).state !== 'ended'; n++) await sleep(20);
+    expect(queue.get(b.id).state).toBe('ended');
+  });
+
+  it('reserves a legacy resume snapshot in full instead of exceeding or rewriting its frozen limits', async () => {
+    const stateRoot = await workspace(); const config = loadWorkspace(stateRoot).config;
+    const roster = buildRoster(config, { projectId: 'checkout', departmentId: 'eng' });
+    const recorded = rosterAgentConfig(config, roster);
+    recorded.defaults.maxActiveTurns = 2; recorded.defaults.maxActiveWriters = 2;
+    const paths = projectStatePaths(stateRoot, 'checkout'); const store = openStateStore(paths, { mode: 'mutating' });
+    const runId = insertRun(store.db, { request: sampleRequest(), policy: 'local-development', limits: TEST_LIMITS }).id;
+    store.close(); ensureRunDir(paths, runId);
+    writeFileSync(paths.runConfigSnapshotPath(runId), JSON.stringify({ raw: recorded }));
+    const h = harness(); const target = await office(stateRoot, h);
+    const resumed = json(await post(target, `/api/projects/checkout/runs/${runId}/resume`)).request;
+    expect(resumed).toMatchObject({ reservedTurns: 2, reservedWriters: 2, state: 'starting' });
+    const waiting = await send(target, 'billing', 'eng', 'Fix billing');
+    expect(waiting).toMatchObject({ state: 'queued', reason: 'waiting: the workspace turn or writer budget is reserved by active work' });
+    expect(h.calls).toHaveLength(1);
+    expect(JSON.parse(readFileSync(paths.runConfigSnapshotPath(runId), 'utf8')).raw.defaults.maxActiveTurns).toBe(2);
+    h.release('resume-1'); await until(target, resumed.id, ended); await until(target, waiting.id, running);
+    h.release('billing-2'); await until(target, waiting.id, ended);
+  });
 });

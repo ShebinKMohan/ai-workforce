@@ -8,9 +8,10 @@ import { rawRequest } from './support.js';
 
 // The production module is browser-native JavaScript, loaded without a DOM.
 const modulePath = '../../web/headquarters/src/headquarters/fleet-activity.js';
-const { deriveFleetJourneys, deriveFleetHandoffs } = await import(modulePath) as {
+const { deriveFleetJourneys, deriveFleetHandoffs, deriveFleetHandoffGroups } = await import(modulePath) as {
   deriveFleetJourneys(input?: Record<string, unknown>): Array<Record<string, unknown>>;
   deriveFleetHandoffs(input?: Record<string, unknown>): Array<Record<string, unknown>>;
+  deriveFleetHandoffGroups(input?: Record<string, unknown>): Array<{ title: string; projectId: string; projectName: string; requestId: string | null; events: Array<Record<string, unknown>> }>;
 };
 const agents = [{ id: 'head', name: 'Slattery' }, { id: 'frontend', name: 'Kara' }, { id: 'qa', name: 'Scott' }];
 const departments = [{ id: 'eng', name: 'Engineering', headAgentId: 'head' }];
@@ -41,6 +42,12 @@ describe('fleet request journeys', () => {
     expect(deriveFleetJourneys({ ...input, events: [started] })[0]).toMatchObject({ stage: 'planning', active: true, ownerNames: ['Slattery'] });
     expect(deriveFleetJourneys({ ...input, events: [started, { ...started, id: 'finished', timestamp: '2026-09-13T10:01:00Z', type: 'head.planning_finished' }] })[0]).toMatchObject({ active: false, ownerIds: [] });
   });
+  it('uses the current planning summary over an old cached lifecycle generation',()=>{
+    const started={projectId:'project',runId:'run',sequence:1,type:'head.planning_started',payload:{headAgentId:'head',planningId:'old'}};
+    const input={...context,runs:[{...run,taskViews:[],headPlanning:{state:'running',headAgentId:'head',planningId:'new'}}],events:[]};
+    expect(deriveFleetJourneys(input)[0]).toMatchObject({active:true,status:'Planning',ownerIds:['head']});
+    expect(deriveFleetJourneys({...input,runs:[{...input.runs[0],headPlanning:{...input.runs[0]!.headPlanning,state:'planned'}}],events:[started]})[0]).toMatchObject({active:false,ownerIds:[]});
+  });
   it('recovers planning from a read-only event page using route identity and sequence order', () => {
     const input = { ...context, runs: [{ ...run, taskViews: [] }], eventPages: [{ projectId: 'project', runId: 'run', events: [
       { sequence: 1, type: 'head.planning_started', timestamp: '2026-09-13T10:00:00Z', payload: { headAgentId: 'head' } },
@@ -59,6 +66,12 @@ describe('fleet request journeys', () => {
   it('direct answers do not imply completed engineering work or review', () => {
     expect(deriveFleetJourneys({ agents, requests: [{ id: 'reply', mode: 'discuss', state: 'ended', controlReply: 'Hello', exitCode: 0 }] })[0]).toMatchObject({ stage: null, status: 'Answered', active: false, ownerIds: [] });
     expect(deriveFleetJourneys({ agents, requests: [{ ...request, state: 'ended', exitCode: 0 }], runs: [] })[0]).toMatchObject({ stage: null, status: 'Result not loaded', waiting: true });
+  });
+  it('keeps a settled missing review decision visible for attention without a working or cancelled agent',()=>{
+    const ended={...request,state:'ended',exitCode:130,stopRequestedAt:null,signal:null};
+    const interrupted={...run,state:'interrupted',headReview:{state:'blocked',sessionStopped:true,interrupted:false,summary:'The head did not submit a structured review decision.'}};
+    expect(deriveFleetJourneys({...context,requests:[ended],runs:[interrupted]})[0]).toMatchObject({status:'Review needs retry',stage:'review',waiting:true,active:false,ownerIds:[]});
+    expect(deriveFleetJourneys({...context,requests:[{...ended,stopRequestedAt:'2026-09-14T10:00:00Z'}],runs:[interrupted]})[0]).toMatchObject({status:'Stopped',waiting:false,active:false});
   });
   it('requires checks and passed review for completion, keeping missing or compromised proof explicit', () => {
     const ready = { ...run, state: 'ready_for_review', taskViews: [{ ...task, state: 'accepted' }], outcome: evidence };
@@ -85,7 +98,7 @@ describe('recorded fleet handoffs', () => {
   const assigned = { projectId: 'project', runId: 'run', taskId: 'task', cursor: 17, timestamp: '2026-09-13T10:00:00Z', type: 'head.assigned', payload: { headAgentId: 'head', agentId: 'frontend', objective: task.objective } };
   it('resolves actual assignment actors, title and request, preferring raw over normalized duplicate', () => {
     const normalized = { id: 'project:17', type: 'head.assigned', label: 'head · assigned', at: assigned.timestamp };
-    expect(deriveFleetHandoffs({ ...context, events: [normalized, assigned] })).toEqual([{ id: 'project:17', from: 'Slattery', to: 'Kara', fromAgentId: 'head', toAgentId: 'frontend', label: 'Assigned work', taskTitle: task.objective, at: assigned.timestamp, requestId: 'request', projectId: 'project', runId: 'run' }]);
+    expect(deriveFleetHandoffs({ ...context, events: [normalized, assigned] })).toEqual([{ id: 'project:17', from: 'Slattery', to: 'Kara', fromAgentId: 'head', toAgentId: 'frontend', label: 'Assigned work', taskTitle: task.objective, at: assigned.timestamp, requestId: 'request', projectId: 'project', runId: 'run', requestTitle: 'Repair search', projectName: 'project', status: 'Assigned', fromDepartmentId: 'eng', fromDepartmentName: 'Engineering', toDepartmentId: null, toDepartmentName: null }]);
   });
   it('does not turn task registration, output prose, unknown actors, or missing senders into communication', () => {
     expect(deriveFleetHandoffs({ ...context, events: [
@@ -138,6 +151,27 @@ describe('recorded fleet handoffs', () => {
     expect(rows).toHaveLength(24);
     expect(rows[0]?.id).toBe('project:39');
     expect(rows.at(-1)?.id).toBe('project:16');
+  });
+  it('groups exact request titles and project identities with actor departments and durable status', () => {
+    const input = { ...context, projects:[{id:'project',name:'Storefront'},{id:'api',name:'API'}], agents:agents.map(agent=>({...agent,departmentId:'eng'})),
+      requests:[request,{...request,id:'api-request',projectId:'api',task:'Inspect the API'}],runs:[run,{...run,projectId:'api'}],
+      events:[assigned,{...assigned,projectId:'api',timestamp:'2026-09-13T10:01:00Z'}] };
+    const groups=deriveFleetHandoffGroups(input);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({title:'Inspect the API',projectName:'API',projectId:'api',requestId:'api-request'});
+    expect(groups[1]).toMatchObject({title:'Repair search',projectName:'Storefront',requestId:'request'});
+    expect(groups[0]?.events[0]).toMatchObject({from:'Slattery',to:'Kara',fromDepartmentName:'Engineering',toDepartmentName:'Engineering',status:'Assigned',taskTitle:task.objective});
+  });
+  it('does not replace a recorded request title with a later generic resume receipt', () => {
+    const resume={...request,id:'resume',runId:null,resumeRunId:'run',task:'Resume work',receivedAt:'2026-09-13T12:00:00Z'};
+    const groups=deriveFleetHandoffGroups({...context,requests:[resume,request],events:[assigned]});
+    expect(groups[0]).toMatchObject({title:'Repair search',requestId:'request'});
+  });
+  it('reports analysis review and delivery as reports rather than candidate checks',()=>{
+    const events=[{...assigned,type:'head.review_started',payload:{headAgentId:'head'}},{...assigned,cursor:18,type:'control.final_reply',payload:{verificationStatus:'reviewed_analysis'}}];
+    const rows=deriveFleetHandoffs({...context,runs:[{...run,workKind:'analysis'}],events});
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({label:'Requested report review',status:'Started'}),expect.objectContaining({label:'Returned the reviewed analysis',status:'Delivered'})]));
+    expect(deriveFleetJourneys({...context,runs:[{...run,workKind:'analysis',taskViews:[{...task,state:'validating'}]}]})[0]).toMatchObject({status:'Preparing report review',stage:'review',ownerIds:[]});
   });
 });
 

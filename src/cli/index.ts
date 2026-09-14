@@ -94,6 +94,9 @@ Options:
                        array, never through a shell. Without it the checks come
                        from .workforce/checks.json at the base revision, or are
                        detected from the project's own test setup.
+  --retry-failed      resume: explicitly retry failed tasks after ownership checks
+  --capacity-turns <n> --capacity-writers <n>
+                       reserved project-run ceilings (cannot exceed workspace allocation)
   --allow-unconfined-writes
                        run a writing profile on a runtime that enforces no
                        write boundary. Without it such a run is refused; with
@@ -182,6 +185,9 @@ interface ParsedArgs {
   readonly adapter?: string;
   readonly executable?: string;
   readonly json: boolean;
+  readonly retryFailed?: boolean;
+  readonly capacityTurns?: number;
+  readonly capacityWriters?: number;
   readonly help: boolean;
 }
 
@@ -213,12 +219,19 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
   }
   const [command, ...rest] = parsed.positionals;
   const values = parsed.values;
+  if (values['retry-failed'] && command !== 'resume') throw new CliError(EXIT_CODES.invalidInput, 'invalid_arguments', '--retry-failed applies only to "workforce resume"');
   if (values['server-url'] !== undefined && command !== 'mcp') {
     throw new CliError(EXIT_CODES.invalidInput, 'invalid_arguments', '--server-url applies only to "workforce mcp"');
   }
   if (command === 'mcp') {
     const stray = Object.entries(values).find(([flag, value]) => !['server-url', 'help'].includes(flag) && value !== false && value !== undefined);
     if (stray !== undefined) throw new CliError(EXIT_CODES.invalidInput, 'invalid_arguments', `--${stray[0]} does not apply to "workforce mcp"`);
+  }
+  const capacityTurns = values['capacity-turns'] === undefined ? undefined : Number(values['capacity-turns']);
+  const capacityWriters = values['capacity-writers'] === undefined ? undefined : Number(values['capacity-writers']);
+  if (capacityTurns !== undefined || capacityWriters !== undefined) {
+    if (command !== 'run' || values.project === undefined || values.department === undefined) throw new CliError(EXIT_CODES.invalidInput, 'project_selection_required', 'capacity reservations apply only to a saved project run');
+    if (![capacityTurns, capacityWriters].every(value => value !== undefined && Number.isSafeInteger(value) && value >= 1 && value <= 64)) throw new CliError(EXIT_CODES.invalidInput, 'invalid_capacity_reservation', '--capacity-turns and --capacity-writers must both be integers from 1 to 64');
   }
   const reservationFlag = values.worker !== undefined ? '--worker' : values['workspace-revision'] !== undefined ? '--workspace-revision' : values['work-kind'] !== undefined ? '--work-kind' : null;
   if (reservationFlag !== null && (command !== 'run' || values.project === undefined || values.department === undefined)) {
@@ -298,6 +311,8 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     watch: values.watch === true,
     ...(values.check !== undefined ? { checks: values.check } : {}),
     allowUnconfinedWrites: values['allow-unconfined-writes'] === true,
+    retryFailed: values['retry-failed'] === true,
+    ...(capacityTurns === undefined ? {} : { capacityTurns, capacityWriters: capacityWriters! }),
     ...(values.port !== undefined ? { port: values.port } : {}),
     ...(values['server-url'] !== undefined ? { serverUrl: values['server-url'] } : {}),
     open: values.open === true,
@@ -324,6 +339,9 @@ const OPTIONS = {
   watch: { type: 'boolean', default: false },
   check: { type: 'string', multiple: true },
   'allow-unconfined-writes': { type: 'boolean', default: false },
+  'retry-failed': { type: 'boolean', default: false },
+  'capacity-turns': { type: 'string' },
+  'capacity-writers': { type: 'string' },
   port: { type: 'string' },
   'server-url': { type: 'string' },
   open: { type: 'boolean', default: false },
@@ -408,6 +426,7 @@ function commandResume(args: ParsedArgs, deps: { reporter: Reporter; streams: St
       ...(args.stateDir !== undefined ? { stateDir: args.stateDir } : {}),
       ...(args.agents !== undefined ? { agents: args.agents } : {}),
       ...(args.allowUnconfinedWrites ? { allowUnconfinedWrites: true } : {}),
+      ...(args.retryFailed ? { retryFailed: true } : {}),
     },
     {
       // A continued attempt is a run in progress; it reports itself the same

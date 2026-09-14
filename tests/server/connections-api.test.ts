@@ -22,6 +22,8 @@ function fixture() {
     const client = command.executable.endsWith('claude') ? 'claude' : 'codex';
     const args = command.args;
     if (args[0] === '--version') return ok(client === 'codex' ? 'codex-cli 0.154.0' : '2.1.236 (Claude Code)');
+    if (args.join(' ') === 'login status') return ok('Logged in using ChatGPT');
+    if (args.join(' ') === 'auth status') return ok(JSON.stringify({ loggedIn: true }));
     if (command.stdin) {
       const frames = command.stdin.trim().split('\n').map(line => JSON.parse(line));
       expect(frames.map(frame => frame.method)).toEqual(['initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
@@ -56,11 +58,11 @@ describe('one-click coding-agent connections', () => {
     const { api, run, saved } = fixture();
     const result = await api.list();
     expect(result.clients.map(client => client.status)).toEqual(['not_connected', 'not_connected']);
-    expect(saved.size).toBe(0); expect(run).toHaveBeenCalledTimes(4);
+    expect(saved.size).toBe(0); expect(run).toHaveBeenCalledTimes(6);
     expect(run.mock.calls.every(([command]) => !command.env['ANTHROPIC_API_KEY'] && command.env['CODEX_HOME'] === '/fixture/codex-config')).toBe(true);
     expect(result.referenceConfiguration.mcpServers['ai-workforce'].args[0]).toContain('AI Employee');
     expect(result.bridge).toEqual({ name: 'ai-workforce', transport: 'stdio', serverUrl: 'http://127.0.0.1:4421', scope: 'user', toolCount: 7, clientSessionStatus: 'not_observed' });
-    await api.list(); expect(run).toHaveBeenCalledTimes(4);
+    await api.list(); expect(run).toHaveBeenCalledTimes(8); // Account state is refreshed even while MCP metadata is cached.
   });
 
   it.each(['codex', 'claude'] as const)('connects %s once, verifies actual reads, and makes repeated clicks a no-op', async client => {

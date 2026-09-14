@@ -86,14 +86,15 @@ export function isHeadReviewBridgeTool(name: string): name is HeadReviewBridgeTo
 }
 
 /** The coordinator validates this before invoking the token's review handler. */
+export const HEAD_REVIEW_SUMMARY_MAX_CHARS = 8_000;
 export const HeadReviewResultSchema = z.object({
   reviewVersion: z.literal(1),
   candidateRevision: z.string().min(1).max(128),
   diffHash: z.string().min(1).max(128),
   verdict: z.enum(['approve', 'changes_requested']),
-  summary: z.string().min(1).max(8_000),
+  summary: z.string().min(1).max(HEAD_REVIEW_SUMMARY_MAX_CHARS),
   findings: z.array(z.object({
-    summary: z.string().min(1).max(8_000),
+    summary: z.string().min(1).max(HEAD_REVIEW_SUMMARY_MAX_CHARS),
     file: z.string().min(1).max(1_024).optional(),
     line: z.number().int().min(1).optional(),
   }).strict()).max(100),
@@ -244,19 +245,19 @@ export const HEAD_REVIEW_BRIDGE_TOOLS: ReadonlyArray<BridgeToolDefinition> = [
   {
     name: 'workforce_review_result',
     description:
-      'Submit your review of the frozen combined candidate and verifier evidence. Use the exact candidate revision and diff hash supplied by the coordinator. Only this tool submits a review; prose submits nothing. Review approval does not replace required verifier checks or authorize applying, merging, or publishing the candidate.',
+      `Submit your review of the frozen combined candidate and verifier evidence. Use the exact candidate revision and diff hash supplied by the coordinator. Keep summary within ${HEAD_REVIEW_SUMMARY_MAX_CHARS} characters. If validation rejects your submission, correct the reported fields and resubmit; a rejected call records no decision. Stop after one accepted decision. Only this tool submits a review; prose submits nothing. Review approval does not replace required verifier checks or authorize applying, merging, or publishing the candidate.`,
     inputSchema: obj(
       {
         reviewVersion: { type: 'integer', enum: [1], description: 'Always 1.' },
         candidateRevision: { type: 'string', minLength: 1, maxLength: 128 },
         diffHash: { type: 'string', minLength: 1, maxLength: 128 },
         verdict: { type: 'string', enum: ['approve', 'changes_requested'] },
-        summary: { type: 'string', minLength: 1, maxLength: 8_000 },
+        summary: { type: 'string', minLength: 1, maxLength: HEAD_REVIEW_SUMMARY_MAX_CHARS },
         findings: {
           type: 'array',
           maxItems: 100,
           items: obj({
-            summary: { type: 'string', minLength: 1, maxLength: 8_000 },
+            summary: { type: 'string', minLength: 1, maxLength: HEAD_REVIEW_SUMMARY_MAX_CHARS },
             file: { type: 'string', minLength: 1, maxLength: 1_024 },
             line: { type: 'integer', minimum: 1 },
           }, ['summary']),

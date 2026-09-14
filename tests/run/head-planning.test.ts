@@ -203,6 +203,8 @@ describe('a request to a department: the head plans, its workers do the work', (
     // Global Control Center routes and its separate runtime must not leak into
     // the department-only snapshot used to resume this request.
     updateWorkspace(stateRoot, (current) => build([
+      // Reserve two turn/writer slots for each of the two project lanes.
+      { op: 'limits.set', limits: { maxTotalActiveTurns: 4, maxTotalActiveWriters: 4 } },
       { op: 'runtime.set', id: 'control-only', adapter: 'fake', executable: defaultFakeRuntimeScript() },
       { op: 'project.add', repoPath: path.join(fixture.path, 'other-project'), id: 'other', name: 'Other project', checks: ['node --version'] },
       { op: 'control-center.set', runtime: 'control-only', projectRoutes: [{ projectId: 'app', departmentId: 'eng' }, { projectId: 'other', departmentId: 'design' }] },

@@ -128,6 +128,16 @@ describe('login visibility uses the documented commands only', () => {
     expect((await probeRuntime('claude-code', textOut, { timeoutMs: 5_000 })).auth).toBe('logged_out');
   });
 
+  it('recognizes the installed Codex signed-out stderr line without trusting crash diagnostics', () => {
+    expect(parseAuthStatus('codex', probeResult({ exitCode: 1, stderr: 'Not logged in\n' })).auth).toBe('logged_out');
+    for (const result of [
+      probeResult({ exitCode: 101, stderr: 'Not logged in\n' }),
+      probeResult({ exitCode: 1, stderr: 'Proxy failed: Not logged in\n' }),
+      probeResult({ exitCode: 1, stdout: 'panic', stderr: 'Not logged in\n' }),
+      probeResult({ exitCode: 1, timedOut: true, stderr: 'Not logged in\n' }),
+    ]) expect(parseAuthStatus('codex', result).auth).toBe('unknown');
+  });
+
   it('maps a non-zero exit and unrecognised output to unknown, never to a ready state', async () => {
     const root = scratch();
     const failing = writeExecutable(path.join(root, 'fail'), 'codex', fakeCodex({ login: 'in', loginExit: 1 }));

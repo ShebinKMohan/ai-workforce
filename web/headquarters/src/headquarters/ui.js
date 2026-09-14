@@ -1,4 +1,5 @@
 import { portraitById, resolveAvatarId } from './avatar-catalog.js';
+import { renderAnimatedAvatar } from './avatar-animation.js';
 export const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icons = {
   archive:'M3 4h18v4H3ZM5 8v12h14V8M10 12h4', settings:'M4 7h16M4 17h16M8 4v6M16 14v6', sun:'M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4l1.4-1.4M17 7l1.4-1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0', moon:'M20 15.8A9 9 0 0 1 8.2 4 9 9 0 1 0 20 15.8Z', monitor:'M3 4h18v13H3ZM8 21h8M12 17v4', palette:'M21 12a9 9 0 1 0-9 9h1a2 2 0 0 0 2-2c0-1-1-2-1-3s1-2 2-2h3a2 2 0 0 0 2-2ZM7 10h.01M9 6h.01M14 6h.01M17 10h.01', play:'m8 4 12 8-12 8Z',
@@ -9,6 +10,7 @@ export const atlasMark = () => `<span class="atlas-mark"><img src="./assets/atla
 // Illustrated identities are deterministic across the directory, workspace, and chat.
 export function avatar(name, size = 28, identity) {
   const portrait = portraitById(resolveAvatarId(name, identity));
+  if (portrait?.spriteSrc) return renderAnimatedAvatar(portrait, size, typeof identity === 'object' ? identity?.id || name : identity || name);
   if (portrait) {
     const dimension = Math.max(16, Math.min(160, Number(size) || 28));
     return `<span class="avatar avatar-portrait" data-avatar-id="${portrait.id}" style="width:${dimension}px;height:${dimension}px" aria-hidden="true"><img src="${portrait.src}" width="${dimension}" height="${dimension}" alt="" decoding="async"></span>`;

@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { configSearchPath } from '../cli/commands/launch.js';
 import { AgentIdSchema, ContractValidationError, formatZodIssues, type AgentDefinition } from '../core/contracts.js';
+import { agentJobTitle } from '../core/workspace-config.js';
 import { loadAgentConfigFile, type LoadedAgentConfig } from '../core/config.js';
 import { newId } from '../core/ids.js';
 import {
@@ -313,6 +314,7 @@ export async function previewStart(raw: unknown, inputs: PreviewInputs): Promise
     configuration: { path: loaded.path },
     agent: {
       id: agentId,
+      jobTitle: agentJobTitle({ ...agent, role: loaded.config.defaults.plannerAgent === agentId ? 'head' : 'worker' }),
       runtime: agent.runtime,
       adapter: runtime.adapter,
       model: agent.model ?? runtime.model ?? null,

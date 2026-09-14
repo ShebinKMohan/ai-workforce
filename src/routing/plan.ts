@@ -114,6 +114,7 @@ export interface PlannerRequest {
 /** One worker a head may assign a task to. */
 export interface PlannerRosterEntry {
   readonly id: string;
+  readonly jobTitle?: string;
   readonly name: string;
   readonly capabilities: ReadonlyArray<string>;
   readonly runtime: string;

@@ -50,6 +50,8 @@ import type { HeadPlanner } from '../../workspace/planning.js';
 import { commandRunProject } from './run-project.js';
 
 export interface RunCommandArgs {
+  readonly capacityTurns?: number;
+  readonly capacityWriters?: number;
   /**
    * `--project <id> --department <id>`: a request to a department of the
    * workspace. Mutually exclusive with --repo/--agents; see run-project.ts.
@@ -295,7 +297,7 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   // A request to a department is its own path; the single-file form below is
   // untouched by it.
   if (args.project !== undefined || args.department !== undefined) return commandRunProject(args, deps);
-  if (args.workerIds !== undefined || args.workspaceRevision !== undefined || args.workKind !== undefined) {
+  if (args.capacityTurns !== undefined || args.capacityWriters !== undefined || args.workerIds !== undefined || args.workspaceRevision !== undefined || args.workKind !== undefined) {
     throw new CliError(EXIT_CODES.invalidInput, 'project_selection_required', '--worker, --workspace-revision and --work-kind require --project and --department');
   }
   // Validate every input before touching state: an invalid invocation must

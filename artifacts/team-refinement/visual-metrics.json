@@ -1,0 +1,327 @@
+[
+  {
+    "name": "headquarters-light",
+    "departments": [
+      {
+        "height": 284,
+        "width": 427,
+        "x": 108
+      },
+      {
+        "height": 284,
+        "width": 427,
+        "x": 549
+      },
+      {
+        "height": 284,
+        "width": 427,
+        "x": 989
+      },
+      {
+        "height": 284,
+        "width": 647,
+        "x": 108
+      },
+      {
+        "height": 284,
+        "width": 647,
+        "x": 769
+      }
+    ],
+    "headings": [
+      "Headquarters"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(243, 246, 250)",
+    "theme": "light",
+    "view": "headquarters",
+    "width": 1440
+  },
+  {
+    "name": "issues-light",
+    "departments": [],
+    "headings": [
+      "Issues"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(243, 246, 250)",
+    "theme": "light",
+    "view": "issues",
+    "width": 1440
+  },
+  {
+    "name": "team-light",
+    "departments": [],
+    "headings": [
+      "Team"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(243, 246, 250)",
+    "theme": "light",
+    "view": "people",
+    "width": 1440
+  },
+  {
+    "name": "projects-light",
+    "departments": [],
+    "headings": [
+      "Projects"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(243, 246, 250)",
+    "theme": "light",
+    "view": "projects",
+    "width": 1440
+  },
+  {
+    "name": "connections-light",
+    "departments": [],
+    "headings": [
+      "Connections"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(243, 246, 250)",
+    "theme": "light",
+    "view": "connections",
+    "width": 1440
+  },
+  {
+    "name": "settings-light",
+    "departments": [],
+    "headings": [
+      "Settings"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(243, 246, 250)",
+    "theme": "light",
+    "view": "settings",
+    "width": 1440
+  },
+  {
+    "name": "settings-dark",
+    "departments": [],
+    "headings": [
+      "Settings"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(13, 21, 34)",
+    "theme": "dark",
+    "view": "settings",
+    "width": 1440
+  },
+  {
+    "name": "connections-dark",
+    "departments": [],
+    "headings": [
+      "Connections"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(13, 21, 34)",
+    "theme": "dark",
+    "view": "connections",
+    "width": 1440
+  },
+  {
+    "name": "headquarters-dark",
+    "departments": [
+      {
+        "height": 284,
+        "width": 427,
+        "x": 108
+      },
+      {
+        "height": 284,
+        "width": 427,
+        "x": 549
+      },
+      {
+        "height": 284,
+        "width": 427,
+        "x": 989
+      },
+      {
+        "height": 284,
+        "width": 647,
+        "x": 108
+      },
+      {
+        "height": 284,
+        "width": 647,
+        "x": 769
+      }
+    ],
+    "headings": [
+      "Headquarters"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(13, 21, 34)",
+    "theme": "dark",
+    "view": "headquarters",
+    "width": 1440
+  },
+  {
+    "name": "issues-dark",
+    "departments": [],
+    "headings": [
+      "Issues"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(13, 21, 34)",
+    "theme": "dark",
+    "view": "issues",
+    "width": 1440
+  },
+  {
+    "name": "team-dark",
+    "departments": [],
+    "headings": [
+      "Team"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(13, 21, 34)",
+    "theme": "dark",
+    "view": "people",
+    "width": 1440
+  },
+  {
+    "name": "projects-dark",
+    "departments": [],
+    "headings": [
+      "Projects"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(13, 21, 34)",
+    "theme": "dark",
+    "view": "projects",
+    "width": 1440
+  },
+  {
+    "name": "headquarters-mobile-dark",
+    "departments": [
+      {
+        "height": 341,
+        "width": 239,
+        "x": 68
+      },
+      {
+        "height": 334,
+        "width": 239,
+        "x": 68
+      },
+      {
+        "height": 350,
+        "width": 239,
+        "x": 68
+      },
+      {
+        "height": 341,
+        "width": 239,
+        "x": 68
+      },
+      {
+        "height": 341,
+        "width": 239,
+        "x": 68
+      }
+    ],
+    "headings": [
+      "Headquarters"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(13, 21, 34)",
+    "theme": "dark",
+    "view": "headquarters",
+    "width": 319
+  },
+  {
+    "name": "headquarters-task-status-light",
+    "departments": [
+      {
+        "height": 284,
+        "width": 437,
+        "x": 108
+      },
+      {
+        "height": 284,
+        "width": 437,
+        "x": 559
+      },
+      {
+        "height": 284,
+        "width": 437,
+        "x": 108
+      },
+      {
+        "height": 284,
+        "width": 437,
+        "x": 559
+      },
+      {
+        "height": 284,
+        "width": 888,
+        "x": 108
+      }
+    ],
+    "headings": [
+      "Headquarters"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(243, 246, 250)",
+    "theme": "light",
+    "view": "headquarters",
+    "width": 1440
+  },
+  {
+    "name": "headquarters-mobile-light",
+    "departments": [
+      {
+        "height": 341,
+        "width": 239,
+        "x": 68
+      },
+      {
+        "height": 334,
+        "width": 239,
+        "x": 68
+      },
+      {
+        "height": 350,
+        "width": 239,
+        "x": 68
+      },
+      {
+        "height": 341,
+        "width": 239,
+        "x": 68
+      },
+      {
+        "height": 341,
+        "width": 239,
+        "x": 68
+      }
+    ],
+    "headings": [
+      "Headquarters"
+    ],
+    "mainOverflow": false,
+    "pageOverflow": false,
+    "surface": "rgb(243, 246, 250)",
+    "theme": "light",
+    "view": "headquarters",
+    "width": 319
+  }
+]

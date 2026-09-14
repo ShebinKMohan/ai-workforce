@@ -35,7 +35,7 @@ async function setup() {
   return { root, repoPath };
 }
 
-function fixtureAdapter(options: { report?: boolean; firstReviewMissing?: boolean; reject?: boolean; fullPlanner?: boolean } = {}) {
+function fixtureAdapter(options: { report?: boolean; firstReviewMissing?: boolean; firstReviewInvalid?: boolean; reject?: boolean; fullPlanner?: boolean } = {}) {
   let reviewCount = 0;
   let workerCount = 0;
   const sessions: SessionInput[] = [];
@@ -56,7 +56,7 @@ function fixtureAdapter(options: { report?: boolean; firstReviewMissing?: boolea
         reviewCount++;
         const revision = (await git(['rev-parse', 'HEAD'], { cwd: input.cwd })).stdout.trim();
         steps = options.firstReviewMissing && reviewCount === 1 ? [{ action: 'claim_done', message: 'No decision submitted.' }] : [
-          { action: 'call_tool', tool: HEAD_REVIEW_TOOL, arguments: { reviewVersion: 1, candidateRevision: revision, diffHash: sha256Hex(''), verdict: options.reject ? 'changes_requested' : 'approve', summary: options.reject ? 'The report omits the catalog API.' : FINAL, findings: options.reject ? [{ summary: 'Explain lookup(id).' }] : [] } },
+          { action: 'call_tool', tool: HEAD_REVIEW_TOOL, arguments: { reviewVersion: 1, candidateRevision: revision, diffHash: sha256Hex(''), verdict: options.reject ? 'changes_requested' : 'approve', summary: options.firstReviewInvalid && reviewCount === 1 ? 'x'.repeat(8001) : options.reject ? 'The report omits the catalog API.' : FINAL, findings: options.reject ? [{ summary: 'Explain lookup(id).' }] : [] } },
           { action: 'claim_done', message: 'Decision recorded.' },
         ];
       } else {
@@ -158,12 +158,17 @@ describe('read-only analysis without project checks or placement', () => {
     expect(adapter.sessions).toHaveLength(before);
   }, 60_000);
 
-  it('resumes an interrupted review using the captured report without redispatching its worker or overwriting earlier evidence', async () => {
+  it.each(['missing', 'invalid'] as const)('resumes a %s structured review using the captured report without redispatching its worker or overwriting earlier evidence', async mode => {
     const { root } = await setup();
-    const adapter = fixtureAdapter({ firstReviewMissing: true });
+    const adapter = fixtureAdapter(mode === 'missing' ? { firstReviewMissing: true } : { firstReviewInvalid: true });
     const first = await run(root, adapter);
     expect(first.exitCode, JSON.stringify(first.data)).toBe(130);
     expect(first.data).toMatchObject({ analysisReviewed: false, runState: 'interrupted' });
+    const initial = openStateStore(projectStatePaths(root, 'catalog'), { mode: 'read-only' });
+    try {
+      const finished = listEvents(initial.db, String(first.data['runId'])).find(event => event.type === 'head.review_finished');
+      expect(finished?.payload).toMatchObject({ verdict: 'blocked', failureCode: 'head_review_invalid', interrupted: false, sessionStopped: true });
+    } finally { initial.close(); }
     const resumed = await commandResume({ positionals: [String(first.data['runId'])], stateDir: projectStatePaths(root, 'catalog').root, allowUnconfinedWrites: true, json: true }, { continuation: { adapterFactory: adapter.factory } });
     expect(resumed.exitCode, JSON.stringify(resumed.data)).toBe(0);
     expect(adapter.workers).toBe(1); expect(adapter.reviews).toBe(2);

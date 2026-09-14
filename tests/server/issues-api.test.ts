@@ -32,6 +32,50 @@ function post(target: OfficeServer, route: string, body: unknown, headers = {}) 
 }
 
 describe('issue API admission', () => {
+  it('returns Answered in Done for a real queue direct reply and retains that terminal receipt after restart', async () => {
+    const root = workspace(); let api: IssuesApi | undefined;
+    const queue = new RequestQueue({ stateRoot: root, passStateDir: true, env: {}, pollMs: 10000,
+      readiness: async () => ({ checkedAt: new Date().toISOString(), reports: [] }),
+      routeControl: async request => ({ reply: 'Understood. No project work will be started.', route: {
+        state: 'selected', projectId: request.projectId, departmentId: null, headAgentId: null,
+        reason: 'The user requested an acknowledgment.', method: 'direct_reply', decidedAt: new Date().toISOString(), elapsedMs: 1,
+      } }),
+      onPersist: records => api?.store.recordRequests(records),
+      spawner: () => { throw new Error('A conversational answer must not start a project runtime'); },
+    }); queues.push(queue);
+    api = new IssuesApi(root, queue);
+    const saved = await api.create(input({ title: 'Do not run — cancelled UI project-selection test', start: true }));
+    for (let attempt = 0; attempt < 50 && queue.get(saved.issue.requestId!).state !== 'ended'; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+    const reply = api.get(saved.issue.id).issue;
+    expect(queue.get(saved.issue.requestId!)).toMatchObject({ state: 'ended', runId: null, result: { code: 'control_reply', exitCode: 0 } });
+    expect(reply).toMatchObject({ status: 'done', runId: null, execution: { state: 'answered', verified: false, analysisReviewed: false, checks: null } });
+    expect(reply.execution.completedAt).toBe(reply.execution.endedAt);
+    expect(reply.execution.startedAt).toBe(queue.get(saved.issue.requestId!).receivedAt);
+    queue.close();
+    expect(new IssuesApi(root, noQueue()).get(saved.issue.id).issue).toEqual(reply);
+  });
+
+  it('accepts manual cancellation without dispatching and exposes refusal on cancelled auto-start', async () => {
+    const queue = noQueue(); const api = new IssuesApi(workspace(), queue);
+    const saved = await api.create(input({ status: 'cancelled', start: true }));
+    expect(saved).toMatchObject({ startError: { code: 'issue_cancelled' }, issue: { status: 'cancelled', requestId: null, execution: { state: 'cancelled', verified: false } } });
+    expect(api.list().columns).toContainEqual({ id: 'cancelled', label: 'Canceled' });
+    expect(queue.submit).not.toHaveBeenCalled();
+  });
+
+  it('returns durable priority and manual completion metadata on create, update, detail, and paged summaries', async () => {
+    const api = new IssuesApi(workspace(), noQueue());
+    const created = await api.create(input({ priority: 'urgent' }));
+    expect(created.issue).toMatchObject({ priority: 'urgent', completedAt: null, execution: { completedAt: null, owners: [], checks: null } });
+    const updated = api.update(created.issue.id, { expectRevision: created.issue.revision, priority: 'low', status: 'done', idempotencyKey: 'metadata-1' });
+    expect(updated.issue.priority).toBe('low'); expect(updated.issue.completedAt).toBeTruthy();
+    expect(api.get(created.issue.id).issue).toEqual(updated.issue);
+    const summary = api.list(undefined, new URLSearchParams({ summary: '1', limit: '1' })).issues[0];
+    expect(summary).toMatchObject({ priority: 'low', completedAt: updated.issue.completedAt });
+    expect(summary).not.toHaveProperty('description');
+    await expect(api.create(input({ idempotencyKey: 'bad-priority', priority: 'critical' }))).rejects.toMatchObject({ status: 400 });
+  });
+
   it('rejects unknown or archived projects and oversized briefs without making a card or submission', async () => {
     const root = workspace(); const queue = noQueue(); const api = new IssuesApi(root, queue);
     await expect(api.create(input({ projectId: 'missing' }))).rejects.toMatchObject({ code: 'unknown_project' });

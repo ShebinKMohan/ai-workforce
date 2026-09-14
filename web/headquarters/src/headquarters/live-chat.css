@@ -358,3 +358,15 @@
 .live-control-chat .cc-agent-settings .cc-select { flex:1 1 auto; max-width:100%; }
 .live-control-chat .cc-agent-settings .cc-select select { width:100%; max-width:100%; }
 .live-control-chat .cc-composer-row { align-items:end; }
+/* Saved request controls, separate from the message composer. */
+.live-control-chat.cc-task-rail .cc-request-recovery { margin-block: 10px; }
+.live-control-chat.cc-task-rail .cc-request-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.live-control-chat.cc-task-rail .cc-request-action { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 7px 12px; border: 1px solid var(--line-strong, var(--line)); border-radius: 7px; background: var(--paper); color: var(--ink); font-family: inherit; font-size: 12px; font-weight: 600; line-height: 20px; cursor: pointer; }
+.live-control-chat.cc-task-rail .cc-request-action:hover:not(:disabled) { background: var(--surface-hover, var(--paper)); border-color: var(--muted); }
+.live-control-chat.cc-task-rail .cc-request-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.live-control-chat.cc-task-rail .cc-request-action:disabled { opacity: .55; cursor: not-allowed; }
+.live-control-chat.cc-task-rail .cc-stop-work { color: var(--danger); background: var(--danger-light); border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); }
+.live-control-chat.cc-task-rail .cc-stop-work > .icon { width: 16px; height: 16px; flex: 0 0 16px; }
+.live-control-chat.cc-task-rail .cc-stop-work > .icon path { fill: currentColor; stroke: none; }
+.live-control-chat.cc-task-rail .cc-stop-work:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 20%, var(--paper)); border-color: var(--danger); }
+.live-control-chat.cc-task-rail .cc-stop-work:focus-visible { outline-color: var(--danger); }

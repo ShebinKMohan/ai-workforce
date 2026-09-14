@@ -48,7 +48,7 @@ export async function api(path, body) {
 }
 
 class WorkforceState extends EventTarget {
-  workspace=null; requests=[]; runs=[]; events=[]; connected=false; streaming=false; error=null; stream=null; timer=null; refreshing=null; initial=true;
+  workspace=null; requests=[]; runs=[]; events=[]; connected=false; streaming=false; error=null; stream=null; timer=null; refreshing=null; initial=true; lastMissingProjectKey=''; lifecycle=0; paused=false;
   publishWorkspace(payload){if(this.workspace?.path===payload?.path&&Number(this.workspace?.revision)>Number(payload?.revision))return;this.workspace=payload;this.dispatchEvent(new CustomEvent('workspace',{detail:payload}));this.dispatchEvent(new Event('change'));}
   async refresh({workspace=false}={}) {
     if(this.refreshing){await this.refreshing;if(workspace)return this.refresh({workspace:true});return;}
@@ -56,14 +56,18 @@ class WorkforceState extends EventTarget {
   }
   async read(includeWorkspace){
     try {
-      const [snapshot,requests,runs]=await Promise.all([includeWorkspace||!this.workspace?api('/api/workspace'):Promise.resolve(null),api('/api/requests'),api('/api/runs?limit=60')]);
+      let [snapshot,requests,runs]=await Promise.all([includeWorkspace||!this.workspace?api('/api/workspace'):Promise.resolve(null),api('/api/requests'),api('/api/runs?limit=60')]);
+      const knownProjects=new Set((this.workspace?.workspace?.projects||[]).map(project=>project.id));
+      const missingProjectKey=[...new Set((requests.items||[]).map(request=>request.projectId).filter(id=>id&&!knownProjects.has(id)))].sort().join(',');
+      if(!snapshot&&(Number(requests.workspaceRevision)>Number(this.workspace?.revision)||missingProjectKey&&missingProjectKey!==this.lastMissingProjectKey))snapshot=await api('/api/workspace');
+      this.lastMissingProjectKey=missingProjectKey;
       const workspace=!snapshot||(this.workspace?.path===snapshot.path&&Number(this.workspace?.revision)>Number(snapshot.revision))?this.workspace:snapshot;
       if(workspace.error)throw new Error(workspace.error.message);
       const before=JSON.stringify([this.requests,this.runs,this.connected,this.workspace?.revision]);
       this.requests=requests.items||[];this.runs=runs.runs||[];this.connected=true;this.error=null;
       if(!this.workspace||workspace.revision!==this.workspace.revision)this.publishWorkspace(workspace);else this.workspace=workspace;
       if(before!==JSON.stringify([this.requests,this.runs,this.connected,this.workspace?.revision]))this.dispatchEvent(new Event('change'));
-      if(this.initial){this.initial=false;this.openEvents(runs);}
+      if(this.initial&&!this.paused){this.initial=false;this.openEvents(runs);}
     }catch(error){this.connected=false;this.error=error.message;this.dispatchEvent(new Event('change'));}
   }
   openEvents(runs){
@@ -76,7 +80,7 @@ class WorkforceState extends EventTarget {
     this.stream.onmessage=e=>{try {const value=JSON.parse(e.data);this.events.push(value);if(this.events.length>200)this.events.shift();this.dispatchEvent(new CustomEvent('activity',{detail:value}));this.refresh();}catch{/* A malformed event cannot alter recorded task state. */}};
     this.stream.addEventListener('stream-error',()=>{this.streaming=false;this.dispatchEvent(new Event('connection'));});
   }
-  async start(){await this.refresh({workspace:true});this.timer=setInterval(()=>{if(document.visibilityState!=='hidden')this.refresh();},4000);}
-  stop(){clearInterval(this.timer);this.stream?.close();this.stream=null;}
+  async start(){const lifecycle=++this.lifecycle;this.paused=false;clearInterval(this.timer);this.timer=null;await this.refresh({workspace:true});if(lifecycle!==this.lifecycle||this.paused)return;this.timer=setInterval(()=>{if(document.visibilityState!=='hidden')this.refresh();},4000);}
+  stop(){this.lifecycle++;this.paused=true;clearInterval(this.timer);this.timer=null;this.stream?.close();this.stream=null;this.streaming=false;this.initial=true;}
 }
 export const workforce=new WorkforceState();

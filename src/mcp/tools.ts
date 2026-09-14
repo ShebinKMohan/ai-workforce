@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { McpConnectionError, type OfficeClient } from './client.js';
 import { MAX_TASK_CHARS } from '../server/launch.js';
+import { IssuePrioritySchema } from '../issues/contracts.js';
 
 const Id = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_-]+$/);
 const ProjectId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,47}$/);
@@ -15,7 +16,7 @@ const Consent = z.boolean().optional().describe('True only if the user explicitl
 const createFields = {
   projectId: ProjectId, title: Title, description: Description,
   source: z.string().min(1).max(200).optional(), idempotencyKey: Key, start: Start,
-  allowUnconfinedWrites: Consent,
+  allowUnconfinedWrites: Consent, priority: IssuePrioritySchema.optional(),
 };
 
 const definitions = [
@@ -46,12 +47,12 @@ const definitions = [
   },
   {
     name: 'workforce_update_issue',
-    description: 'Edit an issue title, full description or manual Kanban status at the expected revision. Does not start, stop or steer execution. Linked execution may govern its displayed status. A manual Done card is not proof of verified work.',
-    schema: z.strictObject({ issueId: Id, expectRevision: Revision, idempotencyKey: Key, title: Title.optional(), description: Description.optional(), status: Status.optional() }), readOnly: false,
+    description: 'Edit an issue title, full description, priority or manual Kanban status at the expected revision. Priority remains editable after dispatch. Does not start, stop or steer execution. Linked execution may govern its displayed status. A manual Done card is not proof of verified work.',
+    schema: z.strictObject({ issueId: Id, expectRevision: Revision, idempotencyKey: Key, title: Title.optional(), description: Description.optional(), status: Status.optional(), priority: IssuePrioritySchema.optional() }), readOnly: false,
   },
   {
     name: 'workforce_start_issue',
-    description: 'Explicitly send a saved issue through Control Center using the same project queue as the app. May spend coding-agent model turns. One issue creates at most one linked request; retry with the same idempotencyKey. Returns receipt/status immediately; use get_issue to inspect completion.',
+    description: 'Explicitly send a saved issue through Control Center using the same project queue as the app. May spend coding-agent model turns. Repeating this tool with the same idempotencyKey preserves the original submission and returns its current request lineage. Execution retries remain linked to the same issue. Returns receipt/status immediately; use get_issue to inspect completion.',
     schema: z.strictObject({ issueId: Id, expectRevision: Revision, idempotencyKey: Key, allowUnconfinedWrites: Consent }), readOnly: false,
   },
 ] as const;
@@ -89,7 +90,7 @@ export async function callWorkforceTool(client: OfficeClient, name: string, valu
   }
   const { issueId, ...body } = args;
   if (name === 'workforce_update_issue') {
-    if (body['title'] === undefined && body['description'] === undefined && body['status'] === undefined) throw new InvalidToolArguments('Provide at least one of title, description or status.');
+    if (body['title'] === undefined && body['description'] === undefined && body['status'] === undefined && body['priority'] === undefined) throw new InvalidToolArguments('Provide at least one of title, description, status or priority.');
     return client.write(`/api/issues/${encodeURIComponent(String(issueId))}/update`, body);
   }
   return client.write(`/api/issues/${encodeURIComponent(String(issueId))}/start`, body);

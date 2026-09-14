@@ -67,8 +67,8 @@ describe('automatic project eligibility', () => {
     expect(snapshot.agents.map(agent => agent.id)).toEqual(['head', 'backend']);
     expect(snapshot.agents[1]).toMatchObject({ policy: 'local-development', capabilities: ['backend', 'databases'] });
     expect(snapshot.agents[0]?.policy).toBe('analysis');
-    expect(snapshot.defaults.maxActiveTurns).toBe(config.limits.maxActiveTurns);
-    expect(snapshot.defaults.maxActiveWriters).toBe(config.limits.maxActiveWriters);
+    expect(snapshot.defaults.maxActiveTurns).toBe(1);
+    expect(snapshot.defaults.maxActiveWriters).toBe(1);
     expect(refusal(() => buildRoster(config, { projectId: 'existing', departmentId: 'engineering', workerIds: [] })).code).toBe('invalid_worker_selection');
   });
 

@@ -48,7 +48,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { z } from 'zod';
 import { nowIso } from '../core/ids.js';
-import { discoverWorkspaceRuntimes, type RuntimeReadinessReport } from '../discovery/readiness.js';
+import { discoverWorkspaceRuntimes, readinessReportForRuntime, type RuntimeReadinessReport } from '../discovery/readiness.js';
 import { validateAttachments } from '../adapters/attachments.js';
 import { ATTACHMENT_LIMITS, storeAttachments } from './attachments.js';
 import { listProjectFolders } from './project-folders.js';
@@ -57,6 +57,9 @@ import { sanitizedProbeEnv } from '../discovery/spawn.js';
 import { createStatePaths } from '../storage/paths.js';
 import { redactText } from '../telemetry/redaction.js';
 import { workspaceFilePath } from '../workspace/paths.js';
+import { buildNathanJamesTeamOps } from '../workspace/team-templates.js';
+import { isToolUsable } from '../core/workspace-config.js';
+import { WorkspaceError } from '../workspace/errors.js';
 import { serveEventStream } from './events-stream.js';
 import {
   ApiError,
@@ -79,7 +82,7 @@ import { IssuesApi } from './issues-api.js';
 import { ConnectionsApi, type ConnectionsApiOptions } from './connections-api.js';
 import { IssueStore } from '../issues/store.js';
 import { defaultWebRoot, injectSessionToken, packageRoot, resolveStaticFile } from './static.js';
-import { applySingleWorkspaceOp, applyWorkspaceWrite, inspectFolder, invalidBody, OP_NAME_PATTERN, readWorkspace, workspaceDocument, type PassiveReadiness } from './workspace-api.js';
+import { applySingleWorkspaceOp, applyWorkspaceWrite, inspectFolder, invalidBody, httpErrorFromWorkspace, OP_NAME_PATTERN, readWorkspace, workspaceDocument, type PassiveReadiness } from './workspace-api.js';
 
 export const DEFAULT_SERVE_PORT = 4421;
 /** Passive discovery is cheap but not free (it runs `--version` and a login-status command); reuse it for a while. */
@@ -257,7 +260,13 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
   };
 
   let endpoint: Endpoint = { host: LOOPBACK_HOST, port: options.port };
-  const connections = new ConnectionsApi({ ...options.connections, stateRoot: root, serverUrl: () => originOf(endpoint), env });
+  const connections = new ConnectionsApi({ ...options.connections, stateRoot: root, serverUrl: () => originOf(endpoint), env,
+    onAuthenticationChanged: () => {
+      readiness = null;
+      catalogs.clear();
+      options.connections?.onAuthenticationChanged?.();
+    },
+  });
 
   function matchRoute(req: IncomingMessage, res: ServerResponse, segments: ReadonlyArray<string>): Route | null {
     const [a, b, c, d, e, f] = segments;
@@ -284,11 +293,38 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
     if (a === 'connections' && b && (c === 'connect' || c === 'verify') && n === 3) {
       return { allow: 'POST', handle: async () => sendJson(res, 200, await connections.action(b, c, await body())) };
     }
+    if (a === 'connections' && b && c === 'auth' && n === 3) {
+      return { allow: 'GET', handle: async () => sendJson(res, 200, await connections.authenticationStatus(b)) };
+    }
+    if (a === 'connections' && b && (c === 'sign-in' || c === 'cancel-sign-in') && n === 3) {
+      return { allow: 'POST', handle: async () => sendJson(res, 200, await connections.authenticationAction(b, c, await body())) };
+    }
     if (a === 'runtimes' && b && c === 'models' && n === 3) {
       return { allow: 'GET', handle: async (_method, url) => sendJson(res, 200, await runtimeModels(b, url.searchParams.get('refresh') === '1')) };
     }
     if (a === 'workspace' && n === 1) {
       return { allow: 'GET', handle: async (_method, url) => sendJson(res, 200, await workspaceDocument(root, await currentReadiness(url.searchParams.get('refresh') === '1'))) };
+    }
+    if (a === 'workspace' && b === 'templates' && c === 'nathan-james' && n === 3) {
+      return { allow: 'GET', handle: async () => {
+        const observed = await currentReadiness(false);
+        const loaded = readWorkspace(root);
+        if (loaded.error) throw new ApiError(409, loaded.error.code, loaded.error.message, loaded.error.details);
+        const config = loaded.loaded?.exists ? loaded.loaded.config : null;
+        if (!config) throw new ApiError(409, 'workspace_required', 'Create your workspace before setting up a team.');
+        try {
+          const reports = 'reports' in observed ? observed.reports : [];
+          const runtimeReports = Object.entries(config.runtimes).map(([runtimeId, runtime]) => {
+            const report = readinessReportForRuntime(reports, runtimeId, runtime);
+            return { runtimeId, usable: !!report && isToolUsable(report), ...(report ? { auth: report.auth } : {}) };
+          });
+          const plan = buildNathanJamesTeamOps(config, { runtimeReports });
+          sendJson(res, 200, { ok: true, ...plan, revision: plan.expectRevision });
+        } catch (error) {
+          if (error instanceof WorkspaceError) throw httpErrorFromWorkspace(error);
+          throw error;
+        }
+      } };
     }
     if (a === 'workspace' && b === 'ops' && n === 2) {
       return { allow: 'POST', handle: async () => sendJson(res, 200, await applyWorkspaceWrite(await body(), writeContext)) };
@@ -368,6 +404,12 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
       };
     }
     if (a === 'requests' && n === 2 && ID_PATTERN.test(b!)) return { allow: 'GET', handle: () => sendJson(res, 200, { ok: true, request: queue.get(b!) }) };
+    if (a === 'requests' && n === 3 && ID_PATTERN.test(b!) && c === 'retry') {
+      return { allow: 'POST', handle: async () => {
+        const item = await queue.retry(b!, await body());
+        sendJson(res, 202, { ok: true, request: item, statusPath: `/api/requests/${item.id}` });
+      } };
+    }
     if (a === 'requests' && n === 3 && ID_PATTERN.test(b!) && (c === 'start' || c === 'discard' || c === 'stop')) {
       return {
         allow: 'POST',
@@ -478,6 +520,7 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
     await listen(server, options.port);
   } catch (error) {
     queue.close();
+    await connections.close();
     throw error;
   }
   endpoint = { host: LOOPBACK_HOST, port: (server.address() as AddressInfo).port };
@@ -489,13 +532,15 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
     token,
     stateRoot: root,
     webRoot,
-    close: () =>
-      new Promise<void>((resolve) => {
+    close: async () => {
+      await connections.close();
+      await new Promise<void>((resolve) => {
         queue.close();
         for (const stream of streams) stream.end();
         streams.clear();
         server.close(() => resolve());
         server.closeAllConnections();
-      }),
+      });
+    },
   };
 }

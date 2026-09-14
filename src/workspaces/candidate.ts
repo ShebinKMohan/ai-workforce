@@ -1,12 +1,12 @@
 /**
  * Candidate workspaces (FR041).
  *
- * A candidate is a linked Git worktree at
- * `<workspaceRoot>/<runId>/<taskId>/<attemptId>` on a new branch
- * `workforce/<runId>/<taskId>/<attemptId>`. The user's checkout is never
- * touched: no reset, no clean, no stash, no branch switch, and the candidate
- * branch name is refused if it already exists so an existing branch can
- * never be overwritten.
+ * Each attempt has an independent Git repository, with its worktree at
+ * `<workspaceRoot>/<runId>/<taskId>/<attemptId>` and Git administration in
+ * a sibling directory outside the worker's write grant. Objects, refs,
+ * hooks and local configuration are never shared with the user's repository.
+ * Frozen checkpoints are imported by the coordinator into a candidate ref
+ * for verification/recovery; the user's index, branch and files stay untouched.
  *
  * Base selection: R0/R1 use the committed HEAD. Uncommitted work in the
  * user's checkout is excluded, and the exclusion is recorded on the run with
@@ -14,11 +14,8 @@
  * than implying HEAD and the working tree were equivalent.
  *
  * SECURITY BOUNDARY — read this before granting paths to a worker.
- * A linked worktree shares the repository's object database and refs with the
- * user's repository. It is *development isolation*: the worker edits its own
- * files instead of the user's. It is **not** a security sandbox. A process
- * that can write to the worktree's administrative directory can rewrite refs
- * and reach the user's repository. Therefore:
+ * Independent Git administration prevents accidental shared-ref mutation.
+ * It is not an OS security sandbox. Therefore:
  *   - `candidateWritePaths()` grants the worktree directory only;
  *   - `assertGrantedPathsSafe()` refuses any grant that covers a Git
  *     administrative directory (`.git`, `.git/worktrees/...`) or the
@@ -31,7 +28,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, wr
 import path from 'node:path';
 import { nowIso } from '../core/ids.js';
 import { sha256Hex } from '../core/snapshot.js';
-import { matchProcessIdentity, type ProcessIdentity } from '../core/process.js';
+import { isProcessGroupAlive, matchProcessIdentity, type ProcessIdentity } from '../core/process.js';
 import { isWithin } from '../storage/paths.js';
 import { COORDINATOR_IDENTITY, branchExists, git, gitOrThrow, gitText, gitTextOrNull, isSafeRefSegment, resolveRevision, withRepositoryLock } from './git.js';
 import type { DirtySummary } from './project.js';
@@ -64,10 +61,12 @@ export interface CandidateWorkspace {
   readonly branch: string;
   readonly baseRevision: string;
   /**
-   * The worktree's administrative directory inside the shared repository.
+   * The worktree's administrative directory, outside its write grant.
    * Recorded so it can be *excluded* from grants; never hand it to a worker.
    */
   readonly gitAdminDir: string | null;
+  /** Missing on older persisted linked-worktree records. */
+  readonly gitIsolation?: 'independent' | 'linked';
   /** Uncommitted changes in the user's checkout that this candidate does not include. */
   readonly excludedUncommittedChanges: DirtySummary | null;
   readonly createdAt: string;
@@ -97,9 +96,8 @@ export function candidateBranchName(runId: string, taskId: string, attemptId: st
  * existing branch or a non-empty directory.
  */
 export async function createCandidateWorkspace(input: CreateCandidateInput): Promise<CandidateWorkspace> {
-  // Serialized per repository: `git worktree add` takes the repository's
-  // administrative locks, so two workers starting at the same instant would
-  // race. Only the setup is serialized; the turn that follows is not.
+  // Serialize coordinator setup for the same source; worker execution is not
+  // serialized and does not share this repository's Git administration.
   return await withRepositoryLock(realpathSync(input.projectRoot), () => createCandidateWorkspaceUnlocked(input));
 }
 
@@ -123,22 +121,39 @@ async function createCandidateWorkspaceUnlocked(input: CreateCandidateInput): Pr
     );
   }
 
-  const workspaceRoot = path.resolve(input.workspaceRoot);
+  const workspaceRoot = canonicalCandidatePath(input.workspaceRoot);
   const target = path.join(workspaceRoot, input.runId, input.taskId, input.attemptId);
-  if (existsSync(target)) {
+  const gitAdminDir = `${target}.git`;
+  if (existsSync(target) || existsSync(gitAdminDir)) {
     throw new CandidateWorkspaceError('workspace_exists', `candidate workspace ${target} already exists; refusing to reuse a workspace that may still have a writer`);
   }
   if (isWithin(projectRoot, workspaceRoot)) {
     throw new CandidateWorkspaceError('workspace_inside_repository', `workspace root ${workspaceRoot} is inside the repository ${projectRoot}; candidate workspaces must live outside the user's checkout`);
   }
+  // An existing run/task parent may itself be a symlink into the checkout.
+  if (isWithin(projectRoot, canonicalCandidatePath(path.dirname(target)))) {
+    throw new CandidateWorkspaceError('workspace_inside_repository', `candidate parent resolves inside the user's checkout ${projectRoot}`);
+  }
   mkdirSync(path.dirname(target), { recursive: true });
-
-  // `worktree add` would run the post-checkout hook: disabled with an empty hooks path we own.
-  await gitOrThrow(['worktree', 'add', '-b', branch, target, baseRevision], {
-    cwd: projectRoot,
+  // Reserve the directory atomically. A second process cannot initialize or
+  // overwrite a partially prepared attempt even though queues are in-process.
+  try { mkdirSync(target); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new CandidateWorkspaceError('workspace_exists', `candidate workspace ${target} already exists; refusing to reuse it`);
+    throw error;
+  }
+  const options = {
+    cwd: target,
     noHooksDir: workspaceRoot,
     ...(input.signal !== undefined ? { signal: input.signal } : {}),
-  });
+  };
+  const objectFormat = await gitText(['rev-parse', '--show-object-format'], { cwd: projectRoot });
+  await gitOrThrow(['init', '--template=', `--object-format=${objectFormat}`, `--separate-git-dir=${gitAdminDir}`, target], options);
+  await gitOrThrow(['config', 'core.worktree', target], options);
+  // Fetch copies objects through the local transport. Unlike a local clone,
+  // it creates neither hardlinks nor alternates and copies no source config.
+  await gitOrThrow(['-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-write-fetch-head', '--no-recurse-submodules', projectRoot, baseRevision], options);
+  await gitOrThrow(['checkout', '-b', branch, baseRevision], options);
 
   return {
     runId: input.runId,
@@ -149,12 +164,21 @@ async function createCandidateWorkspaceUnlocked(input: CreateCandidateInput): Pr
     branch,
     baseRevision,
     gitAdminDir: readGitAdminDir(target),
+    gitIsolation: 'independent',
     excludedUncommittedChanges: input.excludedDirty ?? null,
     createdAt: nowIso(),
   };
 }
 
-/** A linked worktree's `.git` is a file pointing at its administrative directory in the shared repository. */
+/** Resolve existing ancestors too, so a missing leaf cannot hide a symlink. */
+function canonicalCandidatePath(value: string): string {
+  const absolute = path.resolve(value);
+  if (existsSync(absolute)) return realpathSync(absolute);
+  const parent = path.dirname(absolute);
+  return parent === absolute ? absolute : path.join(canonicalCandidatePath(parent), path.basename(absolute));
+}
+
+/** Read either a separate Git directory marker or a legacy ordinary .git directory. */
 function readGitAdminDir(worktreePath: string): string | null {
   const marker = path.join(worktreePath, '.git');
   try {
@@ -187,21 +211,26 @@ export function candidateWritePaths(workspace: CandidateWorkspace): string[] {
  * the enforced execution boundary of FR042 and is not claimed here.
  */
 export function assertGrantedPathsSafe(workspace: CandidateWorkspace, granted: ReadonlyArray<string>, protectedPaths: ReadonlyArray<string> = []): void {
-  const forbidden: string[] = [path.join(workspace.projectRoot, '.git'), ...protectedPaths.map((p) => path.resolve(p))];
+  const projectRoot = canonicalCandidatePath(workspace.projectRoot);
+  const forbidden: string[] = [canonicalCandidatePath(path.join(projectRoot, '.git')), ...protectedPaths.map(canonicalCandidatePath)];
   if (workspace.gitAdminDir !== null) forbidden.push(workspace.gitAdminDir);
 
   for (const grant of granted) {
-    const resolved = path.resolve(grant);
-    if (resolved === workspace.projectRoot || isWithin(resolved, workspace.projectRoot)) {
-      throw new CandidateWorkspaceError('grant_covers_user_checkout', `granting "${resolved}" would give the worker write access to the user's checkout ${workspace.projectRoot}`);
+    const resolved = canonicalCandidatePath(grant);
+    if (isWithin(resolved, projectRoot)) {
+      throw new CandidateWorkspaceError('grant_covers_user_checkout', `granting "${resolved}" would give the worker write access to the user's checkout ${projectRoot}`);
     }
     for (const bad of forbidden) {
-      if (resolved === bad || isWithin(resolved, bad) || isWithin(bad, resolved)) {
+      const protectedPath = canonicalCandidatePath(bad);
+      if (isWithin(resolved, protectedPath) || isWithin(protectedPath, resolved)) {
         throw new CandidateWorkspaceError(
           'grant_covers_git_administration',
           `granting "${resolved}" would expose protected state at "${bad}"; shared Git administration and coordinator state are never writable by a worker`,
         );
       }
+    }
+    if (isWithin(resolved, projectRoot) || isWithin(projectRoot, resolved)) {
+      throw new CandidateWorkspaceError('grant_covers_user_checkout', `granting "${resolved}" would give the worker write access to the user's checkout ${projectRoot}`);
     }
   }
 }
@@ -264,6 +293,7 @@ export class QuiesceError extends CandidateWorkspaceError {
 export async function snapshotCandidate(workspace: CandidateWorkspace, input: SnapshotCandidateInput = {}): Promise<CandidateSnapshot> {
   const now = input.now ?? nowIso();
   assertQuiesced(workspace, input.writer ?? null);
+  await assertCandidateGitIdentity(workspace);
 
   const noHooksDir = path.dirname(workspace.path);
   const options = {
@@ -307,6 +337,23 @@ export async function snapshotCandidate(workspace: CandidateWorkspace, input: Sn
 
   const changes = await readChangedFiles(workspace.path, workspace.baseRevision, candidateRevision);
 
+  if (workspace.gitIsolation === 'independent') {
+    await withRepositoryLock(workspace.projectRoot, async () => {
+      // Import objects only, then atomically publish this attempt's ref. The
+      // original checkout never becomes the candidate's working directory.
+      await gitOrThrow(['-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-write-fetch-head', '--no-recurse-submodules', workspace.path, candidateRevision], {
+        cwd: workspace.projectRoot,
+        ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      });
+      const ref = `refs/heads/${workspace.branch}`;
+      const prior = await resolveRevision(workspace.projectRoot, ref);
+      if (prior !== null && !(await git(['merge-base', '--is-ancestor', prior, candidateRevision], { cwd: workspace.projectRoot })).ok) {
+        throw new CandidateWorkspaceError('candidate_ref_changed', `candidate reference ${workspace.branch} no longer belongs to this checkpoint; refusing to overwrite it`);
+      }
+      await gitOrThrow(['update-ref', ref, candidateRevision, prior ?? '0'.repeat(candidateRevision.length)], { cwd: workspace.projectRoot });
+    });
+  }
+
   return {
     runId: workspace.runId,
     taskId: workspace.taskId,
@@ -324,6 +371,24 @@ export async function snapshotCandidate(workspace: CandidateWorkspace, input: Sn
   };
 }
 
+/** A worker can edit its .git marker; never follow a replacement into another project. */
+export async function assertCandidateGitIdentity(workspace: CandidateWorkspace): Promise<void> {
+  const observed = readGitAdminDir(workspace.path);
+  if (observed === null || workspace.gitAdminDir === null || canonicalCandidatePath(observed) !== canonicalCandidatePath(workspace.gitAdminDir)) {
+    throw new CandidateWorkspaceError('candidate_git_identity_changed', `Git administration for ${workspace.path} no longer matches the recorded attempt; refusing to operate on another repository`);
+  }
+  const root = await gitTextOrNull(['rev-parse', '--show-toplevel'], { cwd: workspace.path });
+  if (root === null || canonicalCandidatePath(root) !== canonicalCandidatePath(workspace.path)) {
+    throw new CandidateWorkspaceError('candidate_git_identity_changed', `Git worktree for ${workspace.path} no longer matches the recorded attempt`);
+  }
+  if (workspace.gitIsolation === 'independent') {
+    const common = await gitText(['rev-parse', '--git-common-dir'], { cwd: workspace.path });
+    if (canonicalCandidatePath(path.resolve(workspace.path, common)) !== canonicalCandidatePath(workspace.gitAdminDir) || existsSync(path.join(workspace.gitAdminDir, 'objects/info/alternates'))) {
+      throw new CandidateWorkspaceError('candidate_git_identity_changed', 'candidate Git administration unexpectedly shares objects or refs with another repository');
+    }
+  }
+}
+
 /**
  * Confirm the writer is stopped (or was never recorded) and that no Git
  * operation is mid-flight in the workspace.
@@ -331,9 +396,9 @@ export async function snapshotCandidate(workspace: CandidateWorkspace, input: Sn
 export function assertQuiesced(workspace: CandidateWorkspace, writer: ProcessIdentity | null): void {
   if (writer !== null) {
     const status = matchProcessIdentity(writer);
-    if (status === 'alive') {
+    if (status === 'alive' || isProcessGroupAlive(writer.pid)) {
       throw new QuiesceError(
-        `the writing process ${writer.pid} (spawn ${writer.spawnToken}) for ${workspace.path} is still running; stop or deny it before snapshotting — a result report does not revoke write access`,
+        `the writing process or its owned process group ${writer.pid} (spawn ${writer.spawnToken}) for ${workspace.path} is still running; stop or deny it before snapshotting — a result report does not revoke write access`,
       );
     }
     if (status === 'unverifiable') {
@@ -372,6 +437,8 @@ export interface RemoveCandidateInput {
   /** References that must still exist afterwards (the candidate branch, the patch file). */
   readonly recoverableRefs?: ReadonlyArray<string>;
   readonly snapshot?: Pick<CandidateSnapshot, 'candidateRevision' | 'patchPath'> | null;
+  /** Coordinator observed the read-only session's whole process tree stopped (or no session opened). */
+  readonly readOnly?: { readonly quiesced: true; readonly writer: ProcessIdentity | null };
   readonly signal?: AbortSignal;
 }
 
@@ -419,6 +486,15 @@ async function removeCandidateWorkspaceUnlocked(workspace: CandidateWorkspace, i
     if (reachable !== null) recoverable.push(input.snapshot.candidateRevision);
   }
 
+  // Planning/review copies need no new checkpoint when they still contain
+  // exactly their recorded base. Caller attestation is required in addition
+  // to checking the owned process/group and Git administration ourselves.
+  const unchangedReadOnly = input.disposition === 'rejected' && input.readOnly?.quiesced === true && input.snapshot == null;
+  if (unchangedReadOnly) {
+    assertQuiesced(workspace, input.readOnly!.writer);
+    if (await resolveRevision(workspace.projectRoot, workspace.baseRevision) === workspace.baseRevision) recoverable.push(workspace.baseRevision);
+  }
+
   if (recoverable.length === 0) {
     return {
       removed: false,
@@ -427,6 +503,21 @@ async function removeCandidateWorkspaceUnlocked(workspace: CandidateWorkspace, i
       branchKept: false,
       recoverableRefs: [],
     };
+  }
+
+  await assertCandidateGitIdentity(workspace);
+  const status = await git(['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all', ...(unchangedReadOnly ? ['--ignored=matching'] : [])], { cwd: workspace.path });
+  const current = await resolveRevision(workspace.path, 'HEAD');
+  const expected = unchangedReadOnly ? workspace.baseRevision : input.snapshot?.candidateRevision;
+  if (!status.ok || status.truncated || status.stdout.length > 0 || expected === undefined || expected !== current) {
+    return { removed: false, reason: 'candidate contains work not covered by the recorded frozen snapshot; refusing to discard it', branch: workspace.branch, branchKept: branchStillThere, recoverableRefs: recoverable };
+  }
+
+  if (workspace.gitIsolation === 'independent') {
+    rmSync(workspace.path, { recursive: true });
+    // Keep the private repository too: it is cheap recovery provenance and
+    // avoids treating arbitrary caller-supplied paths as cleanup authority.
+    return { removed: true, reason: unchangedReadOnly ? 'unchanged read-only candidate removed after confirmed process termination; recorded base and private Git administration kept' : `candidate ${input.disposition}; working files removed, private Git administration and published checkpoint kept`, branch: workspace.branch, branchKept: branchStillThere, recoverableRefs: recoverable };
   }
 
   const removal = await git(['worktree', 'remove', '--force', workspace.path], {

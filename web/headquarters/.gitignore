@@ -2,3 +2,11 @@ node_modules/
 .DS_Store
 artifacts/*
 !artifacts/.gitkeep
+# Keep the regression tests used by the root test:frontend script in source control.
+!artifacts/headquarters/
+artifacts/headquarters/*
+!artifacts/headquarters/bridge.test.mjs
+!artifacts/headquarters/runtime-client.test.mjs
+!artifacts/headquarters/task-status.test.mjs
+!artifacts/headquarters/issues.test.mjs
+!artifacts/headquarters/connections.test.mjs

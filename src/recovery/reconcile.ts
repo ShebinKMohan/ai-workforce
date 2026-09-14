@@ -80,6 +80,8 @@ export interface ReconciliationReport {
 }
 
 export interface ReconcileOptions {
+  /** Explicit user retry may replace settled failed current attempts after ownership checks. */
+  readonly retryFailed?: boolean;
   /**
    * How to check a recorded worker process. Injectable so tests are
    * deterministic; defaults to the real pid + start-time comparison.
@@ -139,6 +141,7 @@ export function reconcileRun(db: DatabaseSync, runId: string, options: Reconcile
       currentGeneration: getTask(db, attempt.task_id).current_generation,
       probe,
       resumable,
+      retryFailed: options.retryFailed === true && getTask(db, attempt.task_id).state === 'failed',
     }),
   );
 
@@ -162,6 +165,7 @@ export function reconcileRun(db: DatabaseSync, runId: string, options: Reconcile
 }
 
 interface ClassifyInput {
+  readonly retryFailed?: boolean;
   readonly attempt: AttemptRow;
   readonly operations: ReadonlyArray<OperationRecord>;
   readonly artifactCount: number;
@@ -200,7 +204,8 @@ function classifyAttempt(input: ClassifyInput): AttemptFinding {
     requiresUserDecision: disposition === 'ambiguous',
   });
 
-  if (!OPEN_ATTEMPT_STATES.has(attempt.state)) {
+  const retryingFailed = input.retryFailed && (attempt.state === 'failed' || attempt.state === 'completed');
+  if (!OPEN_ATTEMPT_STATES.has(attempt.state) && !retryingFailed) {
     return settle(`attempt is ${attempt.state}; its recorded work is preserved and never re-run`);
   }
   if (attempt.generation < currentGeneration) {
@@ -240,6 +245,7 @@ function classifyAttempt(input: ClassifyInput): AttemptFinding {
         : 'the intent was persisted but never dispatched, so no worker was ever started',
     );
   }
+  if (retryingFailed) return decide('replaceable', 'An explicit retry preserves this failed candidate and replaces its settled current attempt in a new generation.');
 
   // The recorded worker is provably gone (dead, or its pid was reused).
   const gone = worker === 'pid_reused' ? `the recorded worker pid ${identity?.pid ?? '?'} now belongs to a different process` : `the recorded worker process ${identity?.pid ?? '?'} is gone`;

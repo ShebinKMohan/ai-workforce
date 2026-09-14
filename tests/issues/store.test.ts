@@ -1,14 +1,70 @@
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { afterEach, describe, expect, it } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { sha256Hex } from '../../src/core/snapshot.js';
 import { CreateIssueSchema, StartIssueSchema, UpdateIssueSchema } from '../../src/issues/contracts.js';
 import { IssueStore } from '../../src/issues/store.js';
 import { cleanupAll, tempDir } from '../workspace/helpers.js';
 
-afterEach(cleanupAll);
+afterEach(() => { vi.useRealTimers(); cleanupAll(); });
 const create = (extra = {}) => CreateIssueSchema.parse({ projectId: 'project-a', title: 'Build the issue board', description: '# PRD\n\nExact text, including `code` and $().\n', idempotencyKey: 'submission-1', ...extra });
 
 describe('durable project issue records', () => {
+  it('persists an explicit cancelled column and refuses dispatch until the issue is reopened', () => {
+    const root = tempDir(); const store = new IssueStore(root); const saved = store.create(create({ status: 'cancelled' }));
+    expect(new IssueStore(root).get(saved.id)).toMatchObject({ manualStatus: 'cancelled', completedAt: null, dispatch: null });
+    expect(() => store.beginDispatch(saved.id, StartIssueSchema.parse({ expectRevision: saved.revision }))).toThrow(/Reopen/);
+    expect(store.get(saved.id)).toEqual(saved);
+    const reopened = store.update(saved.id, UpdateIssueSchema.parse({ expectRevision: 1, status: 'todo', idempotencyKey: 'reopen' }));
+    expect(store.beginDispatch(saved.id, StartIssueSchema.parse({ expectRevision: reopened.revision })).claimed).toBe(true);
+  });
+
+  it('preserves legacy records and their original creation receipts without inventing a completion time', () => {
+    const store = new IssueStore(tempDir()); const body = create({ status: 'done' }); const saved = store.create(body);
+    const { priority: _priority, completedAt: _completedAt, ...legacyRecord } = saved;
+    const { priority: _default, ...legacyBody } = body;
+    const db = new DatabaseSync(store.filename);
+    try { db.prepare('UPDATE issues SET record_json = ?, creation_hash = ? WHERE id = ?').run(JSON.stringify(legacyRecord), sha256Hex(JSON.stringify(legacyBody)), saved.id); }
+    finally { db.close(); }
+    expect(store.get(saved.id)).toMatchObject({ priority: 'none', completedAt: null, manualStatus: 'done' });
+    expect(store.create(body)).toMatchObject({ id: saved.id, priority: 'none', completedAt: null });
+    expect(() => store.create(create({ status: 'done', priority: 'high' }))).toThrow(/idempotency key/);
+  });
+
+  it('stores priority changes after dispatch without changing the frozen task, and deduplicates update receipts', () => {
+    const store = new IssueStore(tempDir()); const saved = store.create(create({ priority: 'urgent' }));
+    expect(saved.priority).toBe('urgent');
+    store.beginDispatch(saved.id, StartIssueSchema.parse({ expectRevision: saved.revision }));
+    const body = UpdateIssueSchema.parse({ expectRevision: 2, priority: 'low', idempotencyKey: 'priority-change' });
+    const changed = store.update(saved.id, body);
+    expect(changed).toMatchObject({ revision: 3, priority: 'low', dispatch: { task: `${saved.title}\n\n${saved.description}` } });
+    store.update(saved.id, UpdateIssueSchema.parse({ expectRevision: 3, priority: 'medium' }));
+    expect(store.update(saved.id, body)).toEqual(changed);
+    expect(store.get(saved.id).priority).toBe('medium');
+    expect(() => store.update(saved.id, { ...body, priority: 'high' })).toThrow(/different content/);
+    expect(() => create({ priority: 'critical' })).toThrow();
+  });
+
+  it('records only actual manual Done transitions and keeps completion separate from later edits', () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime('2026-09-14T10:00:00.000Z');
+    const store = new IssueStore(tempDir()); const saved = store.create(create());
+    expect(saved.completedAt).toBeNull();
+    vi.setSystemTime('2026-09-14T11:00:00.000Z');
+    const done = store.update(saved.id, UpdateIssueSchema.parse({ expectRevision: 1, status: 'done', idempotencyKey: 'mark-done' }));
+    expect(done.completedAt).toBe('2026-09-14T11:00:00.000Z');
+    vi.setSystemTime('2026-09-14T12:00:00.000Z');
+    const edited = store.update(saved.id, UpdateIssueSchema.parse({ expectRevision: 2, status: 'done', priority: 'high' }));
+    expect(edited.completedAt).toBe(done.completedAt); expect(edited.updatedAt).not.toBe(done.completedAt);
+    const reopened = store.update(saved.id, UpdateIssueSchema.parse({ expectRevision: 3, status: 'todo' }));
+    expect(reopened.completedAt).toBeNull();
+    vi.setSystemTime('2026-09-14T13:00:00.000Z');
+    const finished = store.update(saved.id, UpdateIssueSchema.parse({ expectRevision: 4, status: 'done' }));
+    expect(finished.completedAt).toBe('2026-09-14T13:00:00.000Z');
+    expect(store.update(saved.id, UpdateIssueSchema.parse({ expectRevision: 1, status: 'done', idempotencyKey: 'mark-done' })).completedAt).toBe(done.completedAt);
+    expect(store.get(saved.id).completedAt).toBe(finished.completedAt);
+  });
+
   it('keeps an empty read passive and preserves exact PRD and manual columns after reopening', () => {
     const root = tempDir(); const first = new IssueStore(root);
     expect(first.list()).toEqual([]); expect(existsSync(first.filename)).toBe(false);

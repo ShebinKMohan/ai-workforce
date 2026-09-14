@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
+import { classifyFailure, FAILURE_CLASSES } from '../recovery/classify.js';
 import { CodexAdapter, ClaudeCodeAdapter, type RuntimeAdapter, type SessionHandle, type StopReceipt } from '../adapters/index.js';
 import { AdapterError, capabilityWasTestedOn, type RuntimeAttachment } from '../adapters/types.js';
 import { validateAttachments, readAttachmentBytes } from '../adapters/attachments.js';
@@ -46,6 +47,7 @@ export const ConversationSchema = z.array(ConversationEntrySchema).max(8)
   .refine(entries => entries.reduce((total, entry) => total + entry.task.length + entry.reply.length, 0) <= 16_000, 'Conversation context is too large.');
 export type ControlConversation = z.infer<typeof ConversationSchema>;
 export const RouteDecisionSchema = z.strictObject({
+  failureClass: z.enum(FAILURE_CLASSES).optional(),
   state: z.enum(['pending', 'selected', 'blocked']),
   projectId: z.string(), departmentId: z.string().nullable(), headAgentId: z.string().nullable(),
   reason: z.string(), decidedAt: z.string().nullable(), elapsedMs: z.number().nonnegative(),
@@ -244,7 +246,13 @@ ${settings?.instructions ? `Operator orchestration guidance: ${settings.instruct
         if (cancelled) break;
         if (event.kind === 'assistant_message' && typeof event.payload['text'] === 'string') output = event.payload['text'].slice(0, 8192);
         if (event.kind === 'tool_call' || event.kind === 'file_change') return blocked('routing_invalid_action', 'The routing runtime attempted a tool action during classification. No project task was dispatched.');
-        if (event.kind === 'error') return blocked('routing_runtime_failed', typeof event.payload['message'] === 'string' ? event.payload['message'] : 'Control Center runtime failed during classification. Check its model and connection.');
+        if (event.kind === 'error') {
+          const message = typeof event.payload['message'] === 'string' ? event.payload['message'] : 'Control Center runtime failed during classification. Check its model and connection.';
+          metadata.failureClass = classifyFailure({ source: 'runtime', adapter: runtime.adapter, message,
+            errorTag: typeof event.payload['errorClass'] === 'string' ? event.payload['errorClass'] : typeof event.payload['code'] === 'string' ? event.payload['code'] : null,
+            httpStatus: typeof event.payload['httpStatus'] === 'number' ? event.payload['httpStatus'] : null }).failureClass;
+          return blocked('routing_runtime_failed', message);
+        }
         if (event.kind === 'turn_completed') {
           if (event.payload['status'] === 'failed' || event.payload['isError'] === true) return blocked('routing_runtime_failed', 'Control Center runtime rejected the classification turn. Check its model and connection.');
           completed = true;
@@ -275,7 +283,9 @@ ${settings?.instructions ? `Operator orchestration guidance: ${settings.instruct
           if (receipt?.state !== 'process_tree_terminated') return blocked('routing_stop_unconfirmed', 'Control Center runtime startup failed and its process cleanup could not be confirmed. No project work was dispatched.');
         }
       }
-      return blocked('routing_runtime_failed', error instanceof Error ? error.message : 'Control Center runtime failed.');
+      const message = error instanceof Error ? error.message : 'Control Center runtime failed.';
+      metadata.failureClass = classifyFailure({ source: 'transport', message, code: error instanceof AdapterError ? error.code : null }).failureClass;
+      return blocked('routing_runtime_failed', message);
     }
     finally { await stop(); rmSync(cwd, { recursive: true, force: true }); }
   };

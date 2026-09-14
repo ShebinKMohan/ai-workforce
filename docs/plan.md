@@ -1227,3 +1227,80 @@ dependencies, builds the backend and frontend vendor assets, starts one detached
 and opens its verified URL. A matching running workspace is reused with its existing data.
 `Run Workforce.command` provides the same behavior by double-click on macOS. Startup never
 requires launching the frontend and backend separately or entering per-project settings.
+
+### Editable technical organization and consolidated workspace — 14 September 2026
+
+FR085/FR089 extend the existing directory with editable job titles, capabilities, department
+membership and head/worker responsibility. Job titles describe specialty; the head/worker role
+continues to govern execution authority. Legacy leading `ROLE:` instructions supply a title
+when none is saved. Promotions and department moves update the head reference atomically;
+heads remain analysis-only, and demotion does not silently widen policy. Changing a title or
+department preserves the saved runtime, model and effort even if the current model catalog no
+longer lists that choice. New runtime choices still require validation before execution.
+
+One-click Nathan James team setup produces a versioned proposal and applies public workspace
+operations against its exact revision. The template creates five departments, each with a
+head and two workers: Architecture & Delivery (Mike Slattery), Frontend & Design (Kara Foster),
+Backend & Data (Alisha Granderson), Platform & Security (Andrea Garnett), and Quality Engineering
+(Rachel Scott). Tom Chandler remains Control Center. Repeating an unchanged setup produces no
+operations. Existing agent IDs, history, runtime/account bindings, model preferences and worker
+restrictions survive; promotion only narrows authority. Known obsolete team-reporting guidance
+is updated while unrelated custom instructions remain. Conflicting heads, archived identities
+and stale revisions are refused rather than overwritten. Setup starts no model turn, and
+unavailable accounts remain visible without silently switching the affected agent's runtime.
+
+The primary navigation has six destinations: Headquarters, Issues, Team, Projects, Connections
+and Settings. Departments belong within Team, requests/results within Issues, and configured
+runtime installations and model catalogs within Connections. Runtime execution readiness and
+verified MCP connectivity remain separate, including when one tool has multiple installations.
+Headquarters exposes department ownership and current project work together. Agent status,
+task phase, progress and results derive from recorded requests, runs and evidence; decorative
+activity never substitutes for execution or verification.
+
+The selectable portraits are bundled, pre-rendered 3D human expression assets animated locally
+as sprites. Their blinking and expressions are decorative, not indicators of task progress or
+live 3D simulation. Reduced-motion preference uses the neutral frame; hidden pages, offscreen
+portraits and detached elements stop animation timers. Avatar changes preserve agent identity,
+and the assets require no external service or additional user setup.
+
+### 14 September 2026 — dogfooding reliability and live workspace amendment
+
+The owner requested removing Recent Work from Headquarters, a permanent desktop task feed, full-page issue tracking, true navigation collapse, a live clock and recorded phase timing. Headquarters now contains the team and current operational state only. Completed task history belongs to Task Status / Requests & results. Department cards retain equal column widths, and task/agent duration updates change text without replacing their containing cards.
+
+Task Status uses the actual task identity for Needs you, bounded visible detail reads, recorded last-change ordering, optional department selection with an explicitly tentative routing hint, and receipt-backed Retry actions. Exit zero alone is not evidence of completed implementation. Total request timing starts at receipt; phase timing uses recorded starts and stops. New projects or configuration changes received through API/MCP refresh available choices without rebuilding unrelated views.
+
+Issue metadata includes editable priority, actual assigned owners, department, verifier counts, execution phases and timestamps. Manual Done records its own completion boundary; missing historical boundaries remain unknown. Short display identifiers use the random suffix of the full UUID so neighboring time-ordered issues remain distinguishable.
+
+Each coding attempt now uses an independent Git repository with administration outside the worker write grant, exact committed-base object transfer and no shared local hooks/config/alternates. Coordinator checkpoint publication validates the candidate and quiescence, including surviving process-group children, before importing a frozen candidate ref. Writing attempts receive a private temporary directory. Original checkout files, index and active branch remain untouched. This does not implement dirty snapshot selection or general port allocation.
+
+App-managed admission now reserves a shared workspace turn/writer budget, including Control Center intake. Two concurrent projects receive one turn and one writer each under the default total budget of two. Resumes retain their frozen ceilings. Observed external coordinators are accounted for; independently launching a new terminal coordinator can bypass the app's admission decision and is outside this guarantee.
+
+Known temporary provider failures have finite automatic retries and durable backoff. Manual retry preserves history and retains original candidate artifacts; failed work can resume under the saved run configuration in a new attempt. Cancellation and uncertain live ownership are never treated as permission to create a competing writer. Direct retry evidence remains immutable and bound to the current generation.
+
+Connections offers native Sign in / Cancel / Check sign-in using the exact detected executable. Provider browser authentication is performed by the user; no account secrets are copied into the harness. MCP readiness is distinct from authenticated execution readiness.
+
+Local dogfooding evidence must include actual concurrent coding requests, independent checks and department-head review, candidate/source integrity, resource separation, and browser checks. Deterministic test counts do not establish complete R1 containment, the repeated R2 evaluation, an R3 standalone installer, or R4 signed distribution. These remain separate acceptance gates in the master plan.
+
+
+### 14 September 2026 — compact board and task reference cards
+
+The owner's annotated Linear reference refines the board card contract to four fields: issue title, project, recorded execution duration, and assignees/completers. Full-card activation opens the issue inspector, which retains metadata, controls, checks, handoffs, and deliverables. Task Status follows the same compact reference pattern and opens the saved conversation for detail and recovery. Technical review text and internal files remain available through collapsed disclosures.
+
+Issues and Requests & results share a compact tab/action row with the same page origin. Filters precede a board that uses the remaining viewport height. The board supports native horizontal scrolling, Previous/Next controls, and keyboard Arrow/Home/End access; resize and full-render replacement preserve working scroll controls. The sixth lane, Canceled, extends the original five-lane requirement. Responsive layouts do not widen the outer page, and navigation can be hidden completely.
+
+A recorded direct Control Center reply is a terminal answer: it moves its linked issue to Done with an answered state, no run, and no claim of verified implementation. Its duration is labeled Reply time. A recorded cancellation remains Canceled and cannot imply successful execution; title wording alone does not establish cancellation. Recorded coding outcomes continue to require the existing verification and review gates.
+
+Headquarters replaces the readiness prose banner with live numerical counts for working, available, sign-in needs, reservations when present, and active projects. Shared geometric tokens are independent of light/dark colors so switching appearance never shifts page controls.
+
+Rejected review-tool validation is not an accepted review decision. Review prompts state the summary limit and allow at most two field corrections after explicit rejection, preserving one accepted verdict per session. A confirmed stopped review that produced no valid verdict is recoverable from the saved evidence and must display a specific review-retry action rather than imply owner cancellation.
+
+### 14 September 2026 — Rust desktop product direction
+
+The owner intends to convert AI Workforce into an installable local Rust application using the
+installed coding runtimes. This supersedes the earlier Electron desktop default. The current
+Node.js/TypeScript implementation and Headquarters interface remain the working baseline;
+this direction does not itself start a rewrite or establish a Rust release. The framework,
+conversion sequence and scope of UI reuse remain implementation decisions to evaluate.
+Future migration must preserve existing task behavior, state, CLI/MCP compatibility, source
+protection and independent verification, and pass the applicable R3/R4 release gates.
+See [the recorded direction and recommended transition](product/rust-desktop-direction.md).

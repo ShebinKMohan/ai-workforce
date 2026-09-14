@@ -19,6 +19,7 @@ import { lastEventSequence, listEvents } from '../../storage/events.js';
 import { SchemaTooNewError } from '../../storage/migrations.js';
 import { createStatePaths, resolveStateRoot } from '../../storage/paths.js';
 import { findRun, listTasks } from '../../storage/records.js';
+import { runDeliveryView } from '../../storage/delivery-view.js';
 import { runEvidenceView } from '../../storage/run-evidence.js';
 import { analysisEvidenceView } from '../../storage/analysis-view.js';
 import { listChecks } from '../../verification/checks.js';
@@ -126,13 +127,16 @@ export function commandStatus(args: StatusCommandArgs): CommandResult {
 
     const requirements = (manifest?.['requirements'] as Array<{ criterionId: string; status: string; required: boolean; detail: string }> | undefined) ?? [];
 
+    const delivery = runDeliveryView(store, run, evidence);
     const data = {
+      delivery,
       ...analysisEvidenceView(store, runId, evidence.manifest, evidence.evidenceIssues),
       stateRoot: paths.root,
       readOnly: true,
       run: {
         id: run.id,
         state: run.state,
+        delivery,
         ...headReviewView(store.db, run.id),
         repoPath: run.repo_path,
         baseRevision: run.base_revision,

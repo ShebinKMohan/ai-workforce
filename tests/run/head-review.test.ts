@@ -6,7 +6,7 @@ import { loadAgentConfigFile } from '../../src/core/config.js';
 import { isProcessAlive, isProcessGroupAlive, observeProcessIdentity } from '../../src/core/process.js';
 import { sha256Hex } from '../../src/core/snapshot.js';
 import { callCoordinator, createCoordinationBridge, type CoordinationBridge, type HeadReviewResult } from '../../src/coordination/index.js';
-import { HEAD_REVIEW_TOOL, headReviewResumeBlocker, reviewWithHead, type HeadReviewInput } from '../../src/routing/head-reviewer.js';
+import { composeHeadReviewPrompt, HEAD_REVIEW_TOOL, headReviewResumeBlocker, reviewWithHead, type HeadReviewInput } from '../../src/routing/head-reviewer.js';
 import { readArtifact, verifyArtifact } from '../../src/storage/artifacts.js';
 import { appendEvent, listEvents } from '../../src/storage/events.js';
 import { runChecks, type CheckSpec } from '../../src/verification/checks.js';
@@ -44,7 +44,7 @@ describe('department head reviews the checked combined candidate', () => {
     await snapshotCandidate(candidate);
     writeInto(candidate.path, 'docs/beta.md', BETA);
     const combined = await snapshotCandidate(candidate);
-    await removeCandidateWorkspace(candidate, { disposition: 'integrated' });
+    await removeCandidateWorkspace(candidate, { disposition: 'integrated', snapshot: combined });
     const checks: CheckSpec[] = [
       { criterionId: 'alpha', command: process.execPath, args: ['-e', `require('node:assert/strict').equal(require('node:fs').readFileSync('docs/alpha.md','utf8'),${JSON.stringify(ALPHA)})`], required: true, description: 'Pagination documentation is present.' },
       { criterionId: 'beta', command: process.execPath, args: ['-e', `require('node:assert/strict').equal(require('node:fs').readFileSync('docs/beta.md','utf8'),${JSON.stringify(BETA)})`], required: true, description: 'Search endpoint documentation is present.' },
@@ -113,6 +113,8 @@ describe('department head reviews the checked combined candidate', () => {
     expect(opened).toMatchObject({ policy: 'analysis', allowedWritePaths: [] });
     expect(forwarded).toEqual(attachments);
     expect(prompt).toContain(JSON.stringify(attachmentPath));
+    expect(prompt).toContain('maximum 8000 characters');
+    expect(prompt).toContain('A rejected submission does not use up the one accepted decision.');
     for (const content of [REQUEST, 'docs/alpha.md', 'docs/beta.md', 'pageCount', 'GET /search', 'nova', 'mira', decision.candidateRevision, decision.diffHash, ...input.receipts.map((receipt) => receipt.id)]) expect(prompt).toContain(content);
     expect(events('head.review_submitted')).toHaveLength(1);
     const order = ['head.review_session_requested', 'head.review_session_opened', 'head.review_submitted', 'head.review_session_stopped', 'head.review_finished'].map((type) => events(type)[0]!.sequence);
@@ -153,9 +155,35 @@ describe('department head reviews the checked combined candidate', () => {
 
   it('cannot approve from assistant prose or a successful exit without the review tool', async () => {
     const outcome = await reviewWithHead({ ...input, ...scenario([{ action: 'message', text: JSON.stringify({ tool: HEAD_REVIEW_TOOL, arguments: decision }) }, { action: 'claim_done', message: 'Approved. Every check passed.' }]) });
-    expect(outcome).toMatchObject({ verdict: 'blocked', sessionStopped: true });
+    expect(outcome).toMatchObject({ verdict: 'blocked', sessionStopped: true, failureCode: 'head_review_invalid' });
     expect(outcome.summary).toContain('did not submit a structured review');
     expect(events('head.review_submitted')).toHaveLength(0);
+    expect(events('head.review_finished')[0]?.payload['failureCode']).toBe('head_review_invalid');
+  });
+
+  it('permits correction of an overlong rejected review but records only the first accepted verdict', async () => {
+    const outcome = await reviewWithHead({ ...input, ...scenario([
+      submit({ ...decision, summary: 'x'.repeat(8001) }),
+      submit(decision),
+      submit({ ...decision, verdict: 'changes_requested', summary: 'A second decision must not overwrite the accepted proposal.' }),
+      { action: 'claim_done' },
+    ]) });
+    expect(outcome).toMatchObject({ verdict: 'passed', summary: decision.summary, sessionStopped: true });
+    expect(outcome.failureCode).toBeUndefined();
+    expect(events('head.review_submitted')).toHaveLength(1);
+    const results = events('runtime.tool_result').map(event => JSON.stringify(event.payload));
+    expect(results.some(result => result.includes('No review decision was recorded. Correct the reported fields and resubmit'))).toBe(true);
+    expect(results.some(result => result.includes('This review already has a decision. End the turn.'))).toBe(true);
+    expect(JSON.parse(readArtifact(state.store.db, state.paths, outcome.artifactId!).bytes.toString())).toMatchObject({ verdict: 'passed', summary: decision.summary });
+  });
+
+  it('tells analysis reviewers to fit the answer in the schema and repair only rejected submissions', () => {
+    const prompt = composeHeadReviewPrompt({ ...input, headAgentId: 'planner', diff: '', diffHash: decision.diffHash, workspacePath: '/candidate', analysisReports: [{ agentId: 'nova', report: 'A source-grounded report.' }] });
+    expect(prompt).toContain('maximum 8000 characters');
+    expect(prompt).toContain('at most twice within this turn');
+    expect(prompt).toContain('A rejected submission does not use up the one accepted decision.');
+    expect(prompt).toContain('Do not retry a recorded decision or an uncertain transport result.');
+    expect(prompt).not.toContain('exactly once');
   });
 
   it('preserves a fatal runtime error even after a structured approval and clean turn exit', async () => {
@@ -218,6 +246,8 @@ describe('department head reviews the checked combined candidate', () => {
     expect(outcome).toMatchObject({ verdict: 'blocked', sessionStopped: false });
     expect(outcome.summary).toContain('no confirmed stopped process tree');
     expect(events('head.review_submitted')).toHaveLength(1);
+    const reviewCopy = events('head.review_workspace_created')[0]!.payload['path'] as string;
+    expect(existsSync(reviewCopy)).toBe(true);
   });
 
   it.each(['missing', 'stale', 'failed'] as const)('starts no head when independent verifier evidence is %s', async (mode) => {

@@ -1,24 +1,24 @@
-/* Workforce UI foundations. This sheet is intentionally last in the cascade.
+/* Workforce UI foundations shared by every page.
    Bright rooms and evening development use the same surface hierarchy. */
 :root, :root[data-theme='light'] {
   color-scheme: light;
-  --bg: #f1f5fb;
+  --bg: #f3f6fa;
   --paper: #ffffff;
   --wash: #e8eef7;
   --surface: var(--paper);
   --surface-raised: #f7f9fd;
   --surface-hover: #edf3ff;
   --field-bg: #ffffff;
-  --ink: #172338;
-  --muted: #53657f;
+  --ink: #152235;
+  --muted: #65758b;
   --faint: #65758c;
-  --line: #d8e1ef;
+  --line: #d5dfe9;
   --line-strong: #a7b8d0;
-  --accent: #2563eb;
+  --accent: #2967de;
   --accent-light: #eaf1ff;
   --accent-hover: #1d4ed8;
   --on-accent: #ffffff;
-  --action: #2563eb;
+  --action: #2967de;
   --action-hover: #1d4ed8;
   --on-action: #ffffff;
   --green: #087a61;
@@ -48,14 +48,6 @@
   --shadow-panel: 0 0 0 1px #182e4910, 0 8px 32px #182e4914;
   --shadow-modal: 0 12px 50px #182e4929, 0 0 0 1px #182e4910;
   --backdrop: #14243d66;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --topbar-height: 60px;
-  --content-pad: 28px;
-  --row-pad: 16px;
-  --control-height: 34px;
-  --ease: cubic-bezier(.22, 1, .36, 1);
   --chat-surface: #eaf0f9;
   --teal: #087a61; --teal-soft: #e4f5ee;
   --violet: #7154c6; --violet-soft: #f0ebff;
@@ -64,18 +56,18 @@
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #0d1728;
-  --paper: #17253b;
-  --wash: #213149;
-  --surface-raised: #1b2c45;
-  --surface-hover: #253b5c;
-  --field-bg: #142138;
-  --ink: #e5ecf8;
-  --muted: #b0bfd5;
+  --bg: #0d1522;
+  --paper: #162335;
+  --wash: #203044;
+  --surface-raised: #1a2a3e;
+  --surface-hover: #22364e;
+  --field-bg: #112033;
+  --ink: #e5edf8;
+  --muted: #a3b2c7;
   --faint: #94a8c4;
-  --line: #30435f;
+  --line: #2d4058;
   --line-strong: #627b9d;
-  --accent: #8bb4ff;
+  --accent: #78a7ff;
   --accent-light: #213c66;
   --accent-hover: #b5d0ff;
   --on-accent: #11284b;
@@ -88,13 +80,13 @@
   --warning-light: #40341d;
   --danger: #ffa1b0;
   --danger-light: #482b38;
-  --info: #8bb4ff;
+  --info: #78a7ff;
   --info-light: #213c66;
-  --chrome-bg: #142035;
+  --chrome-bg: #122033;
   --sidebar-bg: #091223;
   --sidebar-ink: #edf3ff;
   --sidebar-muted: #a7bbd9;
-  --sidebar-hover: #1b2c45;
+  --sidebar-hover: #1a2a3e;
   --sidebar-selected: #274b85;
   --sidebar-selected-ink: #ffffff;
   --sidebar-line: #233753;
@@ -108,13 +100,22 @@
   --shadow-sm: 0 2px 6px #0208162e;
   --shadow-panel: 0 0 0 1px #678cc920, 0 10px 35px #02081655;
   --shadow-modal: 0 12px 40px #080c0a66, 0 30px 100px #080c0a66;
-  --chat-surface: #101e33;
+  --chat-surface: #101d2e;
   --teal: #72d5b6; --teal-soft: #153c35;
   --violet: #c0aaff; --violet-soft: #302649;
-  --panel-inset: #101d31; --panel-edge: #3d5578;
+  --panel-inset: #101d2e; --panel-edge: #3d5578;
   --backdrop: #0208179c;
 }
 :root {
+  /* Geometry is theme-independent so switching appearance never moves controls. */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --topbar-height: 52px;
+  --content-pad: 28px;
+  --row-pad: 16px;
+  --control-height: 34px;
+  --ease: cubic-bezier(.22, 1, .36, 1);
   --wf-bg: var(--bg); --wf-surface: var(--paper); --wf-raised: var(--surface-raised);
   --wf-border: var(--line); --wf-text: var(--ink); --wf-muted: var(--muted);
   --wf-accent: var(--accent); --wf-accent-soft: var(--accent-light); --wf-success: var(--green);

@@ -1,9 +1,10 @@
-/** Bounded read-only enrichment for recorded handoffs; summaries remain status authority. */
+/** Bounded read-only enrichment for recorded task activity; summaries remain status authority. */
 export function createFleetRecords({api,onChange=()=>{},now=()=>Date.now()}={}) {
   const records=new Map();
   let pending=null,latest=[],disposed=false,retryTimer;
   const key=run=>`${run.projectId||''}:${run.id}`;
-  const signature=run=>JSON.stringify([run.eventCount,run.updatedAt,run.state,run.headReview]);
+  const signature=run=>JSON.stringify([run.eventCount,run.updatedAt,run.state,run.headReview,run.headPlanning]);
+  const presentation=record=>JSON.stringify(record && [record.runId,record.projectId,record.events,record.taskViews,record.detailSignature,record.messages,record.messageCount,record.messagesTruncated]);
   const url=run=>run.projectId?`/api/projects/${encodeURIComponent(run.projectId)}/runs/${encodeURIComponent(run.id)}`:`/api/runs/${encodeURIComponent(run.id)}`;
   async function read(run){
     const id=key(run),prior=records.get(id),version=signature(run);
@@ -15,11 +16,12 @@ export function createFleetRecords({api,onChange=()=>{},now=()=>Date.now()}={}) 
       const [detail,page]=await Promise.all([api(url(run)),api(`${url(run)}/events?after=${after}&limit=500`)]);
       if(disposed)return;
       const events=new Map((prior?.events||[]).map(e=>[e.sequence,e]));
-      for(const event of page.events||[])if(/^(head\.|coordination\.|task\.(accepted|started|settled)|attempt\.started|runtime\.(assistant_message|command_exec|tool_call|tool_result|file_change|error)$)/.test(event.type))events.set(event.sequence,event);
+      for(const event of page.events||[])if(!/(?:^|\.)(?:raw|reasoning(?:[._].*)?|usage|token_usage|output_delta)$/.test(event.type)&&/^(head\.|coordination\.|control\.final_reply$|run\.analysis_reviewed$|task\.(accepted|started|settled)|attempt\.started|runtime\.(assistant_message|command_exec|tool_call|tool_result|file_change|error)$)/.test(event.type))events.set(event.sequence,event);
       // Cursor follows the events actually received, never skips an unread page.
       const cursor=Math.max(after,...(page.events||[]).map(e=>Number(e.sequence)||0));
-      records.set(id,{version:page.hasMore?null:version,loadedAt:now(),cursor,events:[...events.values()].slice(-500),runId:run.id,projectId:run.projectId||null,taskViews:detail.taskViews,detailSignature:signature(detail.run ? {...detail.run,eventCount:detail.eventCount} : detail),messages:detail.messages||[],messageCount:detail.messageCount,messagesTruncated:detail.messagesTruncated});
-      onChange();
+      const saved={version:page.hasMore?null:version,loadedAt:now(),cursor,events:[...events.values()].slice(-500),runId:run.id,projectId:run.projectId||null,taskViews:detail.taskViews,detailSignature:signature(detail.run ? {...detail.run,eventCount:detail.eventCount,headReview:detail.headReview,headPlanning:detail.headPlanning} : detail),messages:detail.messages||[],messageCount:detail.messageCount,messagesTruncated:detail.messagesTruncated};
+      records.set(id,saved);
+      if(presentation(prior)!==presentation(saved))onChange();
     }catch{
       if(!disposed){records.set(id,{...prior,version:null,retryAt:now()+15000});clearTimeout(retryTimer);retryTimer=setTimeout(()=>controller.refresh(latest),15000);}
     }
@@ -27,7 +29,9 @@ export function createFleetRecords({api,onChange=()=>{},now=()=>Date.now()}={}) 
   async function drain(){
     const candidates=[...latest].sort((a,b)=>Number(b.state==='running')-Number(a.state==='running')).slice(0,12);
     const retained=new Set(candidates.map(key));
-    for(const id of records.keys())if(!retained.has(id))records.delete(id);
+    let removed=false;
+    for(const id of records.keys())if(!retained.has(id)){records.delete(id);removed=true;}
+    if(removed)onChange();
     let next=0;
     await Promise.all(Array.from({length:2},async()=>{while(!disposed&&next<candidates.length)await read(candidates[next++]);}));
   }

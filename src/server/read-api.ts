@@ -6,6 +6,7 @@
  */
 import { existsSync } from 'node:fs';
 import { assessContainment, createAdapter } from '../core/run-direct.js';
+import { agentJobTitle } from '../core/workspace-config.js';
 import { ContractValidationError } from '../core/contracts.js';
 import { loadAgentConfigFile } from '../core/config.js';
 import { commandStatus } from '../cli/commands/status.js';
@@ -28,6 +29,7 @@ import { SchemaTooNewError } from '../storage/migrations.js';
 import type { StatePaths } from '../storage/paths.js';
 import { DEFAULT_LIST_RUNS, findRun, listRuns, listTasks, MAX_LIST_RUNS, type RunRow } from '../storage/records.js';
 import { headReviewView } from '../storage/head-review-view.js';
+import { runDeliveryView } from '../storage/delivery-view.js';
 import { runEvidenceView } from '../storage/run-evidence.js';
 import { analysisEvidenceView } from '../storage/analysis-view.js';
 import { redactText } from '../telemetry/redaction.js';
@@ -151,6 +153,7 @@ export function officeDocument(input: OfficeInputs): Record<string, unknown> {
         );
         return {
           id: agent.id,
+          jobTitle: agentJobTitle({ ...agent, role: loaded.config.defaults.plannerAgent === agent.id ? 'head' : 'worker' }),
           runtime: agent.runtime,
           adapter: runtime.adapter,
           executable: runtime.executable,
@@ -218,9 +221,27 @@ export function parseLimit(value: string | null): number {
 }
 
 
+/** Current head planning is derived from the complete journal, never the
+ * browser's bounded runtime-event tail. Sequence wins over wall-clock order. */
+function headPlanningView(store: StateStore, runId: string): Record<string, unknown> | null {
+  const row = store.db.prepare("SELECT type, payload_json, timestamp, sequence FROM events WHERE run_id = ? AND type IN ('head.planning_started', 'head.planning_finished') ORDER BY sequence DESC LIMIT 1").get(runId) as { type: string; payload_json: string; timestamp: string; sequence: number } | undefined;
+  if (!row) return null;
+  try {
+    const payload: unknown = JSON.parse(row.payload_json);
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    const phase = payload as Record<string, unknown>;
+    const headAgentId = typeof phase['headAgentId'] === 'string' ? phase['headAgentId'] : null;
+    if (headAgentId === null) return null;
+    const start = row.type === 'head.planning_started' ? row : store.db.prepare("SELECT timestamp FROM events WHERE run_id = ? AND type = 'head.planning_started' AND sequence < ? AND json_extract(payload_json, '$.headAgentId') = ? ORDER BY sequence DESC LIMIT 1").get(runId, row.sequence, headAgentId) as { timestamp: string } | undefined;
+    return { ...phase, headAgentId, state: row.type === 'head.planning_started' ? 'running' : typeof phase['outcome'] === 'string' ? phase['outcome'] : 'finished', at: row.timestamp, startedAt: start?.timestamp ?? null };
+  } catch { return null; }
+}
+
 function runSummary(store: StateStore, run: RunRow): Record<string, unknown> {
   const tasks = listTasks(store.db, run.id);
   const facts = runEvidenceView(store, run.id, tasks);
+  const review = headReviewView(store.db, run.id);
+  const analysis = analysisEvidenceView(store, run.id, facts.manifest, facts.evidenceIssues);
   const byState: Record<string, number> = {};
   for (const task of tasks) byState[task.state] = (byState[task.state] ?? 0) + 1;
   let text: string | null = null;
@@ -233,7 +254,8 @@ function runSummary(store: StateStore, run: RunRow): Record<string, unknown> {
   return {
     id: run.id,
     state: run.state,
-    ...headReviewView(store.db, run.id),
+    ...review,
+    headPlanning: headPlanningView(store, run.id),
     repoPath: run.repo_path,
     baseRevision: run.base_revision,
     policy: run.policy,
@@ -245,7 +267,8 @@ function runSummary(store: StateStore, run: RunRow): Record<string, unknown> {
     taskViews: facts.taskViews,
     // How the run ended and why, from its manifest; null while it has none.
     outcome: facts.outcome,
-    ...analysisEvidenceView(store, run.id, facts.manifest, facts.evidenceIssues),
+    delivery: runDeliveryView(store, run, facts, { head: review.headReview, evidence: analysis }),
+    ...analysis,
     compromisedReceiptIds: facts.compromisedReceiptIds,
     unverifiedReceiptIds: facts.unverifiedReceiptIds,
     evidenceIssues: facts.evidenceIssues,
@@ -273,9 +296,8 @@ export function runsDocument(paths: StatePaths, limit: number): Record<string, u
 // ---------------------------------------------------------------------------
 
 /**
- * Exactly the document `workforce status <id> --json` prints: the same
- * command, through the same JSON reporter, captured instead of written to a
- * terminal. Two renderings of one run cannot drift if there is only one.
+ * Exactly the CLI status document, including its shared delivery verdict.
+ * A single read keeps task, candidate and review evidence consistent.
  */
 export function runStatusJson(stateRoot: string, runId: string): string {
   let stdout = '';

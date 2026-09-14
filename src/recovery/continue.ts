@@ -35,7 +35,9 @@ import {
   serializeHandoffPacket,
   type HandoffPacket,
 } from '../routing/handoff.js';
-import type { FailureClass } from './classify.js';
+import { planRetry, type FailureClass } from './classify.js';
+import { appendEvent } from '../storage/events.js';
+import { findRun, getTask, transitionRun } from '../storage/records.js';
 import { recordFallback, selectFallbackRuntime, type FallbackEvidence, type RefusedCandidate, type RuntimeCandidate } from './fallback.js';
 
 /** Failure classes a second runtime could plausibly get past. */
@@ -54,6 +56,7 @@ export interface RunWithFallbackResult {
 }
 
 export interface RunWithFallbackOptions {
+  readonly retryBaseDelayMs?: number;
   /** False to run exactly one attempt (the default is to hand off when it is warranted). */
   readonly enabled?: boolean;
   /** Injection seam for tests; defaults to the real orchestrator. */
@@ -70,11 +73,75 @@ export interface RunWithFallbackOptions {
  */
 export async function runWithFallback(input: RunDirectInput, options: RunWithFallbackOptions = {}): Promise<RunWithFallbackResult> {
   const run = options.run ?? runDirect;
-  const first = await run(input);
+  let first = await run(input);
   const attempts: RunDirectResult[] = [first];
+  const runSuccessor = async (next: RunDirectInput): Promise<RunDirectResult> => {
+    const prior = findRun(input.db, first.runId);
+    const ownsRunLifecycle = input.slot === undefined && prior?.state === 'failed';
+    if (ownsRunLifecycle) {
+      appendEvent(input.db, { runId: first.runId, taskId: first.taskId, type: 'runtime.recovery_started', payload: { previousEndedAt: prior.ended_at, attemptId: next.slot?.attemptId ?? null } });
+      transitionRun(input.db, first.runId, 'interrupted');
+      input.db.prepare('UPDATE runs SET ended_at = NULL WHERE id = ?').run(first.runId);
+      transitionRun(input.db, first.runId, 'running');
+    }
+    try {
+      const result = await run(next);
+      if (!ownsRunLifecycle) return result;
+      input.ownership?.assertOwnership();
+      const current = findRun(input.db, first.runId);
+      if (current?.state !== 'running') return result;
+      const runState = result.outcome === 'interrupted' ? 'interrupted' : result.acceptance.accepted ? 'ready_for_review' : 'failed';
+      transitionRun(input.db, first.runId, runState);
+      appendEvent(input.db, { runId: first.runId, taskId: first.taskId, attemptId: result.attemptId, type: 'runtime.recovery_settled', payload: { outcome: result.outcome, runState, manifestPath: result.manifestPath } });
+      return { ...result, runState };
+    } catch (error) {
+      input.ownership?.assertOwnership();
+      if (ownsRunLifecycle && findRun(input.db, first.runId)?.state === 'running') transitionRun(input.db, first.runId, 'interrupted');
+      throw error;
+    }
+  };
+
+
+  // A transient transport failure can recover on its original runtime. One
+  // durable budget follows the task across manual resume and repair callers.
+  // A settled process receipt is mandatory before any successor generation.
+  for (;;) {
+    if (options.enabled === false || first.acceptance.accepted || first.outcome === 'interrupted' || input.signal?.aborted) break;
+    if (first.failure?.failureClass !== 'provider_transient') break;
+    if (first.stopReceipt?.state !== 'process_tree_terminated') {
+      return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: 'The previous runtime process was not confirmed stopped; retry and handoff are blocked.' };
+    }
+    const used = Number((input.db.prepare("SELECT COUNT(*) AS n FROM events WHERE run_id = ? AND task_id = ? AND type = 'runtime.retry_scheduled'").get(first.runId, first.taskId) as { n: number }).n);
+    const decision = planRetry(first.failure, used, { maxTransientRetries: input.config.defaults.maxTransientRetries,
+      ...(options.retryBaseDelayMs === undefined ? {} : { baseDelayMs: options.retryBaseDelayMs }) });
+    const recordedRun = findRun(input.db, first.runId);
+    const deadline = Date.parse(recordedRun?.created_at ?? new Date().toISOString()) + (input.runDeadlineMs ?? input.config.defaults.runTimeoutMinutes * 60_000);
+    if (!decision.retry || Date.now() + decision.delayMs >= deadline) break;
+    const packet = packetFor(input, first, { runtimeId: first.runtime.runtimeId, adapter: first.runtime.adapter, adapterSupported: true, ready: 'verified_ready' }, 'provider_transient');
+    if (!packet) break;
+    const generation = getTask(input.db, first.taskId).current_generation;
+    appendEvent(input.db, { runId: first.runId, taskId: first.taskId, attemptId: first.attemptId, type: 'runtime.retry_scheduled',
+      payload: { attemptNumber: used + 1, maxTransientRetries: input.config.defaults.maxTransientRetries, delayMs: decision.delayMs,
+        retryAt: new Date(Date.now() + decision.delayMs).toISOString(), generation, packet } });
+    const stopped = await new Promise<boolean>(resolve => {
+      if (input.signal?.aborted) { resolve(true); return; }
+      const abort = () => { clearTimeout(timer); resolve(true); };
+      const timer = setTimeout(() => { input.signal?.removeEventListener('abort', abort); resolve(false); }, decision.delayMs);
+      input.signal?.addEventListener('abort', abort, { once: true });
+    });
+    if (stopped || input.signal?.aborted) break;
+    input.ownership?.assertOwnership();
+    if (getTask(input.db, first.taskId).current_generation !== generation || findRun(input.db, first.runId)?.state === 'cancelled') return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: 'The task generation or run ownership changed while recovery waited; no successor started.' };
+    beginNewGeneration(input.db, first.taskId);
+    const brief = applyHandoffPacket(packet, { runtimeEnforcesWrites: false });
+    first = await runSuccessor({ ...input, runDeadlineMs: Math.max(1, deadline - Date.now()), slot: { runId: first.runId, taskId: first.taskId, attemptId: newId(), objective: first.contract.objective,
+      briefing: [input.slot?.briefing, brief.prompt].filter(Boolean).join('\n\n') } });
+    attempts.push(first);
+  }
 
   if (options.enabled === false) return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: 'handoff disabled for this run' };
   if (first.acceptance.accepted) return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: null };
+  if (input.signal?.aborted) return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: 'Recovery was stopped before another attempt started.' };
   if (first.outcome === 'interrupted') return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: 'the run was interrupted; an interruption is not handed to another runtime' };
 
   const classification = first.failure;
@@ -88,7 +155,9 @@ export async function runWithFallback(input: RunDirectInput, options: RunWithFal
       note: `the failure classified as "${classification?.failureClass ?? 'unclassified'}", which another runtime would hit in the same way; nothing was handed off`,
     };
   }
+  if (first.stopReceipt?.state !== 'process_tree_terminated') return { result: first, attempts, fallback: null, packet: null, packetPath: null, note: 'The previous runtime process was not confirmed stopped; no replacement was started.' };
 
+  const recoveryGeneration = getTask(input.db, first.taskId).current_generation;
   const policy = policyOf(input, first);
   // Readiness can await a process handshake. Capacity must be checked only
   // afterwards, synchronously with acquisition, or another task could take
@@ -165,11 +234,14 @@ export async function runWithFallback(input: RunDirectInput, options: RunWithFal
       runtimeEnforcesWrites: selection.selected.writeContainment === 'verified',
     });
 
+    input.ownership?.assertOwnership();
+    if (input.signal?.aborted || getTask(input.db, first.taskId).current_generation !== recoveryGeneration || findRun(input.db, first.runId)?.state === 'cancelled') return { result: first, attempts, fallback: evidence, packet, packetPath, note: 'Recovery ownership changed before handoff; no successor started.' };
+
     // A new generation of the same task: the first attempt is superseded, so the
     // second is not a second attempt at the same generation.
     beginNewGeneration(input.db, first.taskId);
 
-    const second = await run({
+    const second = await runSuccessor({
       ...input,
       agentId: agent.id,
       slot: {

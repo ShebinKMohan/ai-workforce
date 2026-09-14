@@ -19,6 +19,7 @@ import { z } from 'zod';
 import {
   AdapterIdSchema,
   AgentIdSchema,
+  AgentJobTitleSchema,
   ContractValidationError,
   EffortSchema,
   ModelSchema,
@@ -226,6 +227,8 @@ export function ensureStandardRuntime(config: WorkspaceConfig, runtimeId: string
 
 export const LimitsPatchSchema = z.strictObject({
   maxConcurrentProjectRuns: z.number().int().min(1).max(32).optional(),
+  maxTotalActiveTurns: z.number().int().min(1).max(256).optional(),
+  maxTotalActiveWriters: z.number().int().min(1).max(256).optional(),
   maxActiveTurns: z.number().int().min(1).max(64).optional(),
   maxActiveWriters: z.number().int().min(1).max(64).optional(),
   maxTasksPerRun: z.number().int().min(1).max(1000).optional(),
@@ -400,6 +403,7 @@ export function removeDepartment(config: WorkspaceConfig, id: string): Workspace
 
 export interface AgentAddInput {
   readonly id?: string;
+  readonly jobTitle?: string;
   readonly name?: string;
   readonly avatarId?: AgentAvatarId;
   readonly role: 'head' | 'worker';
@@ -429,6 +433,7 @@ function assertPlaceable(config: WorkspaceConfig, projectId: string): void {
 }
 
 export function addAgent(config: WorkspaceConfig, input: AgentAddInput): WorkspaceConfig {
+  if (input.jobTitle !== undefined && !AgentJobTitleSchema.safeParse(input.jobTitle).success) throw invalid('invalid_job_title', 'Choose a job title of 1 to 100 characters on one line.');
   if (input.avatarId !== undefined && !AgentAvatarIdSchema.safeParse(input.avatarId).success) throw invalid('invalid_avatar', 'Choose a bundled agent portrait.');
   const role = AgentRoleSchema.safeParse(input.role);
   if (!role.success) throw invalid('invalid_role', `role must be "head" or "worker", not "${String(input.role)}"`);
@@ -459,6 +464,7 @@ export function addAgent(config: WorkspaceConfig, input: AgentAddInput): Workspa
   draft.agents.push({
     id,
     name: name.length > 0 ? name.slice(0, 60) : id,
+    ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle.trim() } : {}),
     ...(input.avatarId !== undefined ? { avatarId: input.avatarId } : {}),
     role: role.data,
     departmentId: department.id,
@@ -478,6 +484,9 @@ export function addAgent(config: WorkspaceConfig, input: AgentAddInput): Workspa
 
 export interface AgentEditInput {
   readonly id: string;
+  /** null removes the saved title and restores the legacy instruction fallback. */
+  readonly jobTitle?: string | null;
+  readonly role?: 'head' | 'worker';
   readonly name?: string;
   /** null restores the original illustrated identity. */
   readonly avatarId?: AgentAvatarId | null;
@@ -495,24 +504,47 @@ export interface AgentEditInput {
 
 export function editAgent(config: WorkspaceConfig, input: AgentEditInput): WorkspaceConfig {
   if (input.avatarId !== undefined && input.avatarId !== null && !AgentAvatarIdSchema.safeParse(input.avatarId).success) throw invalid('invalid_avatar', 'Choose a bundled agent portrait.');
+  if (input.jobTitle !== undefined && input.jobTitle !== null && !AgentJobTitleSchema.safeParse(input.jobTitle).success) throw invalid('invalid_job_title', 'Choose a job title of 1 to 100 characters on one line.');
+  if (input.role !== undefined && !AgentRoleSchema.safeParse(input.role).success) throw invalid('invalid_role', 'Choose a department head or worker role.');
   const current = findAgent(config, input.id);
   if (current.archived) throw invalid('agent_archived', `agent "${current.id}" is archived; add a new agent instead`);
-  if (input.projectScope !== undefined && !AgentProjectScopeSchema.safeParse(input.projectScope).success) throw invalid('invalid_project_scope', 'project scope must be all or restricted');
-  if (current.role === 'head' && input.projectScope === 'restricted') throw invalid('head_has_project_scope', 'a head plans through its admitted workers; set project restrictions on workers instead');
-  if (current.role === 'head' && input.projectIds !== undefined && input.projectIds.length > 0) throw invalid('head_has_projects', 'a head reaches projects through its admitted workers');
+  const nextRole = input.role ?? current.role;
+  const nextDepartmentId = input.departmentId ?? current.departmentId;
+  const promoted = current.role !== 'head' && nextRole === 'head';
+  // Becoming a head narrows execution to planning/review. Demotion never grants
+  // a stronger policy unless the caller explicitly chooses one.
+  const nextPolicy = input.policy ?? (promoted ? 'analysis' : current.policy);
+  const nextProjectIds = [...new Set(input.projectIds ?? (promoted ? [] : current.projectIds))];
+  const nextProjectScope = input.projectScope ?? (promoted ? 'all' : current.projectScope);
+  if (nextProjectScope !== undefined && !AgentProjectScopeSchema.safeParse(nextProjectScope).success) throw invalid('invalid_project_scope', 'project scope must be all or restricted');
+  if (nextRole === 'head' && nextProjectScope === 'restricted') throw invalid('head_has_project_scope', 'a head plans through its admitted workers; set project restrictions on workers instead');
+  if (nextRole === 'head' && nextProjectIds.length > 0) throw invalid('head_has_projects', 'a head reaches projects through its admitted workers');
+  if (nextRole === 'head' && nextPolicy !== 'analysis') throw invalid('head_not_read_only', `a head reads and plans only; "${current.id}" must use the analysis policy`);
   for (const projectId of input.projectIds ?? []) assertPlaceable(config, projectId);
   if (input.runtime !== undefined) assertRuntime(config, input.runtime);
-  if (current.role === 'head' && input.policy !== undefined && input.policy !== 'analysis') {
-    throw invalid('head_not_read_only', `a head reads and plans only; "${current.id}" must keep the analysis policy`);
-  }
-  if (input.departmentId !== undefined && input.departmentId !== current.departmentId) {
-    if (current.role === 'head') throw invalid('head_department_immutable', `a head stays in its department; archive "${current.id}" and add a head to the other department`);
-    const target = findDepartment(config, input.departmentId);
+  const target = findDepartment(config, nextDepartmentId);
+  if (nextDepartmentId !== current.departmentId || nextRole !== current.role) {
     if (target.archived) throw invalid('department_archived', `department "${target.id}" is archived; it takes no new agents`);
+  }
+  if (nextRole === 'head') {
+    const existing = activeHead(config, target.id);
+    if (existing && existing.id !== current.id) throw invalid('department_has_head', `department "${target.id}" already has the head "${existing.id}"; a department has one head`);
   }
   const draft = structuredClone(config);
   const agent = findAgent(draft, input.id);
+  if (current.role === 'head' && (nextRole !== 'head' || nextDepartmentId !== current.departmentId)) {
+    const previousDepartment = findDepartment(draft, current.departmentId);
+    if (previousDepartment.headAgentId === current.id) previousDepartment.headAgentId = null;
+  }
+  agent.role = nextRole;
+  agent.departmentId = nextDepartmentId;
+  agent.policy = nextPolicy;
+  agent.projectIds = nextProjectIds;
+  if (nextProjectScope !== undefined) agent.projectScope = nextProjectScope;
+  if (nextRole === 'head') findDepartment(draft, nextDepartmentId).headAgentId = agent.id;
   if (input.name !== undefined) agent.name = input.name.trim();
+  if (input.jobTitle === null) delete agent.jobTitle;
+  else if (input.jobTitle !== undefined) agent.jobTitle = input.jobTitle.trim();
   if (input.avatarId === null) delete agent.avatarId;
   else if (input.avatarId !== undefined) agent.avatarId = input.avatarId;
   if (input.runtime !== undefined) agent.runtime = input.runtime;
@@ -522,10 +554,6 @@ export function editAgent(config: WorkspaceConfig, input: AgentEditInput): Works
   else if (input.effort !== undefined) agent.effort = input.effort;
   if (input.instructions !== undefined) agent.instructions = input.instructions;
   if (input.capabilities !== undefined) agent.capabilities = [...input.capabilities];
-  if (input.policy !== undefined) agent.policy = input.policy;
-  if (input.departmentId !== undefined) agent.departmentId = input.departmentId;
-  if (input.projectScope !== undefined) agent.projectScope = input.projectScope;
-  if (input.projectIds !== undefined) agent.projectIds = [...new Set(input.projectIds)];
   return draft;
 }
 
@@ -654,6 +682,7 @@ export function importV1(config: WorkspaceConfig, input: ImportV1Input): Workspa
       ...(agent.model !== undefined ? { model: agent.model } : {}),
       ...(agent.effort !== undefined ? { effort: agent.effort } : {}),
       instructions: agent.instructions,
+      ...(agent.jobTitle !== undefined ? { jobTitle: agent.jobTitle } : {}),
       capabilities: [...agent.capabilities],
       policy: agent.policy,
       projectIds: [],
@@ -686,6 +715,7 @@ export const WorkspaceOpSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('department.remove'), id: z.string().min(1) }),
   z.strictObject({
     op: z.literal('agent.add'),
+    jobTitle: AgentJobTitleSchema.optional(),
     avatarId: AgentAvatarIdSchema.optional(),
     id: z.string().min(1).optional(),
     name: text(60).optional(),
@@ -702,6 +732,8 @@ export const WorkspaceOpSchema = z.discriminatedUnion('op', [
   }),
   z.strictObject({
     op: z.literal('agent.edit'),
+    jobTitle: AgentJobTitleSchema.nullable().optional(),
+    role: AgentRoleSchema.optional(),
     avatarId: AgentAvatarIdSchema.nullable().optional(),
     id: z.string().min(1),
     name: text(60).optional(),
@@ -770,6 +802,7 @@ export function applyWorkspaceOp(config: WorkspaceConfig, op: WorkspaceOp, conte
         strip({
           id: op.id,
           name: op.name,
+          jobTitle: op.jobTitle,
           avatarId: op.avatarId,
           role: op.role,
           departmentId: op.departmentId,
@@ -789,6 +822,8 @@ export function applyWorkspaceOp(config: WorkspaceConfig, op: WorkspaceOp, conte
         strip({
           id: op.id,
           name: op.name,
+          jobTitle: op.jobTitle,
+          role: op.role,
           avatarId: op.avatarId,
           runtime: op.runtime,
           model: op.model,
