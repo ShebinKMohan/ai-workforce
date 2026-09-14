@@ -126,6 +126,16 @@ describe('department head review bridge authorization', () => {
     expect(bridge.messages()).toHaveLength(0);
   });
 
+  it('preauthorizes only the exact planning or review tool for that session role', () => {
+    const planning = bridge.headConfigFor({ planningId: 'planning-scoped', agentId: 'head-one', onProposePlan: () => ({ proposed: true }) });
+    const review = bridge.headReviewConfigFor({ reviewId: 'review-scoped', agentId: 'head-one', onReviewResult: () => ({ recorded: true }) });
+    for (const [config, tool] of [[planning, 'workforce_propose_plan'], [review, 'workforce_review_result']] as const) {
+      expect(config.codexArgs.filter(arg => arg.includes('.approval_mode='))).toEqual([`mcp_servers.workforce.tools.${tool}.approval_mode="approve"`]);
+      expect(config.codexArgs).toContain(`mcp_servers.workforce.enabled_tools=["${tool}"]`);
+      expect(config.codexArgs.some(arg => arg.includes('default_tools_approval_mode') || arg.startsWith('approval_policy='))).toBe(false);
+    }
+  });
+
   it('refuses every worker operation and plan proposal with a review token', async () => {
     const onReviewResult = vi.fn(() => ({ recorded: true }));
     const config = bridge.headReviewConfigFor({ reviewId: 'review-one', agentId: 'head-one', onReviewResult });

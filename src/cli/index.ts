@@ -37,6 +37,7 @@ import { leaveActiveViews } from './live/restore.js';
 import { commandStatus } from './commands/status.js';
 import { commandResume as runResume } from './commands/resume.js';
 import { commandServe } from './commands/serve.js';
+import { commandMcp } from './commands/mcp.js';
 import { commandWorkspace, WORKSPACE_USAGE } from './commands/workspace.js';
 import { CliError, EXIT_CODES, Reporter, type CommandResult, type ExitCode, type Streams } from './output.js';
 
@@ -61,6 +62,7 @@ Usage:
   workforce watch <run-id> [--task <key>] [--state-dir <dir>] [--json]
   workforce resume <run-id> [--agents <file>] [--allow-unconfined-writes] [--state-dir <dir>] [--json]
   workforce serve [--port <n>] [--state-dir <dir>] [--open] [--json]
+  workforce mcp [--server-url http://127.0.0.1:4421]
 
 Options:
   --project <id>       run: the workspace project to work on. With --department it
@@ -118,10 +120,13 @@ Options:
   --state-dir <dir>    coordinator state root (default: $WORKFORCE_STATE_DIR or ~/.workforce)
   --workspace-root <dir>
                        candidate workspace root (default: <state-root>/workspaces)
-  --port <n>           serve: port on 127.0.0.1 (default 4317; 0 picks a free one).
+  --port <n>           serve: port on 127.0.0.1 (default 4421; 0 picks a free one).
                        The office view reads the state root read-only and
                        starts work only by running "workforce run".
   --open               serve: open the office page in the default browser
+  --server-url <url>    mcp: connect stdio tools to the already-running local
+                       office server (default http://127.0.0.1:4421).
+                       Connecting starts no server or agent work.
   --json               machine-readable stdout; diagnostics go to stderr.
                        "run --json", and "resume --json" once it continues a
                        run, emit JSONL: one event object per line, then the
@@ -154,10 +159,12 @@ interface ParsedArgs {
   readonly checks?: ReadonlyArray<string>;
   readonly allowUnconfinedWrites: boolean;
   readonly port?: string;
+  readonly serverUrl?: string;
   readonly open: boolean;
   readonly project?: string;
   readonly department?: string;
   readonly workerIds?: ReadonlyArray<string>;
+  readonly workKind?: string;
   readonly workspaceRevision?: number;
   readonly expectRevision?: string;
   readonly name?: string;
@@ -206,7 +213,14 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
   }
   const [command, ...rest] = parsed.positionals;
   const values = parsed.values;
-  const reservationFlag = values.worker !== undefined ? '--worker' : values['workspace-revision'] !== undefined ? '--workspace-revision' : null;
+  if (values['server-url'] !== undefined && command !== 'mcp') {
+    throw new CliError(EXIT_CODES.invalidInput, 'invalid_arguments', '--server-url applies only to "workforce mcp"');
+  }
+  if (command === 'mcp') {
+    const stray = Object.entries(values).find(([flag, value]) => !['server-url', 'help'].includes(flag) && value !== false && value !== undefined);
+    if (stray !== undefined) throw new CliError(EXIT_CODES.invalidInput, 'invalid_arguments', `--${stray[0]} does not apply to "workforce mcp"`);
+  }
+  const reservationFlag = values.worker !== undefined ? '--worker' : values['workspace-revision'] !== undefined ? '--workspace-revision' : values['work-kind'] !== undefined ? '--work-kind' : null;
   if (reservationFlag !== null && (command !== 'run' || values.project === undefined || values.department === undefined)) {
     throw new CliError(EXIT_CODES.invalidInput, 'project_selection_required', `${reservationFlag} applies only to "workforce run --project <id> --department <id>"`);
   }
@@ -250,6 +264,7 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     ...(values.project !== undefined ? { project: values.project } : {}),
     ...(values.department !== undefined ? { department: values.department } : {}),
     ...(values.worker !== undefined ? { workerIds: values.worker } : {}),
+    ...(values['work-kind'] !== undefined ? { workKind: values['work-kind'] } : {}),
     ...(workspaceRevision !== undefined ? { workspaceRevision } : {}),
     ...(values['expect-revision'] !== undefined ? { expectRevision: values['expect-revision'] } : {}),
     ...(values.name !== undefined ? { name: values.name } : {}),
@@ -284,6 +299,7 @@ export function parseCliArgs(argv: ReadonlyArray<string>): ParsedArgs {
     ...(values.check !== undefined ? { checks: values.check } : {}),
     allowUnconfinedWrites: values['allow-unconfined-writes'] === true,
     ...(values.port !== undefined ? { port: values.port } : {}),
+    ...(values['server-url'] !== undefined ? { serverUrl: values['server-url'] } : {}),
     open: values.open === true,
     json: values.json === true,
     help: values.help === true,
@@ -309,10 +325,12 @@ const OPTIONS = {
   check: { type: 'string', multiple: true },
   'allow-unconfined-writes': { type: 'boolean', default: false },
   port: { type: 'string' },
+  'server-url': { type: 'string' },
   open: { type: 'boolean', default: false },
   project: { type: 'string' },
   department: { type: 'string' },
   worker: { type: 'string', multiple: true },
+  'work-kind': { type: 'string' },
   'workspace-revision': { type: 'string' },
   'expect-revision': { type: 'string' },
   name: { type: 'string' },
@@ -419,7 +437,9 @@ function launchArgs(args: ParsedArgs): LaunchArgs {
 }
 
 export async function runCli(argv: ReadonlyArray<string>, streams: Streams = process, signal?: AbortSignal): Promise<ExitCode> {
-  let json = argv.includes('--json');
+  // MCP stdout must contain only protocol frames, even when a caller passes
+  // an invalid CLI flag before the transport can initialize.
+  let json = argv.includes('--json') && argv[0] !== 'mcp';
   let reporter = new Reporter(json, streams);
   let command = 'workforce';
   try {
@@ -449,6 +469,8 @@ export async function runCli(argv: ReadonlyArray<string>, streams: Streams = pro
     }
     command = args.command;
     switch (args.command) {
+      case 'mcp':
+        return await commandMcp(args, { input: process.stdin, output: streams.stdout, ...(signal !== undefined ? { signal } : {}) });
       case 'doctor':
         return reporter.result(await commandDoctor(args));
       case 'run':
@@ -522,7 +544,7 @@ export async function runCli(argv: ReadonlyArray<string>, streams: Streams = pro
           }),
         );
       default:
-        throw new CliError(EXIT_CODES.invalidInput, 'unknown_command', `unknown command "${args.command}"`, ['commands: doctor, run, status, watch, resume, serve, workspace']);
+        throw new CliError(EXIT_CODES.invalidInput, 'unknown_command', `unknown command "${args.command}"`, ['commands: doctor, run, status, watch, resume, serve, workspace, mcp']);
     }
   } catch (error) {
     if (error instanceof CliError) return reporter.failure(command, error);

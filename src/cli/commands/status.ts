@@ -11,6 +11,7 @@
  * `failed` in its output.
  */
 import path from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import { headReviewView } from '../../storage/head-review-view.js';
 import { listArtifacts } from '../../storage/artifacts.js';
 import { openStateStore, StateNotFoundError } from '../../storage/db.js';
@@ -19,8 +20,9 @@ import { SchemaTooNewError } from '../../storage/migrations.js';
 import { createStatePaths, resolveStateRoot } from '../../storage/paths.js';
 import { findRun, listTasks } from '../../storage/records.js';
 import { runEvidenceView } from '../../storage/run-evidence.js';
+import { analysisEvidenceView } from '../../storage/analysis-view.js';
 import { listChecks } from '../../verification/checks.js';
-import { redactValue } from '../../telemetry/redaction.js';
+import { redactText, redactValue } from '../../telemetry/redaction.js';
 import { CliError, EXIT_CODES, statusLabel, type CommandResult } from '../output.js';
 
 export interface StatusCommandArgs {
@@ -30,6 +32,31 @@ export interface StatusCommandArgs {
 }
 
 export const RECENT_EVENT_COUNT = 10;
+
+const MESSAGE_PREVIEW_LIMIT = 100;
+
+/** Only durable identities, delivery receipts and a redacted subject reach the UI. */
+function messagePreview(db: DatabaseSync, runId: string) {
+  const count = db.prepare('SELECT COUNT(*) AS total FROM messages WHERE run_id = ?').get(runId) as { total: number };
+  const rows = db.prepare(`SELECT id, run_id, sender_task_id, recipient_task_id, type, delivery_state,
+    created_at, submitted_at, acknowledged_at, body_json FROM messages WHERE run_id = ?
+    ORDER BY COALESCE(acknowledged_at, submitted_at, created_at) DESC, created_at DESC, id DESC LIMIT ?`).all(runId, MESSAGE_PREVIEW_LIMIT) as Array<{
+      id: string; run_id: string; sender_task_id: string | null; recipient_task_id: string | null;
+      type: string; delivery_state: string; created_at: string; submitted_at: string | null;
+      acknowledged_at: string | null; body_json: string;
+    }>;
+  const messages = rows.map(row => {
+    let subject: string | null = null;
+    try {
+      const body: unknown = JSON.parse(row.body_json);
+      if (body && typeof body === 'object' && 'subject' in body && typeof body.subject === 'string') subject = redactText(body.subject).slice(0, 160);
+    } catch { /* A missing preview cannot change the durable delivery record. */ }
+    return { id: row.id, runId: row.run_id, senderTaskId: row.sender_task_id, recipientTaskId: row.recipient_task_id,
+      type: row.type, deliveryState: row.delivery_state, createdAt: row.created_at, submittedAt: row.submitted_at,
+      acknowledgedAt: row.acknowledged_at, subject };
+  });
+  return { messages, messageCount: count.total, messagesTruncated: count.total > messages.length };
+}
 
 function requireRunId(args: StatusCommandArgs): string {
   const runId = args.positionals[0];
@@ -100,6 +127,7 @@ export function commandStatus(args: StatusCommandArgs): CommandResult {
     const requirements = (manifest?.['requirements'] as Array<{ criterionId: string; status: string; required: boolean; detail: string }> | undefined) ?? [];
 
     const data = {
+      ...analysisEvidenceView(store, runId, evidence.manifest, evidence.evidenceIssues),
       stateRoot: paths.root,
       readOnly: true,
       run: {
@@ -117,6 +145,7 @@ export function commandStatus(args: StatusCommandArgs): CommandResult {
       },
       tasks,
       taskViews: evidence.taskViews,
+      ...messagePreview(store.db, runId),
       compromisedReceiptIds: evidence.compromisedReceiptIds,
       unverifiedReceiptIds: evidence.unverifiedReceiptIds,
       evidenceIssues: evidence.evidenceIssues,

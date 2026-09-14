@@ -71,6 +71,7 @@ const INTERRUPT_BUDGET_MS = 5_000;
 // ---------------------------------------------------------------------------
 
 export interface HeadPromptInput {
+  readonly workKind?: 'analysis' | 'implementation';
   readonly request: PlannerRequest;
   readonly headId: string;
   /** The head's read-only copy of the project. */
@@ -100,6 +101,7 @@ export function composeHeadPrompt(input: HeadPromptInput): string {
   );
   lines.push('');
   lines.push('Workers you can assign. Every task goes to exactly one of these ids, never to you and never to anyone else:');
+  if (input.workKind === 'analysis') lines.push('This request is read-only analysis. Assign inspection and explanation tasks only. The coordinator enforces the analysis policy on every worker. Workers must inspect source, cite concrete file paths, explain findings and limitations, and change no files. Repository test setup is not required to answer a codebase question. Prefer one appropriately skilled worker for a single codebase walkthrough.');
   for (const worker of roster) {
     lines.push(`- ${worker.id} — ${worker.name}; runtime ${worker.runtime}; capabilities: ${worker.capabilities.length > 0 ? worker.capabilities.join(', ') : '(none listed)'}`);
   }
@@ -142,7 +144,7 @@ export function composeHeadPrompt(input: HeadPromptInput): string {
   lines.push('- dependencies name tasks of this plan and form no cycle; a task starts only after the tasks it depends on are accepted;');
   lines.push('- no two tasks claim overlapping scope.allowedPaths.');
   lines.push('Tasks without dependencies run at the same time, each in its own copy of the project, so split the work along files that do not overlap.');
-  lines.push("Acceptance is decided by the coordinator running the project's own checks against the combined result — never by a worker, or by you, saying the work is done.");
+  lines.push(input.workKind === 'analysis' ? 'Analysis completes after the coordinator captures source-grounded reports, confirms the worker processes stopped and source stayed unchanged, and you review those reports against the request. Do not require code changes or repository test setup for this read-only request.' : "Acceptance is decided by the coordinator running the project's own checks against the combined result — never by a worker, or by you, saying the work is done.");
   if (request.previousIssues !== undefined && request.previousIssues.length > 0) {
     const attempt = request.attempt ?? 2;
     lines.push('');
@@ -171,6 +173,7 @@ export interface HeadRoundReport {
 }
 
 export interface HeadPlannerClientOptions {
+  readonly workKind?: 'analysis' | 'implementation';
   readonly db: DatabaseSync;
   readonly paths: StatePaths;
   readonly runId: string;
@@ -313,7 +316,7 @@ export class HeadPlannerClient implements PlannerClient {
         if (stopped()) {
           flow.stopping = stopSession();
         } else {
-          const headPrompt = composeHeadPrompt({ request, headId: o.headAgentId, workspacePath: o.workspace.path, baseRevision: o.workspace.baseRevision });
+          const headPrompt = composeHeadPrompt({ request, headId: o.headAgentId, workspacePath: o.workspace.path, baseRevision: o.workspace.baseRevision, ...(o.workKind ? { workKind: o.workKind } : {}) });
           const references = o.adapter.id === 'fake' ? attachmentReferenceText(preparedAttachments) : '';
           const prompt = references.length > 0 ? `${headPrompt}\n\n${references}` : headPrompt;
           const turn = await o.adapter.startTurn(session, { prompt, ...(attachments.length > 0 ? { attachments } : {}) });
@@ -490,6 +493,7 @@ export async function planWithHead(input: HeadPlanningInput, options: HeadPlanne
       db: input.db,
       stream: input.stream,
       taskCount: null,
+      ...(input.workKind ? { workKind: input.workKind } : {}),
       ...(options.existingRunId !== undefined ? { existingRunId: options.existingRunId } : {}),
       ...(input.checkFlags.length > 0 ? { checkFlags: input.checkFlags } : {}),
     });
@@ -619,6 +623,7 @@ async function planInRun(input: HeadPlanningInput, run: PlannedRun, binding: Eff
   appendEvent(db, { runId, type: 'head.workspace_created', payload: { headAgentId: head.id, planningId, path: workspace.path, branch: workspace.branch, baseRevision: workspace.baseRevision, readOnly: true } });
 
   const client = new HeadPlannerClient({
+    ...(input.workKind ? { workKind: input.workKind } : {}),
     db,
     paths,
     runId,
@@ -740,7 +745,7 @@ async function planInRun(input: HeadPlanningInput, run: PlannedRun, binding: Eff
     });
     stream.line(`  ${task.id} -> ${task.assignee}: ${firstLine(task.contract.objective)}${dependencies.length > 0 ? ` (after ${dependencies.join(', ')})` : ''}`);
     stream.event({ type: 'head.assigned', key: task.id, taskId, agentId: task.assignee });
-    return { key: task.id, taskId, objective: workerObjective(task), agentId: task.assignee, ...(dependencies.length > 0 ? { dependencies } : {}) };
+    return { key: task.id, taskId, objective: workerObjective(task, input.workKind), agentId: task.assignee, ...(input.workKind === 'analysis' ? { writer: false } : {}), ...(dependencies.length > 0 ? { dependencies } : {}) };
   });
   appendEvent(db, { runId, type: 'head.planning_finished', payload: { headAgentId: head.id, outcome: 'planned', attempts: attemptsUsed, taskCount: tasks.length } });
   return { ok: true, tasks, summary: validated.summary, run, attempts: attemptsUsed };
@@ -751,14 +756,14 @@ async function planInRun(input: HeadPlanningInput, run: PlannedRun, binding: Eff
  * becomes the task's contract objective), then the head's scope and criteria
  * as guidance. The project's own checks still decide acceptance.
  */
-export function workerObjective(task: HeadPlannedTask): string {
+export function workerObjective(task: HeadPlannedTask, workKind?: 'analysis' | 'implementation'): string {
   const contract = task.contract;
   const lines = [contract.objective.trim()];
   if (contract.scope.description !== undefined && contract.scope.description.trim().length > 0) lines.push(`Scope: ${contract.scope.description.trim()}`);
   if (contract.scope.allowedPaths.length > 0) lines.push(`Stay within: ${contract.scope.allowedPaths.join(', ')}`);
   if (contract.scope.forbiddenPaths.length > 0) lines.push(`Do not change: ${contract.scope.forbiddenPaths.join(', ')}`);
   if (contract.acceptanceCriteria.length > 0) {
-    lines.push("Done when (your department head's criteria; the coordinator runs the project's own checks to accept the work):");
+    lines.push(workKind === 'analysis' ? "Report requirements (the department head reviews your captured findings against the source):" : "Done when (your department head's criteria; the coordinator runs the project's own checks to accept the work):");
     for (const criterion of contract.acceptanceCriteria) lines.push(`- ${criterion.description}`);
   }
   for (const constraint of contract.constraints) lines.push(`Constraint: ${constraint}`);

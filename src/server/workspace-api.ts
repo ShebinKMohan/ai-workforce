@@ -84,6 +84,9 @@ function runtimesView(readiness: PassiveReadiness): Record<string, unknown> {
       version: report.version,
       executable: report.executable ?? null,
       realPath: report.realPath ?? null,
+      // Expose all exact discovered paths so another installed CLI can be
+      // registered as its own execution binding, without merging its models.
+      installations: report.installations ?? [],
       checkedAt: report.checkedAt ?? readiness.checkedAt,
       diagnostics: report.diagnostics ?? [],
       loginHint: runtimeDescriptor(report.adapter).loginHint,

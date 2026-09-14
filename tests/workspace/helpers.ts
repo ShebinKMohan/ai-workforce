@@ -61,14 +61,14 @@ export function sampleWorkspace(repos: { checkout: string; billing: string } = {
     { op: 'department.add', name: 'Engineering', note: 'Payments' },
     { op: 'department.add', name: 'Design' },
     { op: 'agent.add', id: 'atlas', name: 'Atlas', role: 'head', departmentId: 'engineering-platform', runtime: 'codex-local' },
-    { op: 'agent.add', id: 'nova', name: 'Nova', role: 'worker', departmentId: 'engineering-platform', runtime: 'codex-local', projectIds: ['checkout'] },
-    { op: 'agent.add', id: 'forge', name: 'Forge', role: 'worker', departmentId: 'engineering-platform', runtime: 'claude-local', projectIds: ['billing'] },
-    { op: 'agent.add', id: 'bench', name: 'Bench', role: 'worker', departmentId: 'engineering-platform', runtime: 'codex-local' },
+    { op: 'agent.add', id: 'nova', name: 'Nova', role: 'worker', projectScope: 'restricted', departmentId: 'engineering-platform', runtime: 'codex-local', projectIds: ['checkout'] },
+    { op: 'agent.add', id: 'forge', name: 'Forge', role: 'worker', projectScope: 'restricted', departmentId: 'engineering-platform', runtime: 'claude-local', projectIds: ['billing'] },
+    { op: 'agent.add', id: 'bench', name: 'Bench', role: 'worker', projectScope: 'restricted', departmentId: 'engineering-platform', runtime: 'codex-local' },
     { op: 'agent.add', id: 'iris', name: 'Iris', role: 'head', departmentId: 'engineering-payments', runtime: 'claude-local' },
-    { op: 'agent.add', id: 'probe', name: 'Probe', role: 'worker', departmentId: 'engineering-payments', runtime: 'claude-local', projectIds: ['checkout', 'billing'] },
-    { op: 'agent.add', id: 'old', name: 'Old', role: 'worker', departmentId: 'engineering-payments', runtime: 'claude-local', projectIds: ['checkout'] },
+    { op: 'agent.add', id: 'probe', name: 'Probe', role: 'worker', projectScope: 'restricted', departmentId: 'engineering-payments', runtime: 'claude-local', projectIds: ['checkout', 'billing'] },
+    { op: 'agent.add', id: 'old', name: 'Old', role: 'worker', projectScope: 'restricted', departmentId: 'engineering-payments', runtime: 'claude-local', projectIds: ['checkout'] },
     { op: 'agent.archive', id: 'old' },
-    { op: 'agent.add', id: 'mo', name: 'Mo', role: 'worker', departmentId: 'design', runtime: 'claude-local', projectIds: ['billing'] },
+    { op: 'agent.add', id: 'mo', name: 'Mo', role: 'worker', projectScope: 'restricted', departmentId: 'design', runtime: 'claude-local', projectIds: ['billing'] },
   ]);
 }
 

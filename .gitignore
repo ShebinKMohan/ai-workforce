@@ -12,3 +12,16 @@ coverage/
 *.sqlite-shm
 # local reference dumps
 .reference/
+
+# Local startup preferences (workspace data stays outside source)
+.workforce-local.json
+
+# Local tools, credentials and recovery copies stay on this computer
+.env
+.env.*
+!.env.example
+.chainlit/
+.claude/launch.json
+.claude/settings.local.json
+*.backup-*
+docs/evidence/consolidation-2026-09-13/original-chatgpt-project.tar.gz

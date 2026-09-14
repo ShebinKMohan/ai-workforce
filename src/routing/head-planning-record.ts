@@ -16,6 +16,7 @@ const PlanningRecordSchema = z.strictObject({
   departmentId: z.string().min(1),
   workspace: WorkspaceConfigSchema,
   checkFlags: z.array(z.string().min(1)),
+  workKind: z.enum(['analysis', 'implementation']).optional(),
 });
 export type HeadPlanningRecord = z.infer<typeof PlanningRecordSchema>;
 
@@ -30,10 +31,10 @@ export function recordHeadPlanning(input: HeadPlanningInput, runId: string): voi
     runtimes: input.snapshot.config.runtimes,
     projects: [roster.project],
     departments: [roster.department],
-    agents: [roster.head, ...roster.workers].map((agent) => ({ ...agent, projectIds: agent.role === 'head' ? [] : [roster.project.id] })),
+    agents: [roster.head, ...roster.workers].map((agent) => ({ ...agent, projectScope: agent.role === 'head' ? 'all' : 'restricted', projectIds: agent.role === 'head' ? [] : [roster.project.id] })),
     retiredIds: { projects: [], departments: [], agents: [] },
   });
-  const record = PlanningRecordSchema.parse({ planningRecordVersion: 1, runId, projectId: roster.project.id, departmentId: roster.department.id, workspace, checkFlags: input.checkFlags });
+  const record = PlanningRecordSchema.parse({ planningRecordVersion: 1, runId, projectId: roster.project.id, departmentId: roster.department.id, workspace, checkFlags: input.checkFlags, ...(input.workKind ? { workKind: input.workKind } : {}) });
   writeArtifact(input.db, input.paths, {
     runId,
     type: 'head_planning_input',

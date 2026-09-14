@@ -59,7 +59,9 @@ describe('creating the first department', () => {
 });
 
 describe('editing a department', () => {
-  const ws = indexWorkspace(fixture('workspace.json'));
+  const restricted = clone(fixture('workspace.json'));
+  for (const agent of restricted.workspace.agents) if (agent.role === 'worker') agent.projectScope = 'restricted';
+  const ws = indexWorkspace(restricted);
 
   it('moves workers between projects, adds and archives workers, through assign, unassign, add and archive', () => {
     const draft = editDepartmentDraft(ws, 'eng');

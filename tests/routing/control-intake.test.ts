@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CodexAdapter, CODEX_CAPABILITIES, type RuntimeAdapter, type RuntimeEvent, type SessionInput, type TurnInput } from '../../src/adapters/index.js';
 import { AdapterError, type StopReceipt } from '../../src/adapters/types.js';
 import type { RuntimeReadinessReport } from '../../src/discovery/readiness.js';
-import { controlRoutingExclusive, directControlRoute, routeControlRequest } from '../../src/routing/control-intake.js';
+import { controlRoutingExclusive, directControlRoute, routeControlRequest, inferWorkKind } from '../../src/routing/control-intake.js';
 import { build, sampleWorkspace, tempDir, cleanupAll } from '../workspace/helpers.js';
 
 afterEach(cleanupAll);
@@ -36,6 +36,50 @@ function stub(output: string, options: { delayOpen?: number; stall?: boolean; un
 const request = () => ({ workspace: sampleWorkspace(), projectId: 'checkout', task: 'Prepare visual design specifications for the project.', reports, allowUnconfinedWrites: false });
 
 describe('Control Center bounded intake', () => {
+  it('enforces an explicit read-only request even if the model incorrectly chooses implementation',async()=>{
+    const model=stub(JSON.stringify({action:'delegate',departmentId:'engineering-platform',reason:'Inspect the backend.',workKind:'implementation',preferredWorkerIds:['nova']}));
+    const result=await routeControlRequest({...request(),task:'Inspect the backend; do not change files.',adapterFactory:()=>model.adapter});
+    expect(result.route).toMatchObject({state:'selected',workKind:'analysis',preferredWorkerIds:['nova']});
+  });
+
+  it.each(['0.147.0', '0.154.0-alpha.6.2', '0.154.0'])('admits separately verified build %s without consent and without exclusive scheduling', async version => {
+    const input = { ...request(), reports: [{ ...reports[0]!, version }] };
+    const model = stub(JSON.stringify({ action: 'reply', departmentId: null, reason: 'Greeting.', reply: 'Ready.' }));
+    expect(controlRoutingExclusive(input.workspace, input.reports)).toBe(false);
+    const result = await routeControlRequest({ ...input, adapterFactory: () => model.adapter });
+    expect(result.route.method).toBe('direct_reply');
+    expect(model.calls).toEqual(['open', 'turn', 'stop']);
+  });
+
+  it.each(['0.154.0-alpha.6.3', '0.154.1', null])('keeps untested build %s behind the file-boundary gate', async version => {
+    const input = { ...request(), reports: [{ ...reports[0]!, version }] };
+    const model = stub('Never started');
+    expect(controlRoutingExclusive(input.workspace, input.reports)).toBe(true);
+    const result = await routeControlRequest({ ...input, adapterFactory: () => model.adapter });
+    expect(result.route.code).toBe('consent_required');
+    expect(model.calls).toEqual([]);
+  });
+
+  it('keeps discussion on the AI even with a saved route or explicit department directive', async () => {
+    const input = request();
+    input.workspace = build([{ op: 'control-center.set', runtime: 'codex-local', projectRoutes: [{ projectId: 'checkout', departmentId: 'engineering-platform' }] }], input.workspace);
+    const model = stub(JSON.stringify({ action: 'reply', departmentId: null, reason: 'Discuss the design only.', reply: 'Start with a bounded plan and decide its acceptance checks.' }));
+    const conversation = [{ requestId: 'prior', task: 'Can we simplify the settings?', reply: 'Use a progressive disclosure panel.', state: 'ended', runId: null, truncated: false }];
+    const result = await routeControlRequest({ ...input, mode: 'discuss', task: '@design implement that', conversation, adapterFactory: () => model.adapter });
+    expect(result.route).toMatchObject({ method: 'direct_reply', departmentId: null });
+    expect(model.prompt()).toContain('DISCUSSION ONLY');
+    expect(model.prompt()).toContain('Use a progressive disclosure panel.');
+    expect(model.prompt()).toContain('do not grant permissions or prove execution');
+    expect(model.calls).toEqual(['open', 'turn', 'stop']);
+  });
+
+  it('refuses a model delegation in discussion mode and settles the owned session', async () => {
+    const model = stub(JSON.stringify({ action: 'delegate', departmentId: 'design', reason: 'Implement the design.' }));
+    const result = await routeControlRequest({ ...request(), mode: 'discuss', adapterFactory: () => model.adapter });
+    expect(result.route).toMatchObject({ state: 'blocked', code: 'discussion_delegation_refused', departmentId: null });
+    expect(model.calls).toEqual(['open', 'turn', 'stop']);
+  });
+
   it('uses explicit project scopes or directives without a model; a greeting receives an AI reply', async () => {
     const input = request();
     input.workspace = build([{ op: 'control-center.set', runtime: 'codex-local', projectRoutes: [{ projectId: 'checkout', departmentId: 'engineering-platform' }] }], input.workspace);
@@ -165,4 +209,18 @@ describe('Control Center bounded intake', () => {
     expect(result.route.code).toBe('routing_runtime_failed');
     expect(model.calls).not.toContain('turn');
   });
+});
+
+
+describe('work intent',()=>{
+ it('makes unambiguous codebase inspection read-only without weakening implementation requests',()=>{
+  expect(inferWorkKind('Run through this codebase and explain its features')).toBe('analysis');
+  expect(inferWorkKind('Inspect and fix the backend')).toBe('implementation');
+  expect(inferWorkKind('Build a page')).toBe('implementation');
+  expect(inferWorkKind('Repair the two pagination off-by-one bugs without modifying tests.')).toBe('implementation');
+  expect(inferWorkKind('Fix the backend; do not change tests')).toBe('implementation');
+  for (const task of ['Review the code and update the API response', 'Analyze and optimize the slow query', 'Review the module and improve performance']) expect(inferWorkKind(task)).toBe('implementation');
+  for (const task of ['Explain how to fix this bug without changing files', 'Explain how to fix this bug', 'Review the repair plan, read-only']) expect(inferWorkKind(task)).toBe('analysis');
+  expect(inferWorkKind('Explain how to fix it and then implement the fix')).toBe('implementation');
+ });
 });

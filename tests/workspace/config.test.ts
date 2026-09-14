@@ -119,12 +119,14 @@ describe('workspace readiness', () => {
     expect(readiness.empty).toBe(false);
   });
 
-  it('never calls a pair sendable when its checks are unknown or its tools were not checked', () => {
+  it('keeps code implementation blocked on unknown checks while enabling read-only analysis', () => {
     const config = sampleWorkspace();
     const unknownChecks = workspaceReadiness(config, { tools: [{ adapter: 'codex', ...USABLE }, { adapter: 'claude-code', ...USABLE }] });
     const platformCheckout = unknownChecks.eligibility.find((p) => p.departmentId === 'engineering-platform' && p.projectId === 'checkout')!;
     expect(platformCheckout.codes).toEqual(['project_checks_unknown']);
-    expect(unknownChecks.steps.find((s) => s.id === 'send')!.state).not.toBe('done');
+    expect(platformCheckout.sendable).toBe(false);
+    expect(platformCheckout.analysisReady).toBe(true);
+    expect(unknownChecks.steps.find((s) => s.id === 'send')!.state).toBe('done');
 
     const noTools = workspaceReadiness(config, { projectCheckCounts: { checkout: 2, billing: 1 } });
     expect(noTools.steps.find((s) => s.id === 'tools')!.state).toBe('current');

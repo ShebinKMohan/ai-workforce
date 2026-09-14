@@ -40,6 +40,7 @@ import {
   type AgentConfigFile,
   type Limits,
   type Policy,
+  type TaskContract,
   RUN_REQUEST_VERSION,
   limitsFromDefaults,
   validateRunRequest,
@@ -64,7 +65,7 @@ import { forTask } from './run-stream.js';
 import { createCoordinationBridge, type CoordinationBridge, type MessageRecord } from '../coordination/index.js';
 import { appendEvent } from '../storage/events.js';
 import { ensureRunDir, type StatePaths } from '../storage/paths.js';
-import { beginNewGeneration, getRun, insertRun, transitionRun } from '../storage/records.js';
+import { beginNewGeneration, getRun, getTask, insertRun, insertTask, transitionRun } from '../storage/records.js';
 import { registerProject } from '../workspaces/project.js';
 import { inspectProject } from '../workspaces/project.js';
 import { createScheduler, type ScheduleTask } from '../routing/schedule.js';
@@ -83,6 +84,8 @@ import {
   type Reviewer,
 } from '../integration/review.js';
 import { RepairSession } from '../integration/repair.js';
+import { reviewRepairBriefing, reviewRepairOwners, seededReviewRepairFactory } from '../integration/head-review-repair.js';
+import { withTransaction } from '../storage/tx.js';
 import { runWithFallback } from '../recovery/continue.js';
 import { describeFallback } from '../recovery/fallback.js';
 import { parkTaskForDispatch } from '../recovery/resume.js';
@@ -110,6 +113,7 @@ export interface PlannedTaskInput {
 }
 
 export interface RunPlannedInput {
+  readonly workKind?: 'analysis' | 'implementation';
   readonly repoPath: string;
   readonly config: AgentConfigFile;
   readonly configRaw: string;
@@ -160,6 +164,8 @@ export interface PlannedTaskResult {
 }
 
 export interface RunPlannedResult {
+  readonly workKind?: 'analysis' | 'implementation';
+  readonly analysisReviewed?: boolean;
   readonly runId: string;
   readonly outcome: RunOutcome;
   readonly runState: string;
@@ -184,6 +190,7 @@ export interface RunPlannedResult {
 // ---------------------------------------------------------------------------
 
 export interface PlannedRunSetup {
+  readonly workKind?: 'analysis' | 'implementation';
   /** Resume a head's unassigned request under the caller's reconciled ownership. */
   readonly existingRunId?: string;
   readonly repoPath: string;
@@ -209,6 +216,7 @@ export interface PlannedRunSetup {
 
 /** A created planned run: its row, directory, checks and bridge, before any task is dispatched. */
 export interface PlannedRun {
+  readonly workKind?: 'analysis' | 'implementation';
   readonly runId: string;
   readonly runDir: string;
   readonly createdAt: string;
@@ -266,7 +274,7 @@ export async function createPlannedRun(setup: PlannedRunSetup): Promise<PlannedR
   }
   const snapshot = computeAgentSnapshot(setup.config, agentId);
   const attachments = validateRunAttachments(snapshot.binding.runtime.adapter, requestedAttachments);
-  const policy: Policy = snapshot.binding.policy;
+  const policy: Policy = setup.workKind === 'analysis' ? 'analysis' : snapshot.binding.policy;
   const limits: Limits = limitsFromDefaults(setup.config.defaults);
 
   if (setup.taskCount !== null && setup.taskCount > limits.maxTasksPerRun) {
@@ -279,8 +287,8 @@ export async function createPlannedRun(setup: PlannedRunSetup): Promise<PlannedR
   // The acceptance checks are resolved once, at the base revision, and are the
   // same for every task and for the combined candidate. That is what makes the
   // combined result comparable to the per-task ones.
-  const resolvedChecks = await resolveAcceptanceChecks(projectRoot, baseRevision, setup.checkFlags ?? []);
-  if (resolvedChecks.checks.length === 0) {
+  const resolvedChecks: ResolvedChecks = setup.workKind === 'analysis' ? { source: 'none', checks: [], detail: 'Read-only analysis: captured report, unchanged source and department head review; no code-check acceptance.' } : await resolveAcceptanceChecks(projectRoot, baseRevision, setup.checkFlags ?? []);
+  if (setup.workKind !== 'analysis' && resolvedChecks.checks.length === 0) {
     throw new RunSetupError('no_acceptance_checks', `${resolvedChecks.detail}. A run cannot be accepted without independently executed evidence.`);
   }
   await listFilesAtRevision(projectRoot, baseRevision);
@@ -318,6 +326,7 @@ export async function createPlannedRun(setup: PlannedRunSetup): Promise<PlannedR
         path: 'planned',
         taskCount: setup.taskCount,
         checkSource: resolvedChecks.source,
+        workKind: setup.workKind ?? 'implementation',
         ...(setup.taskCount === null ? { planning: 'head' } : {}),
       },
       timestamp: createdAt,
@@ -334,6 +343,7 @@ export async function createPlannedRun(setup: PlannedRunSetup): Promise<PlannedR
   const bridge = setup.coordinationEnabled === false ? null : await startRunBridge(paths, db, runId, stream, unresolved);
 
   const run: PlannedRun = {
+    workKind: setup.workKind ?? 'implementation',
     runId,
     runDir,
     createdAt,
@@ -468,6 +478,7 @@ const PlanRecordSchema = z.object({
     .min(1),
   /** The `--check` values the run was started with (a project's configured checks); absent when they came from the repository. */
   checkFlags: z.array(z.string().min(1)).optional(),
+  workKind: z.enum(['analysis', 'implementation']).optional(),
   headReview: z.object({ headAgentId: z.string().min(1), required: z.literal(true), deadlineMs: z.number().int().positive().max(300_000).optional() }).optional(),
 });
 export type PlanRecord = z.infer<typeof PlanRecordSchema>;
@@ -498,6 +509,9 @@ export function readPlanRecord(paths: StatePaths, runId: string): PlanRecord | n
 export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResult> {
   try {
     validateTaskList(input.tasks);
+    if (input.run && input.workKind && input.workKind !== (input.run.workKind ?? 'implementation')) {
+      throw new RunSetupError('work_kind_changed', 'The prepared run cannot switch between read-only analysis and implementation.');
+    }
   } catch (error) {
     // A run a head already planned in must not be left `running` by a plan
     // this function refuses.
@@ -515,6 +529,10 @@ export async function runPlanned(input: RunPlannedInput): Promise<RunPlannedResu
       await run.abandon('failed', message, { refusal: 'task_budget_exceeded' });
       throw new RunSetupError('task_budget_exceeded', message);
     }
+  }
+  if (run.workKind === 'analysis') {
+    const { runAnalysis } = await import('./run-analysis.js');
+    return runAnalysis(input, run);
   }
   return executePlan({ input, run, tasks: input.tasks, preAccepted: new Map(), continuation: false });
 }
@@ -560,7 +578,8 @@ interface ExecuteContext {
 }
 
 async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
-  const { input, run, tasks, preAccepted } = context;
+  const { input, run, tasks } = context;
+  const preAccepted = new Map(context.preAccepted);
   const stream = input.stream ?? SILENT_STREAM;
   const { db } = input;
   const { runId, runDir, bridge, unresolved, limits, projectRoot, baseRevision } = run;
@@ -597,7 +616,7 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
   for (const [key] of preAccepted) {
     const task = byKey.get(key);
     if (task === undefined) continue;
-    results.set(key, { key, taskId: taskIds.get(key)!, objective: task.objective, accepted: true, attempts: [], approved: null, repairsUsed: 0, interrupted: false });
+    results.set(key, { key, taskId: taskIds.get(key)!, objective: task.objective, accepted: true, attempts: [], approved: null, repairsUsed: repairCountForKey(db, runId, key, taskIds.get(key)!), interrupted: false });
   }
 
   try {
@@ -904,175 +923,257 @@ async function executePlan(context: ExecuteContext): Promise<RunPlannedResult> {
       return finish({ accepted: false, outcome: 'failed', runState: 'failed', reason, combination: null, reviewDecision: null, review: null });
     }
 
-    const approved: ApprovedArtifact[] = [];
-    for (const task of tasks) {
-      if (preAccepted.has(task.key)) {
-        const artifact = preAccepted.get(task.key) ?? null;
-        if (artifact !== null) approved.push(artifact);
-        continue;
+    // A semantic rejection returns to existing owners inside the same bounded
+    // run. Every round rebuilds the combination and obtains fresh receipts.
+    for (;;) {
+      const approved: ApprovedArtifact[] = [];
+      for (const task of tasks) {
+        if (preAccepted.has(task.key)) {
+          const artifact = preAccepted.get(task.key) ?? null;
+          if (artifact !== null) approved.push(artifact);
+          continue;
+        }
+        const result = results.get(task.key);
+        if (result?.approved == null) continue;
+        const attempt = result.approved;
+        if (attempt.snapshot === null || !attempt.snapshot.checkpointCreated) continue;
+        approved.push({
+          artifactId: attempt.attemptId,
+          taskId: attempt.taskId,
+          attemptId: attempt.attemptId,
+          contractVersion: attempt.manifest.manifestVersion,
+          baseRevision: attempt.snapshot.baseRevision,
+          patchPath: attempt.snapshot.patchPath,
+          patchHash: attempt.snapshot.patchHash,
+          branchReceipts: attempt.receipts,
+        });
       }
-      const result = results.get(task.key);
-      if (result?.approved == null) continue;
-      const attempt = result.approved;
-      if (attempt.snapshot === null || !attempt.snapshot.checkpointCreated) continue;
-      approved.push({
-        artifactId: attempt.attemptId,
-        taskId: attempt.taskId,
-        attemptId: attempt.attemptId,
-        contractVersion: attempt.manifest.manifestVersion,
-        baseRevision: attempt.snapshot.baseRevision,
-        patchPath: attempt.snapshot.patchPath,
-        patchHash: attempt.snapshot.patchHash,
-        branchReceipts: attempt.receipts,
-      });
-    }
 
-    if (approved.length === 0) {
-      transitionRun(db, runId, 'failed');
-      const reason = 'every task was accepted on its own branch but none produced a change to integrate';
-      unresolved.push(reason);
-      return finish({ accepted: false, outcome: 'failed', runState: 'failed', reason, combination: null, reviewDecision: null, review: null });
-    }
+      if (approved.length === 0) {
+        transitionRun(db, runId, 'failed');
+        const reason = 'every task was accepted on its own branch but none produced a change to integrate';
+        unresolved.push(reason);
+        return finish({ accepted: false, outcome: 'failed', runState: 'failed', reason, combination: null, reviewDecision: null, review: null });
+      }
 
-    stream.line(`integrating ${approved.length} approved artifact(s) and re-running the checks against the combined revision`);
-    let combination: CombineResult;
-    try {
-      combination = await combineArtifacts({
-        runId,
-        projectRoot,
-        baseRevision,
-        artifacts: approved,
-        integrationRoot: path.join(runDir, 'integration'),
-        checks: resolvedChecks.checks,
-        checkOutputRoot: path.join(runDir, 'integration-verification'),
-        ...(input.signal !== undefined ? { signal: input.signal } : {}),
-      });
-    } catch (error) {
-      if (!aborted()) throw error;
-      return interruptRun('the run was interrupted while the approved artifacts were being combined; nothing was accepted. Resume integrates them again.', [], []);
-    }
-    if (aborted()) {
-      return interruptRun('the run was interrupted while the combined candidate was being checked; nothing was accepted. Resume integrates the approved artifacts again.', [], []);
-    }
-
-    if (combination.status === 'refused') {
-      transitionRun(db, runId, 'failed');
-      appendEvent(db, { runId, type: 'integration.refused', payload: { conflicts: combination.conflicts.length, summary: combination.summary } });
-      const reason = `the approved artifacts could not be combined: ${combination.summary}`;
-      unresolved.push(reason);
-      stream.line(`not accepted: ${reason}`);
-      return finish({ accepted: false, outcome: 'failed', runState: 'failed', reason, combination, reviewDecision: null, review: null });
-    }
-
-    appendEvent(db, {
-      runId,
-      type: 'integration.combined',
-      payload: {
-        combinedRevision: combination.combinedRevision,
-        order: combination.order,
-        accepted: combination.acceptance.accepted,
-        unverifiedCriteria: combination.acceptance.unverifiedCriteria,
-      },
-    });
-    for (const receipt of combination.receipts) {
-      stream.line(`  combined check ${receipt.criterionId}: ${receipt.outcome}${receipt.exitCode !== null ? ` (exit ${receipt.exitCode})` : ''}`);
-    }
-
-    // ---- Review ----------------------------------------------------------
-    const combinedDiff = readCombinedDiff(approved);
-    const reviewDecision = decideReview({
-      shape: changeShapeFromDiff(combinedDiff),
-      acceptanceCriteria: criteriaOf(resolvedChecks.checks),
-      ...(input.reviewRequested !== undefined ? { configured: input.reviewRequested } : {}),
-    });
-    let review: ReviewOutcome | null = null;
-    if (reviewDecision.warranted) {
-      stream.line(`review warranted: ${reviewDecision.reason}`);
-      if (input.reviewer === undefined && !input.headReview) {
-        unresolved.push(`a review was warranted (${reviewDecision.reason}) but no reviewer was configured for this run; nothing was reviewed`);
-      } else if (input.reviewer !== undefined) {
-        const first = approved[0]!;
-        review = await requestReview({
-          taskId: first.taskId,
-          attemptId: first.attemptId,
-          objective: input.requestText,
-          patchPath: first.patchPath,
-          patchHash: first.patchHash,
-          acceptanceCriteria: criteriaOf(resolvedChecks.checks),
-          reviewer: input.reviewer,
-          decision: reviewDecision,
+      stream.line(`integrating ${approved.length} approved artifact(s) and re-running the checks against the combined revision`);
+      let combination: CombineResult;
+      try {
+        combination = await combineArtifacts({
+          runId,
+          projectRoot,
+          baseRevision,
+          artifacts: approved,
+          integrationRoot: path.join(runDir, 'integration'),
+          checks: resolvedChecks.checks,
+          checkOutputRoot: path.join(runDir, 'integration-verification'),
           ...(input.signal !== undefined ? { signal: input.signal } : {}),
         });
-        appendEvent(db, { runId, type: 'review.completed', payload: { findings: review.findings.length, reviewerId: review.reviewerId, advisory: review.advisory } });
+      } catch (error) {
+        if (!aborted()) throw error;
+        return interruptRun('the run was interrupted while the approved artifacts were being combined; nothing was accepted. Resume integrates them again.', [], []);
       }
-    }
+      if (aborted()) {
+        return interruptRun('the run was interrupted while the combined candidate was being checked; nothing was accepted. Resume integrates the approved artifacts again.', [], []);
+      }
 
-    // A review never overturns the executed checks in either direction: it can
-    // only add advisory findings beside them.
-    const withReview = applyReviewToAcceptance(combination.acceptance, review);
-    for (const finding of withReview.blockingRecommendations) {
-      unresolved.push(`review finding (advisory, blocking recommendation): ${finding.summary}`);
-    }
-    for (const criterion of combination.acceptance.unverifiedCriteria) {
-      unresolved.push(`criterion "${criterion}" has no receipt bound to the combined revision ${combination.combinedRevision}`);
-    }
+      if (combination.status === 'refused') {
+        transitionRun(db, runId, 'failed');
+        appendEvent(db, { runId, type: 'integration.refused', payload: { conflicts: combination.conflicts.length, summary: combination.summary } });
+        const reason = `the approved artifacts could not be combined: ${combination.summary}`;
+        unresolved.push(reason);
+        stream.line(`not accepted: ${reason}`);
+        return finish({ accepted: false, outcome: 'failed', runState: 'failed', reason, combination, reviewDecision: null, review: null });
+      }
 
-    // Independent checks remain mandatory. A real head review adds a delivery
-    // gate; its approval cannot manufacture or replace verifier evidence.
-    let headReview: HeadReviewOutcome | null = null;
-    if (input.headReview && combination.acceptance.accepted) {
-      headReview = await reviewWithHead({
-        policy: input.headReview, config: input.config, runId, repoPath: projectRoot,
-        baseRevision, combinedRevision: combination.combinedRevision,
-        requestText: input.requestText, tasks, checks: resolvedChecks.checks,
-        ...(run.attachments.length > 0 ? { attachments: run.attachments } : {}),
-        receipts: combination.receipts, paths: input.paths, db, bridge: run.bridge,
-        stream: forTask(stream, { runId, agentId: input.headReview.headAgentId, key: 'head-review' }),
-        ...(input.signal ? { signal: input.signal } : {}),
-        ...(input.adapterFactory ? { adapterFactory: input.adapterFactory } : {}),
-        ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
-        ...(input.ownership ? { ownership: input.ownership } : {}),
+      appendEvent(db, {
+        runId,
+        type: 'integration.combined',
+        payload: {
+          combinedRevision: combination.combinedRevision,
+          order: combination.order,
+          accepted: combination.acceptance.accepted,
+          unverifiedCriteria: combination.acceptance.unverifiedCriteria,
+        },
       });
-      if (headReview.verdict !== 'passed') {
-        const reason = headReview.summary;
-        unresolved.push(`Department head review: ${reason}`);
-        // Infrastructure failure or Stop remains explicitly resumable; a
-        // semantic rejection retains its candidate and feedback for the user.
-        const stopped = headReview.verdict === 'blocked';
-        const runState = stopped ? 'interrupted' : 'failed';
-        transitionRun(db, runId, runState);
-        appendEvent(db, { runId, type: `run.${runState}`, payload: { reason, phase: 'head_review', headAgentId: headReview.headAgentId, verdict: headReview.verdict, candidateRevision: combination.combinedRevision } });
-        stream.line(`head review ${headReview.verdict}: ${reason}`);
-        return finish({ accepted: false, outcome: stopped ? 'interrupted' : 'failed', runState, reason, combination, reviewDecision, review, headReview });
+      for (const receipt of combination.receipts) {
+        stream.line(`  combined check ${receipt.criterionId}: ${receipt.outcome}${receipt.exitCode !== null ? ` (exit ${receipt.exitCode})` : ''}`);
       }
-    }
-    const accepted = combination.acceptance.accepted && (!input.headReview || headReview?.verdict === 'passed');
-    if (aborted()) return interruptRun('The run was stopped after review and before delivery. The candidate and review evidence are preserved.', [], []);
-    transitionRun(db, runId, accepted ? 'ready_for_review' : 'failed');
-    const finalReply = accepted && headReview ? headReview.summary : null;
-    if (finalReply) {
-      const payload = { text: finalReply, summary: finalReply, headAgentId: headReview!.headAgentId, verificationStatus: 'verified', source: 'department_head_review', candidateRevision: combination.combinedRevision, artifactId: headReview!.artifactId };
-      appendEvent(db, { runId, type: 'control.final_reply', payload });
-      stream.event({ type: 'control.final_reply', runId, ...payload });
-      stream.line(finalReply);
-    }
-    stream.line(
-      accepted
-        ? `accepted: the combined candidate ${combination.combinedRevision.slice(0, 12)} passed every required criterion with verifier-executed evidence`
-        : `not accepted: ${combination.acceptance.reason}`,
-    );
-    stream.event({ type: `run.${accepted ? 'accepted' : 'failed'}`, runId, accepted, combinedRevision: combination.combinedRevision });
-    return finish({
-      accepted,
-      outcome: accepted ? 'accepted' : 'failed',
-      runState: accepted ? 'ready_for_review' : 'failed',
-      reason: accepted ? finalReply ?? withReview.note : combination.acceptance.reason,
-      combination,
-      reviewDecision,
-      review,
-      headReview,
-      finalReply,
-    });
+
+      // ---- Review ----------------------------------------------------------
+      const combinedDiff = readCombinedDiff(approved);
+      const reviewDecision = decideReview({
+        shape: changeShapeFromDiff(combinedDiff),
+        acceptanceCriteria: criteriaOf(resolvedChecks.checks),
+        ...(input.reviewRequested !== undefined ? { configured: input.reviewRequested } : {}),
+      });
+      let review: ReviewOutcome | null = null;
+      if (reviewDecision.warranted) {
+        stream.line(`review warranted: ${reviewDecision.reason}`);
+        if (input.reviewer === undefined && !input.headReview) {
+          unresolved.push(`a review was warranted (${reviewDecision.reason}) but no reviewer was configured for this run; nothing was reviewed`);
+        } else if (input.reviewer !== undefined) {
+          const first = approved[0]!;
+          review = await requestReview({
+            taskId: first.taskId,
+            attemptId: first.attemptId,
+            objective: input.requestText,
+            patchPath: first.patchPath,
+            patchHash: first.patchHash,
+            acceptanceCriteria: criteriaOf(resolvedChecks.checks),
+            reviewer: input.reviewer,
+            decision: reviewDecision,
+            ...(input.signal !== undefined ? { signal: input.signal } : {}),
+          });
+          appendEvent(db, { runId, type: 'review.completed', payload: { findings: review.findings.length, reviewerId: review.reviewerId, advisory: review.advisory } });
+        }
+      }
+
+      // A review never overturns the executed checks in either direction: it can
+      // only add advisory findings beside them.
+      const withReview = applyReviewToAcceptance(combination.acceptance, review);
+      for (const finding of withReview.blockingRecommendations) {
+        unresolved.push(`review finding (advisory, blocking recommendation): ${finding.summary}`);
+      }
+      for (const criterion of combination.acceptance.unverifiedCriteria) {
+        unresolved.push(`criterion "${criterion}" has no receipt bound to the combined revision ${combination.combinedRevision}`);
+      }
+
+      // Independent checks remain mandatory. A real head review adds a delivery
+      // gate; its approval cannot manufacture or replace verifier evidence.
+      let headReview: HeadReviewOutcome | null = null;
+      if (input.headReview && combination.acceptance.accepted) {
+        headReview = await reviewWithHead({
+          policy: input.headReview, config: input.config, runId, repoPath: projectRoot,
+          baseRevision, combinedRevision: combination.combinedRevision,
+          requestText: input.requestText, tasks, checks: resolvedChecks.checks,
+          ...(run.attachments.length > 0 ? { attachments: run.attachments } : {}),
+          receipts: combination.receipts, paths: input.paths, db, bridge: run.bridge,
+          stream: forTask(stream, { runId, agentId: input.headReview.headAgentId, key: 'head-review' }),
+          ...(input.signal ? { signal: input.signal } : {}),
+          ...(input.adapterFactory ? { adapterFactory: input.adapterFactory } : {}),
+          ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
+          ...(input.ownership ? { ownership: input.ownership } : {}),
+        });
+        if (headReview.verdict === 'changes_requested' && !aborted()) {
+          let repairBlocker: string | null = null;
+          let owners: string[] = [];
+          try {
+            owners = reviewRepairOwners(tasks.map((task) => ({ ...task, taskId: taskIds.get(task.key)! })), approved, headReview);
+            if (owners.length === 0) repairBlocker = 'No original writing task can address the department head findings.';
+            for (const key of owners) {
+              const used = repairCountForKey(db, runId, key, taskIds.get(key)!);
+              if (used >= limits.maxRepairAttempts) {
+                repairBlocker = `Task "${key}" exhausted its repair budget (${used}/${limits.maxRepairAttempts}). ${headReview.summary}`;
+                break;
+              }
+              if (!approved.some((artifact) => artifact.taskId === taskIds.get(key))) {
+                repairBlocker = `Task "${key}" has no verified patch to preserve for review repair.`;
+                break;
+              }
+            }
+          } catch (error) { repairBlocker = `The review repair cannot preserve its candidate: ${(error as Error).message}`; }
+          if (repairBlocker === null) {
+            for (const key of owners) {
+              if (aborted()) break;
+              const task = byKey.get(key)!;
+              const priorTaskId = taskIds.get(key)!;
+              const seed = approved.find((artifact) => artifact.taskId === priorTaskId)!;
+              const prior = getTask(db, priorTaskId);
+              const repairTaskId = newId();
+              const used = repairCountForKey(db, runId, key, priorTaskId) + 1;
+              const briefing = reviewRepairBriefing(headReview, key, used, limits.maxRepairAttempts);
+              // Accepted rows remain immutable history. A same-scope child carries
+              // the new attempt; its owner and plan key are frozen to the original.
+              input.ownership?.assertOwnership();
+              withTransaction(db, () => {
+                insertTask(db, { id: repairTaskId, runId, parentTaskId: priorTaskId, contract: JSON.parse(prior.contract_json) as TaskContract, ownerAgentId: agentOf(task), contextRefs: run.contextRefs });
+                appendEvent(db, { runId, taskId: repairTaskId, type: 'head.review_repair_started', payload: {
+                  key, sourceTaskId: priorTaskId, repairTaskId, agentId: agentOf(task), attemptNumber: used,
+                  maxRepairAttempts: limits.maxRepairAttempts, reviewId: headReview!.reviewId,
+                  candidateRevision: combination.combinedRevision, invalidatedReceiptIds: combination.receipts.map((receipt) => receipt.id),
+                  seed: { artifactId: seed.artifactId, taskId: seed.taskId, attemptId: seed.attemptId, contractVersion: seed.contractVersion, baseRevision: seed.baseRevision, patchPath: seed.patchPath, patchHash: seed.patchHash }, briefing,
+                } });
+              });
+              taskIds.set(key, repairTaskId);
+              preAccepted.delete(key);
+              appendEvent(db, { runId, taskId: repairTaskId, type: 'task.registered', payload: { key, agentId: agentOf(task), objective: task.objective, repairOf: priorTaskId } });
+              const repairStream = forTask(stream, { runId, taskId: repairTaskId, key, agentId: agentOf(task) });
+              repairStream.event({ type: 'head.review_repair_started', runId, taskId: repairTaskId, key, attemptNumber: used, agentId: agentOf(task) });
+              try {
+                const repaired = await runTaskWithRepair({ input: { ...input, contextRefs: run.contextRefs, attachments: run.attachments }, runId, runDir, key,
+                  task, taskId: repairTaskId, limits, bridge, briefing,
+                  peers: tasks.filter((peer) => peer.key !== key).map((peer) => ({ key: peer.key, taskId: taskIds.get(peer.key)!, objective: peer.objective })),
+                  stream: repairStream,
+                  // Semantic repair stays with the original admitted owner. All
+                  // earlier turns have settled, and repairs run one at a time.
+                  acquireFallbackAgent: () => null,
+                });
+                const previous = results.get(key);
+                results.set(key, { ...repaired, attempts: [...(previous?.attempts ?? []), ...repaired.attempts] });
+                const settled = { key, accepted: repaired.accepted, repairsUsed: repaired.repairsUsed, interrupted: repaired.interrupted };
+                appendEvent(db, { runId, taskId: repairTaskId, type: 'task.settled', payload: settled });
+                repairStream.event({ type: 'task.settled', runId, taskId: repairTaskId, ...settled });
+                if (!repaired.accepted) {
+                  repairBlocker = repaired.interrupted ? 'The department head repair was stopped. Resume continues its saved candidate and findings.' : `Task "${key}" did not pass independent checks while repairing the head findings (${repaired.repairsUsed}/${limits.maxRepairAttempts} repairs used).`;
+                  break;
+                }
+              } catch (error) { repairBlocker = `Task "${key}" could not complete its review repair: ${(error as Error).message}`; break; }
+              finally { repairStream.close(); }
+            }
+            if (aborted()) return interruptRun('The department head repair was interrupted; the candidate, owner and feedback are saved for Resume.', [], []);
+            if (repairBlocker === null) continue;
+          }
+          const reason = repairBlocker ?? headReview.summary;
+          unresolved.push(`Department head review: ${reason}`);
+          const stopped = aborted() || [...results.values()].some((task) => task.interrupted);
+          transitionRun(db, runId, stopped ? 'interrupted' : 'failed');
+          appendEvent(db, { runId, type: 'head.review_repair_blocked', payload: { reason, reviewId: headReview.reviewId, findings: headReview.findings, candidateRevision: combination.combinedRevision } });
+          appendEvent(db, { runId, type: stopped ? 'run.interrupted' : 'run.failed', payload: { reason, phase: 'head_review_repair', candidateRevision: combination.combinedRevision } });
+          stream.event({ type: stopped ? 'run.interrupted' : 'run.failed', runId, reason, accepted: false });
+          return finish({ accepted: false, outcome: stopped ? 'interrupted' : 'failed', runState: stopped ? 'interrupted' : 'failed', reason, combination, reviewDecision, review, headReview });
+        }
+        if (headReview.verdict !== 'passed') {
+          const reason = headReview.summary;
+          unresolved.push(`Department head review: ${reason}`);
+          // Infrastructure failure or Stop remains explicitly resumable; a
+          // semantic rejection retains its candidate and feedback for the user.
+          const stopped = aborted() || headReview.verdict === 'blocked';
+          const runState = stopped ? 'interrupted' : 'failed';
+          transitionRun(db, runId, runState);
+          appendEvent(db, { runId, type: `run.${runState}`, payload: { reason, phase: 'head_review', headAgentId: headReview.headAgentId, verdict: headReview.verdict, candidateRevision: combination.combinedRevision } });
+          stream.line(`head review ${headReview.verdict}: ${reason}`);
+          return finish({ accepted: false, outcome: stopped ? 'interrupted' : 'failed', runState, reason, combination, reviewDecision, review, headReview });
+        }
+      }
+      const accepted = combination.acceptance.accepted && (!input.headReview || headReview?.verdict === 'passed');
+      if (aborted()) return interruptRun('The run was stopped after review and before delivery. The candidate and review evidence are preserved.', [], []);
+      transitionRun(db, runId, accepted ? 'ready_for_review' : 'failed');
+      const finalReply = accepted && headReview ? headReview.summary : null;
+      if (finalReply) {
+        const payload = { text: finalReply, summary: finalReply, headAgentId: headReview!.headAgentId, verificationStatus: 'verified', source: 'department_head_review', candidateRevision: combination.combinedRevision, artifactId: headReview!.artifactId };
+        appendEvent(db, { runId, type: 'control.final_reply', payload });
+        stream.event({ type: 'control.final_reply', runId, ...payload });
+        stream.line(finalReply);
+      }
+      stream.line(
+        accepted
+          ? `accepted: the combined candidate ${combination.combinedRevision.slice(0, 12)} passed every required criterion with verifier-executed evidence`
+          : `not accepted: ${combination.acceptance.reason}`,
+      );
+      stream.event({ type: `run.${accepted ? 'accepted' : 'failed'}`, runId, accepted, combinedRevision: combination.combinedRevision });
+      return finish({
+        accepted,
+        outcome: accepted ? 'accepted' : 'failed',
+        runState: accepted ? 'ready_for_review' : 'failed',
+        reason: accepted ? finalReply ?? withReview.note : combination.acceptance.reason,
+        combination,
+        reviewDecision,
+        review,
+        headReview,
+        finalReply,
+      });
+    } // bounded review repair rounds
   } finally {
     await run.closeBridge();
   }
@@ -1195,12 +1296,21 @@ export async function continuePlannedRun(input: ContinuePlannedRunInput): Promis
   if (record === null) throw new RunSetupError('no_plan_record', `run ${runId} recorded no plan (${planRecordPath(paths, runId)}), so there is no plan to continue`);
   const row = getRun(db, runId);
   const registered = db.prepare("SELECT payload_json FROM events WHERE run_id = ? AND type = 'plan.registered' ORDER BY sequence DESC LIMIT 1").get(runId) as { payload_json: string } | undefined;
-  const recordedPolicy = registered ? (JSON.parse(registered.payload_json) as { headReview?: HeadReviewPolicy }).headReview : undefined;
+  const registeredPlan = registered ? JSON.parse(registered.payload_json) as { headReview?: HeadReviewPolicy; workKind?: string } : undefined;
+  const recordedPolicy = registeredPlan?.headReview;
+  const created = db.prepare("SELECT payload_json FROM events WHERE run_id = ? AND type = 'run.created' ORDER BY sequence LIMIT 1").get(runId) as { payload_json: string } | undefined;
+  const createdKind = created ? (JSON.parse(created.payload_json) as { workKind?: string }).workKind ?? 'implementation' : 'implementation';
+  if ((record.workKind ?? 'implementation') !== (registeredPlan?.workKind ?? 'implementation') || (record.workKind ?? 'implementation') !== createdKind) throw new RunSetupError('work_kind_changed', 'The saved plan cannot change an implementation request into analysis or analysis into implementation.');
   if (recordedPolicy && (!record.headReview || record.headReview.headAgentId !== recordedPolicy.headAgentId || record.headReview.required !== true)) throw new RunSetupError('head_review_policy_missing', 'The required head review policy is missing or changed in the saved plan. Restore its recorded policy before resuming.');
   const headReview = record.headReview ? { headAgentId: record.headReview.headAgentId, required: true as const, ...(record.headReview.deadlineMs !== undefined ? { deadlineMs: record.headReview.deadlineMs } : {}) } : undefined;
   if (headReview) {
     const blocker = headReviewResumeBlocker(db, runId);
     if (blocker) throw new RunSetupError('head_review_stop_unconfirmed', blocker);
+  }
+  if (record.workKind === 'analysis') {
+    const run = await createPlannedRun({ ...input, workKind: 'analysis', existingRunId: runId, taskCount: record.tasks.length });
+    const { runAnalysis } = await import('./run-analysis.js');
+    return runAnalysis({ ...input, workKind: 'analysis', tasks: record.tasks, ...(headReview ? { headReview } : {}) }, run, true);
   }
 
   const inspection = await inspectProject(input.repoPath);
@@ -1247,8 +1357,10 @@ export async function continuePlannedRun(input: ContinuePlannedRunInput): Promis
     },
   };
 
+  const repairs = recordedReviewRepairs(db, runId);
+  const continuedTasks = record.tasks.map((task) => ({ ...task, taskId: repairs.get(task.key)?.taskId ?? task.taskId }));
   const preAccepted = new Map<string, ApprovedArtifact | null>();
-  for (const task of record.tasks) {
+  for (const task of continuedTasks) {
     const state = db.prepare('SELECT state FROM tasks WHERE id = ? AND run_id = ?').get(task.taskId, runId) as { state: string } | undefined;
     if (state?.state === 'accepted') preAccepted.set(task.key, approvedArtifactFor(db, paths, runId, task.taskId));
   }
@@ -1257,7 +1369,7 @@ export async function continuePlannedRun(input: ContinuePlannedRunInput): Promis
   return executePlan({
     input: { ...input, ...(checkFlags !== undefined ? { checkFlags } : {}), ...(headReview ? { headReview } : {}) },
     run,
-    tasks: record.tasks.map((task) => ({
+    tasks: continuedTasks.map((task) => ({
       key: task.key,
       taskId: task.taskId,
       objective: task.objective,
@@ -1353,6 +1465,35 @@ function readCombinedDiff(approved: ReadonlyArray<ApprovedArtifact>): string {
   return parts.join('\n');
 }
 
+interface RecordedReviewRepair { taskId: string; sourceTaskId: string; seed: ApprovedArtifact; briefing: string; }
+
+function recordedReviewRepairs(db: DatabaseSync, runId: string): Map<string, RecordedReviewRepair> {
+  const rows = db.prepare("SELECT task_id, payload_json FROM events WHERE run_id = ? AND type = 'head.review_repair_started' ORDER BY sequence").all(runId) as Array<{ task_id: string; payload_json: string }>;
+  const result = new Map<string, RecordedReviewRepair>();
+  for (const row of rows) {
+    const value = JSON.parse(row.payload_json) as { key: string; sourceTaskId: string; seed: ApprovedArtifact; briefing: string };
+    result.set(value.key, { taskId: row.task_id, sourceTaskId: value.sourceTaskId, seed: value.seed, briefing: value.briefing });
+  }
+  return result;
+}
+
+/** One budget follows the original plan key across check repair and semantic
+ * successor tasks. Resume does not reset it. */
+function repairCountForKey(db: DatabaseSync, runId: string, key: string, taskId: string): number {
+  const rows = db.prepare("SELECT task_id, type, payload_json FROM events WHERE run_id = ? AND type IN ('task.repair_started', 'head.review_repair_started') ORDER BY sequence").all(runId) as Array<{ task_id: string; type: string; payload_json: string }>;
+  const ids = new Set([taskId]);
+  let count = 0;
+  for (const row of rows) {
+    const payload = JSON.parse(row.payload_json) as { key?: string; sourceTaskId?: string };
+    if (row.type === 'head.review_repair_started' && payload.key === key) {
+      ids.add(row.task_id);
+      if (payload.sourceTaskId) ids.add(payload.sourceTaskId);
+      count++;
+    }
+  }
+  return count + rows.filter((row) => row.type === 'task.repair_started' && (ids.has(row.task_id) || (JSON.parse(row.payload_json) as { key?: string }).key === key)).length;
+}
+
 interface TaskRunInput {
   readonly input: ExecuteInput;
   readonly runId: string;
@@ -1380,8 +1521,11 @@ interface TaskRunInput {
 async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResult> {
   const { input, runId, key, task, taskId, limits, bridge, stream } = context;
   const attempts: RunDirectResult[] = [];
-  let repairsUsed = 0;
-  let briefing = context.briefing;
+  const initialRepairsUsed = repairCountForKey(input.db, runId, key, taskId);
+  let repairsUsed = initialRepairsUsed;
+  const savedReviewRepair = recordedReviewRepairs(input.db, runId).get(key);
+  const repairSeed = savedReviewRepair?.taskId === taskId ? savedReviewRepair : undefined;
+  let briefing = repairSeed?.briefing ?? context.briefing;
   let attemptId = newId();
   let session: RepairSession | null = null;
   const settle = (accepted: boolean, approved: RunDirectResult | null, interrupted = false): PlannedTaskResult => ({
@@ -1426,13 +1570,15 @@ async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResu
       ...(task.agentId ?? input.agentId ? { agentId: (task.agentId ?? input.agentId)! } : {}),
       ...(input.checkFlags !== undefined ? { checkFlags: input.checkFlags } : {}),
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
-      ...(input.adapterFactory !== undefined ? { adapterFactory: input.adapterFactory } : {}),
+      ...(repairSeed ? { adapterFactory: seededReviewRepairFactory({ ...(input.adapterFactory ? { factory: input.adapterFactory } : {}), artifact: repairSeed.seed, baseRevision: repairSeed.seed.baseRevision, projectRoot: input.repoPath, ...(input.signal ? { signal: input.signal } : {}) }) } : input.adapterFactory !== undefined ? { adapterFactory: input.adapterFactory } : {}),
       ...(input.sessionEnv !== undefined ? { sessionEnv: input.sessionEnv } : {}),
       ...(input.ownership !== undefined ? { ownership: input.ownership } : {}),
       ...(input.allowUnconfinedWrites === true ? { allowUnconfinedWrites: true } : {}),
       ...(input.runDeadlineMs !== undefined ? { runDeadlineMs: input.runDeadlineMs } : {}),
       ...(input.keepCheckCopies !== undefined ? { keepCheckCopies: input.keepCheckCopies } : {}),
-    }, { acquireFallbackAgent: context.acquireFallbackAgent });
+    // A review repair belongs to the original admitted worker. Enforce this
+    // here as well as at dispatch so a resumed repair cannot change owners.
+    }, repairSeed ? { enabled: false } : { acquireFallbackAgent: context.acquireFallbackAgent });
     const result = continued.result;
     for (const attempt of continued.attempts) attempts.push(attempt);
     if (continued.fallback !== null) {
@@ -1455,7 +1601,7 @@ async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResu
       runId,
       taskId,
       originAttemptId: result.attemptId,
-      maxRepairAttempts: limits.maxRepairAttempts,
+      maxRepairAttempts: Math.max(0, limits.maxRepairAttempts - initialRepairsUsed),
       mintAttemptId: () => newId(),
     });
 
@@ -1481,18 +1627,19 @@ async function runTaskWithRepair(context: TaskRunInput): Promise<PlannedTaskResu
       attemptId: decision.attempt.identity.attemptId,
       type: 'task.repair_started',
       payload: {
-        attemptNumber: decision.attempt.attemptNumber,
+        attemptNumber: initialRepairsUsed + decision.attempt.attemptNumber,
+        key,
         supersedes: decision.attempt.identity.supersedesAttemptId,
         invalidatedReceiptIds: decision.attempt.invalidatedReceiptIds,
       },
     });
-    repairsUsed = decision.attempt.attemptNumber;
+    repairsUsed = initialRepairsUsed + decision.attempt.attemptNumber;
     attemptId = decision.attempt.identity.attemptId;
     // A repair is a NEW generation of this task. Without this the new attempt
     // would be written at the task's current generation and violate
     // UNIQUE(task_id, generation), which killed the whole run.
     beginNewGeneration(input.db, taskId);
-    briefing = [context.briefing, decision.attempt.instructions].filter((part) => part !== undefined && part.length > 0).join('\n\n');
+    briefing = [repairSeed?.briefing ?? context.briefing, decision.attempt.instructions].filter((part) => part !== undefined && part.length > 0).join('\n\n');
   }
 }
 

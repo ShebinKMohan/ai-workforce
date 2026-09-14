@@ -1,0 +1,123 @@
+{
+  "ok": true,
+  "officeVersion": 1,
+  "coordinator": {
+    "name": "workforce",
+    "version": "0.1.0",
+    "stateRoot": "/Users/shebin_mohan_k/Documents/Workforce-Dynamic-Office-2026-09-12/empty-state",
+    "stateFound": false,
+    "lock": {
+      "held": false,
+      "pid": null,
+      "acquiredAt": null,
+      "holder": null
+    },
+    "server": {
+      "pid": 96677,
+      "startedAt": "2026-09-13T19:21:16.473Z",
+      "url": "http://127.0.0.1:4421/",
+      "packageRoot": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee",
+      "readOnlyDatabase": true
+    }
+  },
+  "configuration": {
+    "found": false,
+    "path": null,
+    "source": null,
+    "searched": [
+      "/Users/shebin_mohan_k/Documents/Workforce-Dynamic-Office-2026-09-12/empty-state/agents.json"
+    ],
+    "error": null,
+    "defaults": null
+  },
+  "agents": [],
+  "runtimes": {
+    "passive": true,
+    "checkedAt": "2026-09-13T19:21:19.898Z",
+    "reports": [
+      {
+        "adapter": "codex",
+        "displayName": "Codex CLI",
+        "loginHint": "codex login",
+        "installed": true,
+        "adapterSupported": true,
+        "controllable": true,
+        "readiness": "controllable",
+        "probeKind": "passive",
+        "auth": "logged_in",
+        "authDetail": "`codex login status` reports an active login",
+        "version": "0.154.0",
+        "executable": "/opt/homebrew/bin/codex",
+        "writingModeAvailable": true,
+        "missingWriteBoundary": [],
+        "checkedAt": "2026-09-13T19:21:19.473Z",
+        "diagnostics": [
+          "2 codex installations found; using /opt/homebrew/bin/codex — others: /Applications/ChatGPT.app/Contents/Resources/codex"
+        ]
+      },
+      {
+        "adapter": "claude-code",
+        "displayName": "Claude Code",
+        "loginHint": "claude auth login",
+        "installed": true,
+        "adapterSupported": true,
+        "controllable": true,
+        "readiness": "controllable",
+        "probeKind": "passive",
+        "auth": "logged_out",
+        "authDetail": "`claude auth status` exited 1 and reported loggedIn=false; the command answered, so its own answer is read rather than discarded on the exit code",
+        "version": "2.1.236",
+        "executable": "/opt/homebrew/bin/claude",
+        "writingModeAvailable": true,
+        "missingWriteBoundary": [],
+        "checkedAt": "2026-09-13T19:21:19.630Z",
+        "diagnostics": [
+          "2 claude installations found; using /opt/homebrew/bin/claude — others: /Users/shebin_mohan_k/.local/bin/claude",
+          "Claude Code is not logged in; run `claude auth login`"
+        ]
+      },
+      {
+        "adapter": "claude-code",
+        "displayName": "Claude Code",
+        "loginHint": "claude auth login",
+        "installed": true,
+        "adapterSupported": true,
+        "controllable": true,
+        "readiness": "controllable",
+        "probeKind": "passive",
+        "auth": "logged_out",
+        "authDetail": "`claude auth status` exited 1 and reported loggedIn=false; the command answered, so its own answer is read rather than discarded on the exit code",
+        "version": "2.1.236",
+        "executable": "/opt/homebrew/bin/claude",
+        "writingModeAvailable": true,
+        "missingWriteBoundary": [],
+        "checkedAt": "2026-09-13T19:21:19.630Z",
+        "diagnostics": [
+          "2 claude installations found; using /opt/homebrew/bin/claude — others: /Users/shebin_mohan_k/.local/bin/claude",
+          "Claude Code is not logged in; run `claude auth login`"
+        ]
+      },
+      {
+        "adapter": "codex",
+        "displayName": "Codex CLI",
+        "loginHint": "codex login",
+        "installed": true,
+        "adapterSupported": true,
+        "controllable": true,
+        "readiness": "controllable",
+        "probeKind": "passive",
+        "auth": "logged_in",
+        "authDetail": "`codex login status` reports an active login",
+        "version": "0.154.0",
+        "executable": "/opt/homebrew/bin/codex",
+        "writingModeAvailable": true,
+        "missingWriteBoundary": [],
+        "checkedAt": "2026-09-13T19:21:19.473Z",
+        "diagnostics": [
+          "2 codex installations found; using /opt/homebrew/bin/codex — others: /Applications/ChatGPT.app/Contents/Resources/codex"
+        ]
+      }
+    ],
+    "error": null
+  }
+}

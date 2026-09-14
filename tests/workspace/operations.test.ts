@@ -18,6 +18,51 @@ import { build, refusal, sampleWorkspace } from './helpers.js';
 
 const EXAMPLE_V1 = path.resolve('fixtures/agents/example.json');
 
+describe('runtime bindings', () => {
+  it('removes an unused binding without changing other workspace data', () => {
+    const before = build([{ op: 'runtime.set', id: 'codex-desktop', adapter: 'codex', executable: '/Applications/Codex.app/codex' }], sampleWorkspace());
+    const snapshot = structuredClone(before);
+    const after = build([{ op: 'runtime.remove', id: 'codex-desktop' }], before);
+    expect(after).toEqual(sampleWorkspace());
+    expect(before).toEqual(snapshot);
+    expect(validateWorkspace(after).ok).toBe(true);
+    expect(refusal(() => build([{ op: 'runtime.remove', id: 'missing' }], before)).code).toBe('unknown_runtime');
+  });
+
+  it('refuses bindings used by Control Center or agents, including archived agents', () => {
+    const before = build([{ op: 'control-center.set', runtime: 'codex-local', model: 'gpt-5.5', effort: 'low' }], sampleWorkspace());
+    const snapshot = structuredClone(before);
+    const codex = refusal(() => build([{ op: 'runtime.remove', id: 'codex-local' }], before));
+    expect([codex.exitCode, codex.code]).toEqual([2, 'runtime_in_use']);
+    expect(codex.details).toContain('Control Center');
+    expect(codex.details).toContain('agent "atlas"');
+    const claude = refusal(() => build([{ op: 'runtime.remove', id: 'claude-local' }], before));
+    expect(claude.details).toContain('agent "old" (archived)');
+    expect(before).toEqual(snapshot);
+  });
+
+  it('can migrate references and remove a binding in one atomic operation batch', () => {
+    const before = build([
+      { op: 'runtime.set', id: 'codex-desktop', adapter: 'codex', executable: '/Applications/Codex.app/codex' },
+      { op: 'control-center.set', runtime: 'codex-desktop', model: 'gpt-6-astra', effort: 'ultra', instructions: 'Keep this instruction.', projectRoutes: [{ projectId: 'checkout', departmentId: 'engineering-platform' }] },
+      { op: 'agent.edit', id: 'bench', runtime: 'codex-desktop' },
+    ], sampleWorkspace());
+    const snapshot = structuredClone(before);
+    const after = build([
+      { op: 'control-center.set', ...before.controlCenter!, runtime: 'codex-local' },
+      { op: 'agent.edit', id: 'bench', runtime: 'codex-local' },
+      { op: 'runtime.remove', id: 'codex-desktop' },
+    ], before);
+    expect(validateWorkspace(after).ok).toBe(true);
+    expect(after.controlCenter).toEqual({ ...before.controlCenter, runtime: 'codex-local' });
+    expect(after.agents.find((agent) => agent.id === 'bench')).toEqual({ ...before.agents.find((agent) => agent.id === 'bench'), runtime: 'codex-local' });
+    expect(after.runtimes).not.toHaveProperty('codex-desktop');
+    expect(before).toEqual(snapshot);
+    expect(refusal(() => build([{ op: 'runtime.remove', id: 'codex-desktop' }, { op: 'control-center.set', runtime: 'codex-local' }], before)).code).toBe('runtime_in_use');
+    expect(before).toEqual(snapshot);
+  });
+});
+
 describe('import from a v1 agents.json', () => {
   it('creates one department, makes the analysis planner its head and places nobody on a project', () => {
     const before = readFileSync(EXAMPLE_V1, 'utf8');
@@ -34,9 +79,10 @@ describe('import from a v1 agents.json', () => {
       ['architect', 'head', []],
       ['reviewer', 'worker', []],
     ]);
-    // Because nobody is on the project, the department cannot receive work there yet.
+    // Imported workers participate automatically without a project assignment step.
     const pair = workspaceReadiness(imported, { projectCheckCounts: { app: 1 } }).eligibility[0]!;
-    expect(pair.codes).toEqual(['no_worker_on_project']);
+    expect(pair.codes).toEqual([]);
+    expect(pair.workerIds).toEqual(['engineer', 'reviewer']);
     // The source file is untouched.
     expect(readFileSync(EXAMPLE_V1, 'utf8')).toBe(before);
   });

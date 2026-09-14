@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-13T17:43:10.980Z",
+  "proofRoot": "/private/tmp/wf-mcp-proof-Bkd0u2",
+  "stateRoot": "/private/tmp/wf-mcp-proof-Bkd0u2/state",
+  "fixtureRepo": "/private/tmp/wf-mcp-proof-Bkd0u2/fixture",
+  "serverUrl": "http://127.0.0.1:53067/",
+  "runtimeVersion": "0.154.0",
+  "model": "gpt-6-astra",
+  "effort": "low",
+  "original": {
+    "head": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+    "status": "",
+    "files": {
+      "package.json": "dac75df74c6f104a34c63b416ce0eede3359e73f5a11cc10638d6c95189f0935",
+      "AGENTS.md": "f4339ca92379b83e4d48e03a70f3bead0b0930499ca3cff9e6df06adad221ff4",
+      "src/math.mjs": "75cfacb7faac086c50b23ac4b29a709eb8680999e6756f620ca76d42aba07cab",
+      "test/math.test.mjs": "b42ecec227241752302291967d801a28f3b2a2e1ffd541054feec2f0962339cd"
+    }
+  },
+  "stages": [
+    {
+      "at": "2026-09-13T17:43:12.597Z",
+      "status": "todo",
+      "execution": {
+        "state": "queued",
+        "reason": "Waiting for Control Center to start this issue.",
+        "verified": false,
+        "requestState": "queued",
+        "runState": null
+      },
+      "requestState": "queued",
+      "route": {
+        "state": "pending",
+        "projectId": "mcp-math",
+        "departmentId": null,
+        "headAgentId": null,
+        "reason": "Control Center is routing your request.",
+        "decidedAt": null,
+        "elapsedMs": 0,
+        "method": "pending",
+        "workspaceRevision": 1
+      },
+      "runId": null
+    },
+    {
+      "at": "2026-09-13T17:43:32.728Z",
+      "status": "in_progress",
+      "execution": {
+        "state": "running",
+        "reason": "The department head is planning and assigning the work.",
+        "verified": false,
+        "requestState": "running",
+        "runState": "running"
+      },
+      "requestState": "running",
+      "route": {
+        "state": "selected",
+        "projectId": "mcp-math",
+        "departmentId": "engineering",
+        "headAgentId": "engineering-head",
+        "reason": "This is a source code bug owned by Engineering. Handoff preserves the original PRD and all execution, review, and acceptance constraints.",
+        "decidedAt": "2026-09-13T17:43:29.621Z",
+        "elapsedMs": 18118.828666,
+        "method": "classifier",
+        "runtimeId": "codex-local",
+        "sessionId": "01a09bdd-b216-7640-8b57-30f6fd8809fc",
+        "model": "gpt-6-astra",
+        "effort": "low",
+        "workspaceRevision": 1
+      },
+      "runId": "01a09bdd-fa39-70e1-9024-7e675841e52d"
+    },
+    {
+      "at": "2026-09-13T17:44:51.135Z",
+      "status": "in_review",
+      "execution": {
+        "state": "review",
+        "reason": "The department head is reviewing the candidate and its checks.",
+        "verified": false,
+        "requestState": "running",
+        "runState": "running"
+      },
+      "requestState": "running",
+      "route": {
+        "state": "selected",
+        "projectId": "mcp-math",
+        "departmentId": "engineering",
+        "headAgentId": "engineering-head",
+        "reason": "This is a source code bug owned by Engineering. Handoff preserves the original PRD and all execution, review, and acceptance constraints.",
+        "decidedAt": "2026-09-13T17:43:29.621Z",
+        "elapsedMs": 18118.828666,
+        "method": "classifier",
+        "runtimeId": "codex-local",
+        "sessionId": "01a09bdd-b216-7640-8b57-30f6fd8809fc",
+        "model": "gpt-6-astra",
+        "effort": "low",
+        "workspaceRevision": 1
+      },
+      "runId": "01a09bdd-fa39-70e1-9024-7e675841e52d"
+    },
+    {
+      "at": "2026-09-13T17:45:21.424Z",
+      "status": "done",
+      "execution": {
+        "state": "completed",
+        "reason": "The candidate passed independent checks and department-head review.",
+        "verified": true,
+        "requestState": "ended",
+        "runState": "ready_for_review"
+      },
+      "requestState": "ended",
+      "route": {
+        "state": "selected",
+        "projectId": "mcp-math",
+        "departmentId": "engineering",
+        "headAgentId": "engineering-head",
+        "reason": "This is a source code bug owned by Engineering. Handoff preserves the original PRD and all execution, review, and acceptance constraints.",
+        "decidedAt": "2026-09-13T17:43:29.621Z",
+        "elapsedMs": 18118.828666,
+        "method": "classifier",
+        "runtimeId": "codex-local",
+        "sessionId": "01a09bdd-b216-7640-8b57-30f6fd8809fc",
+        "model": "gpt-6-astra",
+        "effort": "low",
+        "workspaceRevision": 1
+      },
+      "runId": "01a09bdd-fa39-70e1-9024-7e675841e52d"
+    }
+  ],
+  "passed": false,
+  "issueId": "01a09bdd-ae2b-70ed-b539-6554049260c2",
+  "requestId": "01a09bdd-b19b-71b3-88df-31f29927ade5",
+  "idempotency": {
+    "sameIssue": true,
+    "sameRequest": true
+  },
+  "runId": "01a09bdd-fa39-70e1-9024-7e675841e52d"
+}

@@ -1,0 +1,83 @@
+{
+  "id": "01a09bdf-2e29-76a8-8eb7-0659baee85ec",
+  "criterionId": "check-1",
+  "description": "--check \"node --test test/math.test.mjs\"",
+  "required": true,
+  "command": "node",
+  "args": [
+    "--test",
+    "test/math.test.mjs"
+  ],
+  "cwd": ".",
+  "timeoutMs": 600000,
+  "outcome": "passed",
+  "exitCode": 0,
+  "signal": null,
+  "timedOut": false,
+  "startedAt": "2026-09-13T17:44:50.032Z",
+  "endedAt": "2026-09-13T17:44:50.191Z",
+  "durationMs": 159,
+  "environmentIdentity": {
+    "node": "v26.8.1",
+    "os": "darwin",
+    "osRelease": "25.6.0",
+    "arch": "arm64",
+    "pathHash": "0645b0a2c6e31e95aa5a3de59e6e1aa4ec9353bfb8c49291233f0405c575c13a",
+    "envKeys": [
+      "HOME",
+      "LANG",
+      "PATH",
+      "TERM",
+      "TMPDIR"
+    ]
+  },
+  "candidate": {
+    "repoRoot": "/private/tmp/wf-mcp-proof-Bkd0u2/fixture",
+    "revision": "5fcfa69135e16a6397724ab17598b2ba0f70b968",
+    "patchHash": "906b24ce5c4f892bf19cd9d9ac4005520b3989b5964c0a914912bbb8cb7b4ff4"
+  },
+  "copyStrategy": "git_archive",
+  "integrity": {
+    "before": "51d2c42696f45b828aa0b2a0b8a191bd04bcf16c15b6780302c59ccdabb1f45d",
+    "after": "51d2c42696f45b828aa0b2a0b8a191bd04bcf16c15b6780302c59ccdabb1f45d",
+    "mutated": false,
+    "mutatedFiles": [],
+    "addedFiles": [],
+    "fileCount": 4,
+    "scope": "complete"
+  },
+  "outputSummary": {
+    "runner": "node_test",
+    "testsRun": 3,
+    "note": "node --test reported 3 test(s)"
+  },
+  "containment": {
+    "copyRoot": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-H3HXcq/01-check-1/candidate",
+    "home": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-H3HXcq/01-check-1/home-mssCBB",
+    "tmp": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-H3HXcq/01-check-1/tmp-3HZxY5",
+    "cwd": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-verification-H3HXcq/01-check-1/candidate",
+    "stateRoot": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math",
+    "outsideStateRoot": true,
+    "verificationRootOrigin": "os_temp",
+    "evidenceRoot": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/runs/01a09bdd-fa39-70e1-9024-7e675841e52d/verification/01a09bde-8487-70a7-b915-92eee522d28d/01-check-1/logs"
+  },
+  "stateRootGuard": {
+    "stateRoot": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math",
+    "checked": true,
+    "violations": [],
+    "observations": [],
+    "before": "802e135a2693973aa783023c08bdb57e1b3980139c02c049e373acff4a2b5caa",
+    "after": "802e135a2693973aa783023c08bdb57e1b3980139c02c049e373acff4a2b5caa",
+    "scope": "complete",
+    "note": "the coordinator state root was unchanged, apart from bytes inside runs/ and workspaces/ and the database and lock files that the coordinator itself writes during a run"
+  },
+  "stdoutPath": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/runs/01a09bdd-fa39-70e1-9024-7e675841e52d/verification/01a09bde-8487-70a7-b915-92eee522d28d/01-check-1/logs/stdout.log",
+  "stderrPath": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/runs/01a09bdd-fa39-70e1-9024-7e675841e52d/verification/01a09bde-8487-70a7-b915-92eee522d28d/01-check-1/logs/stderr.log",
+  "stdoutBytes": 244,
+  "stderrBytes": 0,
+  "outputTruncated": false,
+  "stdoutTail": "✔ adds positive integers (0.992792ms)\n✔ adds negative and positive integers (0.10525ms)\n✔ adds decimal numbers (0.112708ms)\nℹ tests 3\nℹ suites 0\nℹ pass 3\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 79.173458\n",
+  "stderrTail": "",
+  "evidenceProvenance": "verifier_executed",
+  "diagnostics": []
+}

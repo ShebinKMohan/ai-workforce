@@ -27,6 +27,7 @@ import {
   AdapterError,
   CAPABILITY_NAMES,
   validateSettingsAgainst,
+  capabilityWasTestedOn,
   type CapabilityName,
   type CapabilityReport,
   type CapabilityStatus,
@@ -83,6 +84,8 @@ export const DEFAULT_CODEX_EXECUTABLE = 'codex';
 
 /** The version this adapter's capability statuses were established against. */
 export const TESTED_CODEX_VERSION = '0.147.0';
+/** Separately executed conformance on each exact desktop or stable CLI build; no range is implied. */
+export const ADDITIONAL_TESTED_CODEX_VERSIONS: ReadonlyArray<string> = ['0.154.0-alpha.6.2', '0.154.0'];
 
 /**
  * The token-usage shape this adapter reads off `thread/tokenUsage/updated`.
@@ -189,15 +192,17 @@ function requestedSettingsOf(input: SessionInput): RequestedSettings {
   return { ...(input.model !== undefined ? { model: input.model } : {}), ...(input.effort !== undefined ? { effort: input.effort } : {}) };
 }
 
-function report(status: CapabilityStatus, note: string): CapabilityReport {
-  return { status, testedVersion: TESTED_CODEX_VERSION, os: 'darwin', note };
+function report(status: CapabilityStatus, note: string, additionalVersions: ReadonlyArray<string> = ADDITIONAL_TESTED_CODEX_VERSIONS): CapabilityReport {
+  return {
+    status, testedVersion: TESTED_CODEX_VERSION, testedVersions: additionalVersions, os: 'darwin',
+    note: additionalVersions.length > 0 ? `${note}. Additional exact-build evidence: docs/evidence/runtime-installations-2026-09-13/README.md and docs/evidence/codex-local-upgrade-2026-09-13/README.md.` : note,
+  };
 }
 
 /**
- * Capability statuses for codex-cli 0.147.0 on macOS. `verified` means this
- * package executed the control against the installed runtime; anything that
- * needs a completed model turn is `supported_unverified` because the account
- * on this machine is over its usage limit (see docs/runtime-codex.md).
+ * Capability statuses retain their original 0.147.0 evidence and separately
+ * recorded exact builds on macOS. An additional build is attached only to
+ * capabilities its conformance checks established; see the evidence records.
  */
 export const CODEX_CAPABILITIES: Readonly<Record<CapabilityName, CapabilityReport>> = {
   structured_events: report('verified', 'thread/started, turn/started, item/started, item/completed, thread/tokenUsage/updated, error and turn/completed observed on real sessions and normalized'),
@@ -205,7 +210,7 @@ export const CODEX_CAPABILITIES: Readonly<Record<CapabilityName, CapabilityRepor
   resume_session: report('verified', 'a thread was resumed by id in a second app-server process after the first was terminated, and answered from the earlier turn\'s history'),
   interrupt_turn: report('verified', 'turn/interrupt ended a running shell loop; the receipt reports observed only after turn/completed with status interrupted, and -32600 "no active turn to interrupt" is handled as a receipt rather than a crash'),
   active_turn_delivery: report('verified', 'turn/steer with expectedTurnId was accepted mid-turn and the receipt reports submitted_to_active_turn'),
-  queued_delivery: report('verified', 'a delivery recorded with no active turn is queued by the adapter and flushed into the next turn/start input'),
+  queued_delivery: report('verified', 'a delivery recorded with no active turn is queued by the adapter and flushed into the next turn/start input', []),
   process_tree_stop: report('verified', 'the app server is spawned as a process-group leader; stdin close, then SIGTERM, then SIGKILL, with the observed group state reported. Its MCP server children live in the same group and are waited for'),
   write_containment: report(
     'verified',
@@ -216,7 +221,7 @@ export const CODEX_CAPABILITIES: Readonly<Record<CapabilityName, CapabilityRepor
   usage_reporting: report('verified', 'thread/tokenUsage/updated reports input, cached input, output and reasoning token counts per turn. Currency cost is not reported by the app server at all and must never be presented as zero'),
   coordination_bridge: report(
     'verified',
-    'the coordination bridge is injected as `-c mcp_servers.<name>....` and used: on a real 0.147.0 turn a worker called the bridge tool send_message, the app server asked for authorization through mcpServer/elicitation/request, the adapter authorized that one request because the server name and tool are the ones it provisioned, the mcpToolCall item completed with status "completed", and the coordinator stored the message. Every other server -> client request stays refused',
+    'the coordinator injects its own bridge and preauthorizes only its exact role tools. Real send_message calls completed with a stored coordinator row and matching returned message id. The older mcpServer/elicitation/request path remains bounded to this provisioned server and tool, and every unrelated server -> client request stays refused',
   ),
 };
 
@@ -289,7 +294,9 @@ export class CodexAdapter implements RuntimeAdapter {
       };
     }
     const authentication = await this.#loginStatus(executablePath, diagnostics);
-    if (version !== TESTED_CODEX_VERSION) {
+    const testedControls = ['structured_events', 'session_identity', 'interrupt_turn', 'process_tree_stop'] as const;
+    const controlsEstablished = testedControls.every(name => capabilityWasTestedOn(CODEX_CAPABILITIES[name], version));
+    if (!controlsEstablished) {
       diagnostics.push(`installed codex-cli ${version} differs from the tested version ${TESTED_CODEX_VERSION}; capability statuses were established against the tested version`);
     }
 
@@ -303,7 +310,7 @@ export class CodexAdapter implements RuntimeAdapter {
         // Passively, the only evidence of controllability is that this is the version the
         // capability statuses were established against. A live probe replaces this with
         // evidence that the protocol was actually spoken.
-        controllable: version === TESTED_CODEX_VERSION,
+        controllable: controlsEstablished,
         authentication,
         // Installed and adapter-supported is not readiness: only a live check may say verified_ready.
         ready: 'unknown',

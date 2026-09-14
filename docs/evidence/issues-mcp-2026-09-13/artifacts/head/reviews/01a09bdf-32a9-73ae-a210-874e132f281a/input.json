@@ -1,0 +1,20 @@
+{
+  "reviewVersion": 1,
+  "headAgentId": "engineering-head",
+  "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+  "requestText": "Correct addition in the math module\n\nPRD: Correct numeric addition in the disposable math project.\n\nProblem: add(2, 3) currently returns -1 instead of 5.\n\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\n\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\n\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\n",
+  "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+  "baseRevision": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+  "diffHash": "89944ad5ed644d3d599baa44fc9521a38f30ea64566eda0bba41e22bc97a3254",
+  "tasks": [
+    {
+      "key": "t1",
+      "objective": "Correct add(a, b) in src/math.mjs to return the numeric sum for the existing supported numbers by fixing the subtraction defect.\nStay within: src/math.mjs\nDo not change: test/, package.json, AGENTS.md\nDone when (your department head's criteria; the coordinator runs the project's own checks to accept the work):\n- add(2, 3) returns 5, add(-2, 5) returns 3, and add(1.25, 2.5) returns 3.75; the unchanged command node --test test/math.test.mjs passes.\n- The actual candidate diff changes only src/math.mjs; original test/ files, package.json, and repository instructions are preserved.\n- Return a local candidate for coordinator capture and independent execution of existing checks against the frozen candidate, followed by Engineering head review of the actual diff and verifier receipts using the required structured review tool. Do not apply the candidate to the original repository.\nConstraint: Do not install packages, make network calls, create subagents, commit, push, merge, or deploy.\nConstraint: The coordinator owns candidate capture and independent checks.\nConstraint: Preserve the original PRD wording and line breaks, including MCP-PRD-2026-09-13; do not rewrite the PRD.",
+      "agentId": "engineer-one",
+      "taskId": "01a09bde-847c-7590-b3e8-a2a0e2d8f352"
+    }
+  ],
+  "receiptIds": [
+    "01a09bdf-3079-7621-a883-f874c53496e0"
+  ]
+}

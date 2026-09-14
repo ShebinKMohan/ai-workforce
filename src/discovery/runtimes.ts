@@ -26,6 +26,19 @@ export const KNOWN_LOCATIONS: ReadonlyArray<string> = [
   '~/.npm-global/bin',
 ];
 
+/** Desktop Codex ships its own CLI, which can differ from the CLI on PATH.
+ * These are exact bundle resource directories, not a recursive app scan. */
+export const CODEX_DESKTOP_LOCATIONS: ReadonlyArray<string> = [
+  '/Applications/Codex.app/Contents/Resources',
+  '/Applications/ChatGPT.app/Contents/Resources',
+  '~/Applications/Codex.app/Contents/Resources',
+  '~/Applications/ChatGPT.app/Contents/Resources',
+];
+
+export function knownRuntimeLocations(adapter: DiscoverableAdapter): ReadonlyArray<string> {
+  return adapter === 'codex' ? [...KNOWN_LOCATIONS, ...CODEX_DESKTOP_LOCATIONS] : KNOWN_LOCATIONS;
+}
+
 export interface RuntimeDescriptor {
   readonly adapter: DiscoverableAdapter;
   /** Executable file name searched for on PATH and in the known locations. */

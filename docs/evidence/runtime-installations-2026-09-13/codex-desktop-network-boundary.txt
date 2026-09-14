@@ -1,0 +1,28 @@
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > rejects an interrupt with no active turn and a resume of a thread with no rollout
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens)
+
+codex real-runtime timings
+{"check":"command/exec inside granted root","ms":772,"exitCode":0}
+{"check":"local-development network boundary","positiveControl":true,"listenerRequests":1,"deniedExitCode":7,"stderr":"curl: (7) Failed to connect to 127.0.0.1 port 62119 after 0 ms: Couldn't connect to server\n"}
+{"check":"analysis network boundary","positiveControl":true,"listenerRequests":1,"deniedExitCode":7,"stderr":"curl: (7) Failed to connect to 127.0.0.1 port 62119 after 0 ms: Couldn't connect to server\n"}
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: execution boundary (FR042, no model tokens) > confines writes to the granted roots and denies /tmp, $TMPDIR, a sibling workspace and the network 6913ms
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > steers an active turn through turn/steer and reports submission, not queueing
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > interrupts a running turn and leaves no owned process behind
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > denies a model-driven write outside the granted workspace and shows the denial in the events
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > reports a "done" message with no file change as an assistant message, not as success
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 11 skipped (12)
+   Start at  14:40:00
+   Duration  7.18s (tests 97%, transform 2%, import 1%)
+

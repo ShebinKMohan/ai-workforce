@@ -1,0 +1,14 @@
+{
+  "reviewVersion": 1,
+  "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+  "headAgentId": "engineering-head",
+  "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+  "diffHash": "89944ad5ed644d3d599baa44fc9521a38f30ea64566eda0bba41e22bc97a3254",
+  "verdict": "passed",
+  "summary": "Approved the verified local candidate. Inspected HEAD at the specified revision, the actual full diff against base 496c1eccddeae6aa1554498ee95c933841eb7c85, and the source, existing tests, package configuration, and repository instructions. The sole change replaces subtraction with addition in src/math.mjs, preserving the exported API and correctly computing the numeric sum for the existing supported numbers. The unchanged tests assert add(2, 3) === 5, add(-2, 5) === 3, and add(1.25, 2.5) === 3.75. Coordinator verifier receipt 01a09bdf-3079-7621-a883-f874c53496e0 records that node --test test/math.test.mjs passed for this exact candidate revision with verifier_executed provenance. The actual diff confirms test/, package.json, and AGENTS.md are unchanged, and the working tree is clean. No concrete unresolved defects were found. This approval covers the local candidate only; it does not claim application to the original repository, merge, or deployment.",
+  "findings": [],
+  "artifactId": "01a09bdf-9364-7369-a729-5f2bde8b6d7e",
+  "interrupted": false,
+  "sessionStopped": true,
+  "reviewedAt": "2026-09-13T17:45:19.218Z"
+}

@@ -28,7 +28,10 @@ function readiness(config: WorkspaceConfig): RuntimeReadinessReport {
     executable: binding.executable, realPath: `${binding.executable}-resolved`, version: '0.147.0',
     installed: true, adapterSupported: true, controllable: true, auth: 'logged_in', readiness: 'controllable',
     capabilities: capabilitiesFor('codex', '0.147.0'), checkedAt: new Date().toISOString(),
-    displayName: 'Fixture Codex', minimumSupportedVersion: '0.1.0', installations: [], searchedLocations: [],
+    displayName: 'Fixture Codex', minimumSupportedVersion: '0.1.0', installations: [
+      { path: binding.executable, realPath: `${binding.executable}-resolved`, source: 'override', origins: ['configured binding'], selected: true },
+      { path: '/fixture/Desktop.app/Contents/Resources/codex', realPath: '/fixture/Desktop.app/Contents/Resources/codex', source: 'known_location', origins: ['desktop bundle'], selected: false },
+    ], searchedLocations: [],
     probes: [], probeKind: 'passive', authDetail: 'Injected passive readiness; no installed CLI was probed.',
     missingControls: [], missingWriteBoundary: [], writingModeAvailable: true, diagnostics: [],
   };
@@ -67,6 +70,20 @@ function deferred<T>() {
 }
 
 describe('installed model catalogs through the loopback API', () => {
+  it('exposes discovered installation paths and refreshes them without registering or launching a runtime', async () => {
+    const target = await office();
+    const initial = JSON.parse((await rawRequest(target.server, { path: '/api/workspace' })).body);
+    expect(initial.runtimes.reports[0].installations).toEqual(readiness(target.config).installations);
+    expect((await rawRequest(target.server, { path: '/api/workspace' })).status).toBe(200);
+    expect(target.discover).toHaveBeenCalledTimes(1);
+    const refreshed = JSON.parse((await rawRequest(target.server, { path: '/api/workspace?refresh=1' })).body);
+    expect(refreshed.runtimes.reports[0].installations[1].selected).toBe(false);
+    expect(Object.keys(refreshed.workspace.runtimes)).toEqual([RUNTIME_ID]);
+    expect(target.discover).toHaveBeenCalledTimes(2);
+    expect(target.modelCatalog).not.toHaveBeenCalled();
+    expect(target.spawner).not.toHaveBeenCalled();
+  });
+
   it('uses only the saved binding and returns its discovered model/effort metadata', async () => {
     const target = await office();
     const response = await rawRequest(target.server, { path: `${MODEL_PATH}?executable=/attacker/bin/cli&adapter=claude-code` });

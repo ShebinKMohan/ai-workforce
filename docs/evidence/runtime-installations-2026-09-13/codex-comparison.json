@@ -1,0 +1,514 @@
+[
+  {
+    "label": "path",
+    "executablePath": "/opt/homebrew/bin/codex",
+    "visible": {
+      "models": [
+        {
+          "id": "gpt-5.6-sol",
+          "model": "gpt-5.6-sol",
+          "displayName": "GPT-5.6-Sol",
+          "hidden": false,
+          "isDefault": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "model": "gpt-5.6-terra",
+          "displayName": "GPT-5.6-Terra",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "model": "gpt-5.6-luna",
+          "displayName": "GPT-5.6-Luna",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.5",
+          "model": "gpt-5.5",
+          "displayName": "GPT-5.5",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.3-codex-spark",
+          "model": "gpt-5.3-codex-spark",
+          "displayName": "GPT-5.3-Codex-Spark",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "inputModalities": [
+            "text"
+          ]
+        }
+      ],
+      "cursors": [
+        null
+      ]
+    },
+    "includingHidden": {
+      "models": [
+        {
+          "id": "gpt-reserve",
+          "model": "gpt-reserve",
+          "displayName": "GPT-Reserve",
+          "hidden": true,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "model": "gpt-5.6-sol",
+          "displayName": "GPT-5.6-Sol",
+          "hidden": false,
+          "isDefault": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "model": "gpt-5.6-terra",
+          "displayName": "GPT-5.6-Terra",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "model": "gpt-5.6-luna",
+          "displayName": "GPT-5.6-Luna",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.5",
+          "model": "gpt-5.5",
+          "displayName": "GPT-5.5",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.3-codex-spark",
+          "model": "gpt-5.3-codex-spark",
+          "displayName": "GPT-5.3-Codex-Spark",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "inputModalities": [
+            "text"
+          ]
+        },
+        {
+          "id": "codex-auto-review",
+          "model": "codex-auto-review",
+          "displayName": "Codex Auto Review",
+          "hidden": true,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        }
+      ],
+      "cursors": [
+        null
+      ]
+    },
+    "stop": {
+      "signalled": null,
+      "exited": true,
+      "groupAlive": false
+    }
+  },
+  {
+    "label": "desktop",
+    "executablePath": "/Applications/ChatGPT.app/Contents/Resources/codex",
+    "visible": {
+      "models": [
+        {
+          "id": "gpt-6-astra",
+          "model": "gpt-6-astra",
+          "displayName": "GPT-6-Astra",
+          "hidden": false,
+          "isDefault": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "model": "gpt-5.6-sol",
+          "displayName": "GPT-5.6-Sol",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "model": "gpt-5.6-terra",
+          "displayName": "GPT-5.6-Terra",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "model": "gpt-5.6-luna",
+          "displayName": "GPT-5.6-Luna",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.5",
+          "model": "gpt-5.5",
+          "displayName": "GPT-5.5",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.3-codex-spark",
+          "model": "gpt-5.3-codex-spark",
+          "displayName": "GPT-5.3-Codex-Spark",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "inputModalities": [
+            "text"
+          ]
+        }
+      ],
+      "cursors": [
+        null
+      ]
+    },
+    "includingHidden": {
+      "models": [
+        {
+          "id": "gpt-6-astra",
+          "model": "gpt-6-astra",
+          "displayName": "GPT-6-Astra",
+          "hidden": false,
+          "isDefault": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-reserve",
+          "model": "gpt-reserve",
+          "displayName": "GPT-Reserve",
+          "hidden": true,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "model": "gpt-5.6-sol",
+          "displayName": "GPT-5.6-Sol",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-terra",
+          "model": "gpt-5.6-terra",
+          "displayName": "GPT-5.6-Terra",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.6-luna",
+          "model": "gpt-5.6-luna",
+          "displayName": "GPT-5.6-Luna",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.5",
+          "model": "gpt-5.5",
+          "displayName": "GPT-5.5",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        },
+        {
+          "id": "gpt-5.3-codex-spark",
+          "model": "gpt-5.3-codex-spark",
+          "displayName": "GPT-5.3-Codex-Spark",
+          "hidden": false,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "inputModalities": [
+            "text"
+          ]
+        },
+        {
+          "id": "codex-auto-review",
+          "model": "codex-auto-review",
+          "displayName": "Codex Auto Review",
+          "hidden": true,
+          "isDefault": false,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "inputModalities": [
+            "text",
+            "image"
+          ]
+        }
+      ],
+      "cursors": [
+        null
+      ]
+    },
+    "stop": {
+      "signalled": null,
+      "exited": true,
+      "groupAlive": false
+    }
+  }
+]

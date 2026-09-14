@@ -1,0 +1,39 @@
+{
+  "verifiedAt": "2026-09-14T04:25:53.484Z",
+  "sourceRoot": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee",
+  "cold": {
+    "port": 60439,
+    "pid": 49218,
+    "state": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-script-proof-wUOGgv",
+    "output": "Opening AI Workforce…\nChecking your workspace and preparing anything it needs.\n\nAI Workforce is ready: http://127.0.0.1:60439/\nFrontend and backend started together.\nYou can close this launcher window; your workforce keeps running.\n"
+  },
+  "repeat": {
+    "pid": 49218,
+    "output": "Opening AI Workforce…\nChecking your workspace and preparing anything it needs.\n\nAI Workforce is ready: http://127.0.0.1:60439/\nUsing your existing running workspace.\nYou can close this launcher window; your workforce keeps running.\n"
+  },
+  "assets": [
+    {
+      "route": "/",
+      "status": 200,
+      "bytes": 1607
+    },
+    {
+      "route": "/src/headquarters/assets/motion.js",
+      "status": 200,
+      "bytes": 7929
+    },
+    {
+      "route": "/api/workspace",
+      "status": 200,
+      "bytes": 3393
+    }
+  ],
+  "originalWorkspace": {
+    "pid": 12083,
+    "stateRoot": "/Users/shebin_mohan_k/Documents/Workforce-Dynamic-Office-2026-09-12/empty-state",
+    "unchanged": true
+  },
+  "launchCwd": "/private/tmp",
+  "launchPath": "/usr/bin:/bin",
+  "browserOpening": "disabled for isolated proof; opener behavior covered by launcher tests"
+}

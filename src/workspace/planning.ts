@@ -19,6 +19,7 @@ import type { Roster, RosterSnapshot } from './roster.js';
 
 export interface HeadPlanningInput {
   readonly requestText: string;
+  readonly workKind?: 'analysis' | 'implementation';
   /** "argument", or the absolute path of the --task-file. */
   readonly requestSource: string;
   readonly attachments?: ReadonlyArray<RuntimeAttachment>;

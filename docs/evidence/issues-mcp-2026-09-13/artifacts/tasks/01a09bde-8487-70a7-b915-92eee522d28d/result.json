@@ -1,0 +1,279 @@
+{
+  "manifestVersion": 1,
+  "runId": "01a09bdd-fa39-70e1-9024-7e675841e52d",
+  "taskId": "01a09bde-847c-7590-b3e8-a2a0e2d8f352",
+  "attemptId": "01a09bde-8487-70a7-b915-92eee522d28d",
+  "outcome": "accepted",
+  "createdAt": "2026-09-13T17:44:08.326Z",
+  "request": {
+    "text": "Correct addition in the math module\n\nPRD: Correct numeric addition in the disposable math project.\n\nProblem: add(2, 3) currently returns -1 instead of 5.\n\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\n\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\n\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\n",
+    "source": "argument",
+    "contextRefs": []
+  },
+  "project": {
+    "canonicalPath": "/private/tmp/wf-mcp-proof-Bkd0u2/fixture",
+    "requestedPath": "/private/tmp/wf-mcp-proof-Bkd0u2/fixture",
+    "repositoryIdentity": {
+      "rootCommit": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+      "rootCommits": [
+        "496c1eccddeae6aa1554498ee95c933841eb7c85"
+      ],
+      "originUrl": null,
+      "identityHash": "6b66570afcb3ebe761e290ea1292ac95832dddc32c8600655dde0aab93f9043e"
+    },
+    "branch": "fixture-base",
+    "detachedHead": false,
+    "hasSubmodules": false,
+    "projectId": "01a09bdd-fa39-70e2-93b2-0f41a8da2948"
+  },
+  "base": {
+    "mode": "head",
+    "revision": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+    "uncommittedChangesExcluded": null,
+    "note": "the checkout was clean; the committed HEAD is the complete base"
+  },
+  "candidate": {
+    "created": true,
+    "branch": "workforce/01a09bdd-fa39-70e1-9024-7e675841e52d/01a09bde-847c-7590-b3e8-a2a0e2d8f352/01a09bde-8487-70a7-b915-92eee522d28d",
+    "revision": "5fcfa69135e16a6397724ab17598b2ba0f70b968",
+    "patchHash": "906b24ce5c4f892bf19cd9d9ac4005520b3989b5964c0a914912bbb8cb7b4ff4",
+    "patchBytes": 257,
+    "checkpointCreated": true,
+    "changedFiles": [
+      {
+        "status": "M",
+        "path": "src/math.mjs"
+      }
+    ],
+    "workspacePath": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/workspaces/01a09bdd-fa39-70e1-9024-7e675841e52d/01a09bde-847c-7590-b3e8-a2a0e2d8f352/01a09bde-8487-70a7-b915-92eee522d28d",
+    "patchArtifactId": "01a09bdf-2f39-776f-91d1-715e25e7d073"
+  },
+  "agent": {
+    "id": "engineer-one",
+    "snapshotHash": "ca66b91b587fa654ad9d40a6eabedd8aaab79c32377ced2bb0b4b0c0b03fd318",
+    "policy": "local-development",
+    "instructionsCharacters": 215,
+    "limits": {
+      "maxActiveTurns": 1,
+      "maxActiveWriters": 1,
+      "maxTasksPerRun": 1,
+      "maxDelegationDepth": 0,
+      "maxRepairAttempts": 1,
+      "maxTransientRetries": 0,
+      "runTimeoutMinutes": 5
+    }
+  },
+  "runtime": {
+    "adapter": "codex",
+    "runtimeId": "codex-local",
+    "executable": "/opt/homebrew/bin/codex",
+    "model": "gpt-6-astra",
+    "modelStatus": "supported_unverified",
+    "effort": "low",
+    "effortStatus": "supported_unverified",
+    "effectiveModel": "gpt-6-astra",
+    "effectiveEffort": "low",
+    "effectiveSettingsSource": "runtime_reported",
+    "sessionId": "01a09bde-8d22-75b1-873d-5c10bedef79a",
+    "turnId": "01a09bde-9399-7f50-aac9-59ad2d2b4a58",
+    "turnConclusion": "completed",
+    "stopReceipt": {
+      "sessionId": "01a09bde-8d22-75b1-873d-5c10bedef79a",
+      "state": "process_tree_terminated",
+      "processId": 94076,
+      "signal": "SIGTERM",
+      "at": "2026-09-13T17:44:48.616Z"
+    },
+    "interruptReason": null
+  },
+  "requirements": [
+    {
+      "criterionId": "check-1",
+      "description": "--check \"node --test test/math.test.mjs\"",
+      "required": true,
+      "status": "passed",
+      "outcome": "passed",
+      "receiptId": "01a09bdf-2e29-76a8-8eb7-0659baee85ec",
+      "detail": "passed (exit 0, 159ms)"
+    }
+  ],
+  "checks": [
+    {
+      "criterionId": "check-1",
+      "outcome": "passed",
+      "exitCode": 0,
+      "durationMs": 159,
+      "command": "node",
+      "args": [
+        "--test",
+        "test/math.test.mjs"
+      ],
+      "cwd": ".",
+      "timeoutMs": 600000,
+      "environmentIdentity": {
+        "node": "v26.8.1",
+        "os": "darwin",
+        "osRelease": "25.6.0",
+        "arch": "arm64",
+        "pathHash": "0645b0a2c6e31e95aa5a3de59e6e1aa4ec9353bfb8c49291233f0405c575c13a",
+        "envKeys": [
+          "HOME",
+          "LANG",
+          "PATH",
+          "TERM",
+          "TMPDIR"
+        ]
+      },
+      "integrity": {
+        "before": "51d2c42696f45b828aa0b2a0b8a191bd04bcf16c15b6780302c59ccdabb1f45d",
+        "after": "51d2c42696f45b828aa0b2a0b8a191bd04bcf16c15b6780302c59ccdabb1f45d",
+        "mutated": false,
+        "mutatedFiles": [],
+        "addedFiles": [],
+        "fileCount": 4,
+        "scope": "complete"
+      },
+      "outputSummary": {
+        "runner": "node_test",
+        "testsRun": 3,
+        "note": "node --test reported 3 test(s)"
+      },
+      "copyStrategy": "git_archive",
+      "evidenceProvenance": "verifier_executed",
+      "logArtifactId": "01a09bdf-2f1c-769b-a6a4-2960c62d9ea0",
+      "diagnostics": []
+    }
+  ],
+  "acceptance": {
+    "accepted": true,
+    "requiredTotal": 1,
+    "requiredPassed": 1,
+    "reasons": []
+  },
+  "evidence": {
+    "checkSource": "cli_flags",
+    "checkSourceDetail": "1 check(s) from --check flags",
+    "runtimeClaimedDone": true,
+    "runtimeReportedTurnFailure": null,
+    "sessionIdentityMismatches": [],
+    "runtimeReportedFileChanges": [
+      "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/workspaces/01a09bdd-fa39-70e1-9024-7e675841e52d/01a09bde-847c-7590-b3e8-a2a0e2d8f352/01a09bde-8487-70a7-b915-92eee522d28d/src/math.mjs"
+    ],
+    "runtimeDeniedFileChanges": [],
+    "writesOutsideGrantedPaths": [],
+    "writeObservation": {
+      "basis": "runtime_reported_tool_events",
+      "enforcedWriteBoundary": true,
+      "expectedWriteBoundary": true,
+      "complete": true,
+      "boundaryFindings": [],
+      "note": "The runtime enforces a write boundary (write_containment \"verified\") and nothing this run observed contradicts it: no reported write landed outside the granted paths, and every reported change could be placed inside them. A write outside the granted paths would have been refused whether or not it was reported; every entry is a write the codex runtime itself reported through a tool event; the coordinator does not watch the filesystem, so this list can only be as complete as the runtime's reporting. An empty list therefore means no such write succeeded."
+    },
+    "deniedWritesOutsideGrantedPaths": [],
+    "unconfirmedWritesOutsideGrantedPaths": [],
+    "runtimeToolCalls": 0,
+    "runtimeCommands": 3,
+    "runtimeErrors": 0,
+    "acceptanceFixturePaths": [
+      "test/math.test.mjs"
+    ],
+    "acceptanceFixtureMutations": [],
+    "acceptanceFixtureAdditions": [],
+    "acceptanceDefinitionChanges": [],
+    "acceptanceExecutedDependencies": [
+      "src/math.mjs"
+    ],
+    "acceptanceDependencyChanges": [
+      {
+        "criterionId": "*",
+        "changedPaths": [
+          "M src/math.mjs"
+        ]
+      },
+      {
+        "criterionId": "check-1",
+        "changedPaths": [
+          "M src/math.mjs"
+        ]
+      }
+    ],
+    "acceptanceSurfaceResolution": {
+      "moduleGraphResolved": true,
+      "entryPoints": [
+        "test/math.test.mjs"
+      ],
+      "filesVisited": 4,
+      "partial": false,
+      "conservative": false
+    },
+    "acceptanceSurfaceUnresolved": [],
+    "acceptanceSurfaceLimitations": [],
+    "unnormalizedRuntimeEvents": 35,
+    "verificationCopyStrategy": "git_archive",
+    "note": "acceptance is decided from verifier-executed check receipts, the integrity of the fixtures those receipts executed, and the run-level blockers listed under acceptance.reasons; the runtime-reported fields above are context, not evidence of correctness",
+    "containment": {
+      "policy": "local-development",
+      "profileWrites": true,
+      "adapter": "codex",
+      "writeContainment": "verified",
+      "writeContainmentNote": "workspace-write with explicit writableRoots plus excludeSlashTmp and excludeTmpdirEnvVar: writes inside the granted root succeed while writes to a sibling workspace, to /tmp and to $TMPDIR are denied, network is denied, and read-only denies every write. Checked both through command/exec and through a model-driven turn asked to write outside its workspace. Additional exact-build evidence: docs/evidence/runtime-installations-2026-09-13/README.md and docs/evidence/codex-local-upgrade-2026-09-13/README.md.",
+      "statusTestedVersion": "0.154.0",
+      "statusOs": "darwin",
+      "enforcedWriteBoundary": true,
+      "expectedWriteBoundary": true,
+      "boundaryFindings": [],
+      "unplaceableChanges": [],
+      "unconfinedWritesAcknowledged": false,
+      "unenforceable": [
+        {
+          "aspect": "sandboxPolicy.writableRoots",
+          "reason": "the granted roots and the /tmp and $TMPDIR exclusions are sent per turn through turn/start.sandboxPolicy, whose result echoes nothing back, so no server statement confirms they took effect (at thread level the server reports writableRoots [], excludeSlashTmp false and excludeTmpdirEnvVar false)"
+        }
+      ],
+      "profileMismatch": []
+    },
+    "containmentNote": "Write confinement for this run is what the codex adapter reports as write_containment \"verified\" (established against 0.154.0 on darwin): workspace-write with explicit writableRoots plus excludeSlashTmp and excludeTmpdirEnvVar: writes inside the granted root succeed while writes to a sibling workspace, to /tmp and to $TMPDIR are denied, network is denied, and read-only denies every write. Checked both through command/exec and through a model-driven turn asked to write outside its workspace. Additional exact-build evidence: docs/evidence/runtime-installations-2026-09-13/README.md and docs/evidence/codex-local-upgrade-2026-09-13/README.md. Nothing this run observed contradicts it: no reported write landed outside the granted paths, and every reported change could be placed inside them. Any write seen outside the granted paths is listed above and blocks acceptance. The candidate workspace is a linked Git worktree: development isolation, not a security sandbox. Neither installed runtime confines reads at all — a worker can read files outside the repository, and this run did not prevent that. Each check ran in a separate disposable copy of the frozen candidate under a sanitized environment, with that copy, its HOME and its TMPDIR placed outside the coordinator state root, so no relative path from a check reaches coordinator state; the state root is fingerprinted on both sides of each check window, so a write that reached it by absolute path is recorded as an integrity failure instead of passing silently. Each receipt's `containment` and `stateRootGuard` report what was actually placed and actually measured. That is placement and detection, not confinement: repository test code still runs with this user's own filesystem privileges and can name any absolute path, so it can still read or write anything this user can — the home directory and the registered project checkout included — and an in-place overwrite that does not change a file's identity is recorded as an observation rather than a violation. An enforced execution boundary for tool and test subprocesses (FR042) is an R1 gate and is not claimed here; acceptance compensates only by refusing evidence whose fixtures the candidate changed."
+  },
+  "timing": {
+    "dispatchMs": 1978,
+    "startupMs": 1866,
+    "runtimeMs": 38232,
+    "validationMs": 531,
+    "elapsedMs": 43655
+  },
+  "usage": {
+    "status": "measured",
+    "inputTokens": 149250,
+    "outputTokens": 588,
+    "costUsd": null,
+    "source": "codex: thread/tokenUsage/updated reports token counts for this thread; the app server reports no currency cost, so cost is unavailable rather than zero (cost unavailable, reported as null rather than zero)"
+  },
+  "unresolved": [],
+  "artifacts": [
+    {
+      "type": "candidate_patch",
+      "path": "tasks/01a09bde-8487-70a7-b915-92eee522d28d/candidate.patch",
+      "sha256": "906b24ce5c4f892bf19cd9d9ac4005520b3989b5964c0a914912bbb8cb7b4ff4"
+    },
+    {
+      "type": "runtime_event_log",
+      "path": "tasks/01a09bde-8487-70a7-b915-92eee522d28d/logs/runtime-events.jsonl",
+      "sha256": "ce8ed1a3d6e6b967a86c6182a171926f71c8266146b0efbd8b4e63c6bc4419a6"
+    },
+    {
+      "type": "check_stdout",
+      "path": "checks/01a09bde-8487-70a7-b915-92eee522d28d/check-1/stdout.log",
+      "sha256": "edbab510231747adbc7c36927bc6a59754b44641daf6c4259b1f7070aac9fc55"
+    },
+    {
+      "type": "check_stderr",
+      "path": "checks/01a09bde-8487-70a7-b915-92eee522d28d/check-1/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "type": "check_receipt",
+      "path": "checks/01a09bde-8487-70a7-b915-92eee522d28d/check-1/receipt.json",
+      "sha256": "820c7226be7c94a0f8a161e4d14b933b1da3466eebe9323ef6db068d131d3562"
+    }
+  ]
+}

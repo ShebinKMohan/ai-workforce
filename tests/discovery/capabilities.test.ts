@@ -61,6 +61,18 @@ describe('capability tables are gated on the observed version', () => {
 });
 
 describe('the verified-capabilities hook', () => {
+  it('loads separate exact stable CLI evidence without crediting adjacent or other-platform builds', () => {
+    const overrides = loadVerifiedCapabilityOverrides(path.resolve('docs/verified-capabilities.json'));
+    expect(overrides.diagnostics).toEqual([]);
+    const stable = capabilitiesFor('codex', '0.154.0', { overrides, platform: 'darwin' });
+    for (const capability of ['sandbox_workspace_write', 'mcp_config_injection', 'observed_cancellation', 'model_selection'] as const) {
+      expect(stable[capability].status).toBe('verified');
+      expect(stable[capability].note).toContain('codex-local-upgrade-2026-09-13');
+    }
+    expect(capabilitiesFor('codex', '0.154.1', { overrides, platform: 'darwin' }).sandbox_workspace_write.status).toBe('supported_unverified');
+    expect(capabilitiesFor('codex', '0.154.0', { overrides, platform: 'linux' }).sandbox_workspace_write.status).toBe('supported_unverified');
+  });
+
   it('is optional: a missing file produces no diagnostic and leaves the table alone', () => {
     const loaded = loadVerifiedCapabilityOverrides(path.join(tempDir('workforce-caps-'), 'absent.json'));
     expect(loaded.present).toBe(false);
@@ -105,6 +117,19 @@ describe('the verified-capabilities hook', () => {
     );
     expect(unevidenced.entries).toEqual([]);
     expect(unevidenced.diagnostics.join(' ')).toContain('evidence');
+  });
+
+  it('accepts an exact recorded prerelease on its tested OS without upgrading adjacent builds', () => {
+    const overrides = loadVerifiedCapabilityOverrides(overrideFile(JSON.stringify({ version: 1, entries: [{
+      adapter: 'codex', minVersion: '0.154.0-alpha.6.2', exactVersions: ['0.154.0-alpha.6.2'], os: 'darwin',
+      capabilities: { sandbox_workspace_write: { status: 'verified', evidence: 'Owned exact-build fixture boundary proof.' } },
+    }] })));
+    expect(overrides.diagnostics).toEqual([]);
+    expect(capabilitiesFor('codex', '0.154.0-alpha.6.2', { overrides, platform: 'darwin' }).sandbox_workspace_write.status).toBe('verified');
+    for (const version of ['0.154.0-alpha.6.1', '0.154.0-alpha.6.3', '0.154.0', '0.155.0']) {
+      expect(capabilitiesFor('codex', version, { overrides, platform: 'darwin' }).sandbox_workspace_write.status).toBe('supported_unverified');
+    }
+    expect(capabilitiesFor('codex', '0.154.0-alpha.6.2', { overrides, platform: 'linux' }).sandbox_workspace_write.status).toBe('supported_unverified');
   });
 });
 

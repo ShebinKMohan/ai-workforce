@@ -137,6 +137,9 @@ const OverrideEntrySchema = z.strictObject({
   adapter: z.enum(['codex', 'claude-code']),
   minVersion: z.string().min(1),
   maxVersionExclusive: z.string().min(1).optional(),
+  /** Exact builds can be recorded without claiming the surrounding version range. */
+  exactVersions: z.array(z.string().min(1)).min(1).optional(),
+  os: z.enum(['aix', 'android', 'darwin', 'freebsd', 'haiku', 'linux', 'openbsd', 'sunos', 'win32', 'cygwin', 'netbsd']).optional(),
   capabilities: z.partialRecord(
     z.enum(DISCOVERY_CAPABILITY_NAMES),
     z.strictObject({
@@ -196,6 +199,7 @@ export function loadVerifiedCapabilityOverrides(file: string = defaultVerifiedCa
 
 export interface CapabilitiesOptions {
   readonly overrides?: LoadedOverrides;
+  readonly platform?: NodeJS.Platform;
 }
 
 /**
@@ -229,6 +233,8 @@ export function capabilitiesFor(adapter: DiscoverableAdapter, version: string | 
 
   for (const override of options.overrides?.entries ?? []) {
     if (override.adapter !== adapter) continue;
+    if (override.os !== undefined && override.os !== (options.platform ?? process.platform)) continue;
+    if (override.exactVersions !== undefined && !override.exactVersions.includes(version)) continue;
     if (!isAtLeast(version, override.minVersion)) continue;
     if (override.maxVersionExclusive !== undefined) {
       const cmp = compareVersions(version, override.maxVersionExclusive);

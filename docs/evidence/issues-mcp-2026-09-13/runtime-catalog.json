@@ -1,0 +1,703 @@
+{
+  "reports": [
+    {
+      "adapter": "codex",
+      "executable": "/opt/homebrew/bin/codex",
+      "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+      "version": "0.154.0",
+      "installed": true,
+      "adapterSupported": true,
+      "controllable": true,
+      "auth": "logged_in",
+      "readiness": "controllable",
+      "capabilities": {
+        "structured_execution": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: real file-creation turn streamed structured events, file changes, assistant replies and terminal completion. All 12 conformance tests passed with no skips. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "owned_session_identity": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: thread/start returned owned identity and effective Sol/low settings; a real thread resumed in a fresh process and retained its previous word. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "observed_cancellation": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: active turn interrupted with observed receipt, and owned process groups terminated without touching preexisting app runtime processes. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "resume_session": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: completed thread resumed in a new app-server process and answered with its previously supplied word. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "active_turn_delivery": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: turn/steer accepted on an active real turn with submitted_to_active_turn receipt. This does not establish queued delivery. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "mcp_config_injection": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: scoped role tools with per-tool approval_mode=approve and global approvalPolicy=never produced a completed workforce/send_message result, exactly one coordinator row with the expected task and canonical body, and an assistant reply containing that row's message ID. No interactive approvals. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "sandbox_workspace_write": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 FR042 exact official npm CLI 0.154.0: granted-root writes succeed; sibling, /tmp, TMPDIR and analysis writes denied; analysis reads succeed. An owned local HTTP listener responds outside the sandbox but cannot be reached through either sandbox profile. Model-driven outside writes leave files unchanged. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "model_selection": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: native model/list reports Astra as default and six visible models; requested Sol is returned as the effective thread/start model and used in real turns. docs/evidence/codex-local-upgrade-2026-09-13/catalog.json and conformance.txt"
+        },
+        "effort_selection": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: native per-model efforts discovered and requested low reflected in effective thread/start settings. docs/evidence/codex-local-upgrade-2026-09-13/catalog.json and conformance.txt"
+        },
+        "token_usage_report": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: real turn emitted thread/tokenUsage/updated with nonzero counts. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "cost_report": {
+          "status": "unsupported",
+          "source": "table",
+          "version": "0.154.0",
+          "note": "no currency-cost field is established for this runtime; report cost as unavailable, never as zero"
+        }
+      },
+      "checkedAt": "2026-09-13T17:43:09.636Z",
+      "displayName": "Codex CLI",
+      "minimumSupportedVersion": "0.140.0",
+      "installations": [
+        {
+          "path": "/opt/homebrew/bin/codex",
+          "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+          "source": "path",
+          "origins": [
+            "PATH entry /opt/homebrew/bin"
+          ],
+          "selected": true
+        },
+        {
+          "path": "/Applications/ChatGPT.app/Contents/Resources/codex",
+          "realPath": "/Applications/ChatGPT.app/Contents/Resources/codex",
+          "source": "path",
+          "origins": [
+            "PATH entry /Applications/ChatGPT.app/Contents/Resources"
+          ],
+          "selected": false
+        }
+      ],
+      "searchedLocations": [
+        "/Library/Frameworks/Python.framework/Versions/3.13/bin",
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/System/Cryptexes/App/usr/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+        "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin",
+        "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin",
+        "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin",
+        "/pkg/env/global/bin",
+        "/Library/Apple/usr/bin",
+        "/Users/shebin_mohan_k/.codex/tmp/arg0/codex-arg0CHDEOw",
+        "/Users/shebin_mohan_k/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override",
+        "/Users/shebin_mohan_k/.bun/bin",
+        "/Users/shebin_mohan_k/.antigravity-ide/antigravity-ide/bin",
+        "/Users/shebin_mohan_k/.local/bin",
+        "/Users/shebin_mohan_k/.antigravity/antigravity/bin",
+        "/opt/anaconda3/bin",
+        "/opt/anaconda3/condabin",
+        "/Users/shebin_mohan_k/.docker/bin",
+        "/Users/shebin_mohan_k/.lmstudio/bin",
+        "/Users/shebin_mohan_k/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback",
+        "/Applications/ChatGPT.app/Contents/Resources",
+        "/Users/shebin_mohan_k/.codex/bin",
+        "/Users/shebin_mohan_k/.npm-global/bin",
+        "/Applications/Codex.app/Contents/Resources",
+        "/Users/shebin_mohan_k/Applications/Codex.app/Contents/Resources",
+        "/Users/shebin_mohan_k/Applications/ChatGPT.app/Contents/Resources"
+      ],
+      "probes": [
+        {
+          "purpose": "version",
+          "adapter": "codex",
+          "executable": "/opt/homebrew/bin/codex",
+          "argv": [
+            "--version"
+          ],
+          "cwd": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-probe-t6sMSQ",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "spawnError": null,
+          "durationMs": 43,
+          "timeoutMs": 10000
+        },
+        {
+          "purpose": "auth",
+          "adapter": "codex",
+          "executable": "/opt/homebrew/bin/codex",
+          "argv": [
+            "login",
+            "status"
+          ],
+          "cwd": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-probe-t6sMSQ",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "spawnError": null,
+          "durationMs": 48,
+          "timeoutMs": 10000
+        }
+      ],
+      "probeKind": "passive",
+      "authDetail": "`codex login status` reports an active login",
+      "missingControls": [],
+      "missingWriteBoundary": [],
+      "writingModeAvailable": true,
+      "diagnostics": [
+        "2 codex installations found; using /opt/homebrew/bin/codex — others: /Applications/ChatGPT.app/Contents/Resources/codex"
+      ]
+    },
+    {
+      "adapter": "claude-code",
+      "executable": "/opt/homebrew/bin/claude",
+      "realPath": "/opt/homebrew/Caskroom/claude-code/2.1.236/claude",
+      "version": "2.1.236",
+      "installed": true,
+      "adapterSupported": true,
+      "controllable": true,
+      "auth": "logged_in",
+      "readiness": "controllable",
+      "capabilities": {
+        "structured_execution": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "`--print --output-format stream-json` emits structured events and a result record"
+        },
+        "owned_session_identity": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "sessions carry an id that `--resume` accepts"
+        },
+        "observed_cancellation": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "the process can be interrupted; observed termination still needs the process group"
+        },
+        "resume_session": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "documented for this version range; not yet proved against the installed executable"
+        },
+        "active_turn_delivery": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "documented for this version range; not yet proved against the installed executable"
+        },
+        "mcp_config_injection": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "MCP servers are configured through `--mcp-config`"
+        },
+        "sandbox_workspace_write": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "write scope is bounded by `--add-dir` and the permission mode, not by an OS sandbox"
+        },
+        "model_selection": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "documented for this version range; not yet proved against the installed executable"
+        },
+        "effort_selection": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "`--effort` accepts low, medium, high, xhigh and max on this version"
+        },
+        "token_usage_report": {
+          "status": "supported_unverified",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "documented for this version range; not yet proved against the installed executable"
+        },
+        "cost_report": {
+          "status": "unsupported",
+          "source": "table",
+          "version": "2.1.236",
+          "note": "no currency-cost field is established for this runtime; report cost as unavailable, never as zero"
+        }
+      },
+      "checkedAt": "2026-09-13T17:43:09.729Z",
+      "displayName": "Claude Code",
+      "minimumSupportedVersion": "2.1.0",
+      "installations": [
+        {
+          "path": "/opt/homebrew/bin/claude",
+          "realPath": "/opt/homebrew/Caskroom/claude-code/2.1.236/claude",
+          "source": "path",
+          "origins": [
+            "PATH entry /opt/homebrew/bin"
+          ],
+          "selected": true
+        },
+        {
+          "path": "/Users/shebin_mohan_k/.local/bin/claude",
+          "realPath": "/Users/shebin_mohan_k/.local/share/claude/versions/2.1.260",
+          "source": "path",
+          "origins": [
+            "PATH entry /Users/shebin_mohan_k/.local/bin"
+          ],
+          "selected": false
+        }
+      ],
+      "searchedLocations": [
+        "/Library/Frameworks/Python.framework/Versions/3.13/bin",
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/System/Cryptexes/App/usr/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+        "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin",
+        "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin",
+        "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin",
+        "/pkg/env/global/bin",
+        "/Library/Apple/usr/bin",
+        "/Users/shebin_mohan_k/.codex/tmp/arg0/codex-arg0CHDEOw",
+        "/Users/shebin_mohan_k/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override",
+        "/Users/shebin_mohan_k/.bun/bin",
+        "/Users/shebin_mohan_k/.antigravity-ide/antigravity-ide/bin",
+        "/Users/shebin_mohan_k/.local/bin",
+        "/Users/shebin_mohan_k/.antigravity/antigravity/bin",
+        "/opt/anaconda3/bin",
+        "/opt/anaconda3/condabin",
+        "/Users/shebin_mohan_k/.docker/bin",
+        "/Users/shebin_mohan_k/.lmstudio/bin",
+        "/Users/shebin_mohan_k/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback",
+        "/Applications/ChatGPT.app/Contents/Resources",
+        "/Users/shebin_mohan_k/.codex/bin",
+        "/Users/shebin_mohan_k/.npm-global/bin"
+      ],
+      "probes": [
+        {
+          "purpose": "version",
+          "adapter": "claude-code",
+          "executable": "/opt/homebrew/bin/claude",
+          "argv": [
+            "--version"
+          ],
+          "cwd": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-probe-7IV6Mz",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "spawnError": null,
+          "durationMs": 54,
+          "timeoutMs": 10000
+        },
+        {
+          "purpose": "auth",
+          "adapter": "claude-code",
+          "executable": "/opt/homebrew/bin/claude",
+          "argv": [
+            "auth",
+            "status"
+          ],
+          "cwd": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-probe-7IV6Mz",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "spawnError": null,
+          "durationMs": 258,
+          "timeoutMs": 10000
+        }
+      ],
+      "probeKind": "passive",
+      "authDetail": "`claude auth status` reported loggedIn=true, which describes a stored profile rather than what the runtime can spend",
+      "missingControls": [],
+      "missingWriteBoundary": [],
+      "writingModeAvailable": true,
+      "diagnostics": [
+        "2 claude installations found; using /opt/homebrew/bin/claude — others: /Users/shebin_mohan_k/.local/bin/claude",
+        "`claude auth status` reporting loggedIn=true describes a stored profile, not what the runtime can spend; the two have disagreed in both directions on this build. Run `workforce doctor --connect` to ask the runtime itself, which is the only check that can reach verified_ready"
+      ]
+    },
+    {
+      "adapter": "codex",
+      "executable": "/opt/homebrew/bin/codex",
+      "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+      "version": "0.154.0",
+      "installed": true,
+      "adapterSupported": true,
+      "controllable": true,
+      "auth": "logged_in",
+      "readiness": "controllable",
+      "capabilities": {
+        "structured_execution": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: real file-creation turn streamed structured events, file changes, assistant replies and terminal completion. All 12 conformance tests passed with no skips. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "owned_session_identity": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: thread/start returned owned identity and effective Sol/low settings; a real thread resumed in a fresh process and retained its previous word. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "observed_cancellation": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: active turn interrupted with observed receipt, and owned process groups terminated without touching preexisting app runtime processes. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "resume_session": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: completed thread resumed in a new app-server process and answered with its previously supplied word. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "active_turn_delivery": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: turn/steer accepted on an active real turn with submitted_to_active_turn receipt. This does not establish queued delivery. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "mcp_config_injection": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: scoped role tools with per-tool approval_mode=approve and global approvalPolicy=never produced a completed workforce/send_message result, exactly one coordinator row with the expected task and canonical body, and an assistant reply containing that row's message ID. No interactive approvals. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "sandbox_workspace_write": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 FR042 exact official npm CLI 0.154.0: granted-root writes succeed; sibling, /tmp, TMPDIR and analysis writes denied; analysis reads succeed. An owned local HTTP listener responds outside the sandbox but cannot be reached through either sandbox profile. Model-driven outside writes leave files unchanged. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "model_selection": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: native model/list reports Astra as default and six visible models; requested Sol is returned as the effective thread/start model and used in real turns. docs/evidence/codex-local-upgrade-2026-09-13/catalog.json and conformance.txt"
+        },
+        "effort_selection": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: native per-model efforts discovered and requested low reflected in effective thread/start settings. docs/evidence/codex-local-upgrade-2026-09-13/catalog.json and conformance.txt"
+        },
+        "token_usage_report": {
+          "status": "verified",
+          "source": "override",
+          "version": "0.154.0",
+          "note": "2026-09-13 exact official npm CLI 0.154.0: real turn emitted thread/tokenUsage/updated with nonzero counts. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt"
+        },
+        "cost_report": {
+          "status": "unsupported",
+          "source": "table",
+          "version": "0.154.0",
+          "note": "no currency-cost field is established for this runtime; report cost as unavailable, never as zero"
+        }
+      },
+      "checkedAt": "2026-09-13T17:43:09.636Z",
+      "displayName": "Codex CLI",
+      "minimumSupportedVersion": "0.140.0",
+      "installations": [
+        {
+          "path": "/opt/homebrew/bin/codex",
+          "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+          "source": "path",
+          "origins": [
+            "PATH entry /opt/homebrew/bin"
+          ],
+          "selected": true
+        },
+        {
+          "path": "/Applications/ChatGPT.app/Contents/Resources/codex",
+          "realPath": "/Applications/ChatGPT.app/Contents/Resources/codex",
+          "source": "path",
+          "origins": [
+            "PATH entry /Applications/ChatGPT.app/Contents/Resources"
+          ],
+          "selected": false
+        }
+      ],
+      "searchedLocations": [
+        "/Library/Frameworks/Python.framework/Versions/3.13/bin",
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/System/Cryptexes/App/usr/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+        "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin",
+        "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin",
+        "/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin",
+        "/pkg/env/global/bin",
+        "/Library/Apple/usr/bin",
+        "/Users/shebin_mohan_k/.codex/tmp/arg0/codex-arg0CHDEOw",
+        "/Users/shebin_mohan_k/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/override",
+        "/Users/shebin_mohan_k/.bun/bin",
+        "/Users/shebin_mohan_k/.antigravity-ide/antigravity-ide/bin",
+        "/Users/shebin_mohan_k/.local/bin",
+        "/Users/shebin_mohan_k/.antigravity/antigravity/bin",
+        "/opt/anaconda3/bin",
+        "/opt/anaconda3/condabin",
+        "/Users/shebin_mohan_k/.docker/bin",
+        "/Users/shebin_mohan_k/.lmstudio/bin",
+        "/Users/shebin_mohan_k/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback",
+        "/Applications/ChatGPT.app/Contents/Resources",
+        "/Users/shebin_mohan_k/.codex/bin",
+        "/Users/shebin_mohan_k/.npm-global/bin",
+        "/Applications/Codex.app/Contents/Resources",
+        "/Users/shebin_mohan_k/Applications/Codex.app/Contents/Resources",
+        "/Users/shebin_mohan_k/Applications/ChatGPT.app/Contents/Resources"
+      ],
+      "probes": [
+        {
+          "purpose": "version",
+          "adapter": "codex",
+          "executable": "/opt/homebrew/bin/codex",
+          "argv": [
+            "--version"
+          ],
+          "cwd": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-probe-t6sMSQ",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "spawnError": null,
+          "durationMs": 43,
+          "timeoutMs": 10000
+        },
+        {
+          "purpose": "auth",
+          "adapter": "codex",
+          "executable": "/opt/homebrew/bin/codex",
+          "argv": [
+            "login",
+            "status"
+          ],
+          "cwd": "/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/workforce-probe-t6sMSQ",
+          "exitCode": 0,
+          "signal": null,
+          "timedOut": false,
+          "spawnError": null,
+          "durationMs": 48,
+          "timeoutMs": 10000
+        }
+      ],
+      "probeKind": "passive",
+      "authDetail": "`codex login status` reports an active login",
+      "missingControls": [],
+      "missingWriteBoundary": [],
+      "writingModeAvailable": true,
+      "diagnostics": [
+        "2 codex installations found; using /opt/homebrew/bin/codex — others: /Applications/ChatGPT.app/Contents/Resources/codex"
+      ],
+      "runtimeId": "codex-local",
+      "configuredExecutable": "/opt/homebrew/bin/codex"
+    }
+  ],
+  "catalog": {
+    "runtimeId": "codex-local",
+    "adapter": "codex",
+    "configuredExecutable": "/opt/homebrew/bin/codex",
+    "executable": "/opt/homebrew/bin/codex",
+    "resolvedExecutable": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+    "version": "0.154.0",
+    "checkedAt": "2026-09-13T17:43:10.042Z",
+    "source": "codex:model/list",
+    "installations": [
+      {
+        "path": "/opt/homebrew/bin/codex",
+        "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+        "source": "path",
+        "origins": [
+          "PATH entry /opt/homebrew/bin"
+        ],
+        "selected": true
+      },
+      {
+        "path": "/Applications/ChatGPT.app/Contents/Resources/codex",
+        "realPath": "/Applications/ChatGPT.app/Contents/Resources/codex",
+        "source": "path",
+        "origins": [
+          "PATH entry /Applications/ChatGPT.app/Contents/Resources"
+        ],
+        "selected": false
+      }
+    ],
+    "status": "available",
+    "models": [
+      {
+        "id": "gpt-6-astra",
+        "label": "GPT-6-Astra",
+        "runtimeLabel": "GPT-6-Astra",
+        "provenance": "runtime-reported",
+        "resolvedModel": "gpt-6-astra",
+        "description": "Our most capable model for complex, demanding work.",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "defaultEffort": "medium",
+        "isDefault": true,
+        "effortStatus": "reported",
+        "inputModalities": [
+          "text",
+          "image"
+        ]
+      },
+      {
+        "id": "gpt-5.6-sol",
+        "label": "GPT-5.6-Sol",
+        "runtimeLabel": "GPT-5.6-Sol",
+        "provenance": "runtime-reported",
+        "resolvedModel": "gpt-5.6-sol",
+        "description": "Reliable agentic workhorse for everyday tasks.",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "defaultEffort": "low",
+        "isDefault": false,
+        "effortStatus": "reported",
+        "inputModalities": [
+          "text",
+          "image"
+        ]
+      },
+      {
+        "id": "gpt-5.6-terra",
+        "label": "GPT-5.6-Terra",
+        "runtimeLabel": "GPT-5.6-Terra",
+        "provenance": "runtime-reported",
+        "resolvedModel": "gpt-5.6-terra",
+        "description": "Balanced agentic coding model for everyday work.",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "defaultEffort": "medium",
+        "isDefault": false,
+        "effortStatus": "reported",
+        "inputModalities": [
+          "text",
+          "image"
+        ]
+      },
+      {
+        "id": "gpt-5.6-luna",
+        "label": "GPT-5.6-Luna",
+        "runtimeLabel": "GPT-5.6-Luna",
+        "provenance": "runtime-reported",
+        "resolvedModel": "gpt-5.6-luna",
+        "description": "Fast and affordable agentic coding model.",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "defaultEffort": "medium",
+        "isDefault": false,
+        "effortStatus": "reported",
+        "inputModalities": [
+          "text",
+          "image"
+        ]
+      },
+      {
+        "id": "gpt-5.5",
+        "label": "GPT-5.5",
+        "runtimeLabel": "GPT-5.5",
+        "provenance": "runtime-reported",
+        "resolvedModel": "gpt-5.5",
+        "description": "Proven previous-generation model for coding and general work.",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultEffort": "medium",
+        "isDefault": false,
+        "effortStatus": "reported",
+        "inputModalities": [
+          "text",
+          "image"
+        ]
+      },
+      {
+        "id": "gpt-5.3-codex-spark",
+        "label": "GPT-5.3-Codex-Spark",
+        "runtimeLabel": "GPT-5.3-Codex-Spark",
+        "provenance": "runtime-reported",
+        "resolvedModel": "gpt-5.3-codex-spark",
+        "description": "Ultra-fast coding model.",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "defaultEffort": "high",
+        "isDefault": false,
+        "effortStatus": "reported",
+        "inputModalities": [
+          "text"
+        ]
+      }
+    ],
+    "defaultModel": "gpt-6-astra",
+    "diagnostics": [
+      "This catalog belongs to /opt/homebrew/bin/codex (0.154.0). Other installed executables may offer different models; select their own runtime binding to load those models."
+    ]
+  },
+  "selectedModel": "gpt-6-astra",
+  "selectedEffort": "low"
+}

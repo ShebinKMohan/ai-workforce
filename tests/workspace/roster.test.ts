@@ -40,7 +40,7 @@ describe('roster building', () => {
     const nobody = build([{ op: 'project.add', repoPath: '/repos/new' }], config);
     const error = at('new', 'engineering-platform', nobody);
     expect([error.exitCode, error.code]).toEqual([2, 'no_worker_on_project']);
-    expect(error.details.join('\n')).toMatch(/worker "bench" is on: no project/);
+    expect(error.details.join('\n')).toMatch(/worker "bench" is explicitly restricted to: no projects/);
   });
 
   it('writes a v1 configuration holding only the roster, which resume and fallback then cannot leave', () => {

@@ -116,4 +116,16 @@ describe('executable resolution (FR001)', () => {
     // Exactly two directories were inspected: the PATH entry and the known location.
     expect(resolution.searchedLocations).toEqual([bin, path.join(root, 'also-known')]);
   });
+
+  it('discovers a desktop-bundled Codex outside PATH while preserving the PATH selection', () => {
+    const home = scratch();
+    const bin = path.join(home, 'path-bin');
+    const bundle = path.join(home, 'Applications', 'Codex.app', 'Contents', 'Resources');
+    writeExecutable(bin, 'codex', fakeCodex());
+    const bundledCodex = writeExecutable(bundle, 'codex', fakeCodex({ version: '0.154.0-alpha.6.2' }));
+    const resolution = resolveExecutable('codex', { pathValue: bin, homeDir: home });
+    expect(resolution.selected?.path).toBe(path.join(bin, 'codex'));
+    expect(resolution.installations).toContainEqual(expect.objectContaining({ path: bundledCodex, source: 'known_location', selected: false }));
+    expect(resolveExecutable('codex', { pathValue: bin, homeDir: home, knownLocations: [] }).installations.map(installation => installation.path)).toEqual([path.join(bin, 'codex')]);
+  });
 });

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-09-13T17:42:33.112Z",
+  "proofRoot": "/private/tmp/wf-mcp-proof-IfTb5P",
+  "stateRoot": "/private/tmp/wf-mcp-proof-IfTb5P/state",
+  "fixtureRepo": "/private/tmp/wf-mcp-proof-IfTb5P/fixture",
+  "serverUrl": "http://127.0.0.1:52982/",
+  "runtimeVersion": "0.154.0",
+  "model": "gpt-6-astra",
+  "effort": "low",
+  "original": {
+    "head": "e484091ced458dc7e18836426963f5db83f49d0f",
+    "status": "",
+    "files": {
+      "package.json": "dac75df74c6f104a34c63b416ce0eede3359e73f5a11cc10638d6c95189f0935",
+      "AGENTS.md": "f4339ca92379b83e4d48e03a70f3bead0b0930499ca3cff9e6df06adad221ff4",
+      "src/math.mjs": "75cfacb7faac086c50b23ac4b29a709eb8680999e6756f620ca76d42aba07cab",
+      "test/math.test.mjs": "b42ecec227241752302291967d801a28f3b2a2e1ffd541054feec2f0962339cd"
+    }
+  },
+  "stages": [],
+  "passed": false
+}

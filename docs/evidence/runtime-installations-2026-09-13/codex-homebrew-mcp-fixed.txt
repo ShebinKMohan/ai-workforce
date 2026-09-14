@@ -1,0 +1,45 @@
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > rejects an interrupt with no active turn and a resume of a thread with no rollout
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: execution boundary (FR042, no model tokens) > confines writes to the granted roots and denies /tmp, $TMPDIR, a sibling workspace and the network
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > steers an active turn through turn/steer and reports submission, not queueing
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > interrupts a running turn and leaves no owned process behind
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > denies a model-driven write outside the granted workspace and shows the denial in the events
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > reports a "done" message with no file change as an assistant message, not as success
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+codex coordination bridge: message 01a09a16-52b4-7324-9b35-4be51785c095 from task 01a09a16-0026-7535-8ab0-cadd484e0ef7, body {"text":"schema is ready"}
+
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+codex coordination authorization: {"version":"0.147.0","authorized":0,"denied":0}
+codex coordination bridge: observed tool result {"phase":"completed","itemId":"exec-c2e2e66a-7d79-4889-98c5-bfa65fe720d8","itemType":"mcpToolCall","tool":"send_message","server":"workforce","status":"completed","error":null}
+
+stdout | tests/adapters/codex/real-runtime.test.ts
+
+codex real-runtime timings
+{"check":"coordination bridge tool call","ms":27813}
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it 29838ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 11 skipped (12)
+   Start at  14:55:27
+   Duration  30.10s (tests 99%)
+
+
+Independent final conformance provenance
+Recorded: 2026-09-13T09:27:07.815857+00:00
+Exact executable: /opt/homebrew/bin/codex; CLI version: 0.147.0
+Test source SHA256 at run: b395cff0a9e6c0b75f34888eaded4141a1d89eb5f9224b3943a937bee5e8ac3b
+Coordination source SHA256 at run: 527ae8f0fdebb2639bb8ec93dba349883a49cd8b694bee1d955101b6e41223f0
+Command: WORKFORCE_REAL_RUNTIMES=1 WORKFORCE_CODEX_PATH='/opt/homebrew/bin/codex' npx vitest run tests/adapters/codex/real-runtime.test.ts -t 'coordination bridge' --reporter=verbose
+Result: exit 0; one selected test passed, eleven unrelated tests skipped by filter; duration 30.10s. No authentication or quota skip.
+Assertions passed: exactly one persisted coordinator message; exact worker task identity; canonical body exactly {text: schema is ready}; send_message result from provisioned workforce server with status completed and null/absent error; assistant response contains the same persisted message ID.
+Permission profile: global approvalPolicy remained never. Session argv preauthorized only the six defined worker tools and restricted enabled_tools to those names. Zero server authorization requests were emitted.
+Limit: this verifies the worker bridge role. Head/reviewer role tool lists and scoped permissions are covered by separate source/unit checks; this targeted test did not execute those roles.
+Final process inventory check after both tests: desktop app-server PIDs 36203, 45507 and 62591 match the pre-test inventory; no test-owned desktop or Homebrew Codex executable remained, and no Vitest process remained. The unrelated Cursor-bundled Codex process was not modified. Process inventory used executable names only, without printing argv or bridge tokens.

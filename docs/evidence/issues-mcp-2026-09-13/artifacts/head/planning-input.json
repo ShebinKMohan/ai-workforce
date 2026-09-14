@@ -1,0 +1,94 @@
+{
+  "planningRecordVersion": 1,
+  "runId": "01a09bdd-fa39-70e1-9024-7e675841e52d",
+  "projectId": "mcp-math",
+  "departmentId": "engineering",
+  "workspace": {
+    "schemaVersion": 2,
+    "revision": 1,
+    "runtimes": {
+      "codex-local": {
+        "adapter": "codex",
+        "executable": "/opt/homebrew/bin/codex",
+        "model": "gpt-6-astra",
+        "effort": "low"
+      }
+    },
+    "projects": [
+      {
+        "id": "mcp-math",
+        "name": "MCP math proof",
+        "repoPath": "/private/tmp/wf-mcp-proof-Bkd0u2/fixture",
+        "checks": [
+          "node --test test/math.test.mjs"
+        ],
+        "archived": false
+      }
+    ],
+    "departments": [
+      {
+        "id": "engineering",
+        "name": "Engineering",
+        "note": "Owns source code bugs and tests.",
+        "color": "blue",
+        "headAgentId": "engineering-head",
+        "archived": false
+      }
+    ],
+    "agents": [
+      {
+        "id": "engineering-head",
+        "name": "Engineering Head",
+        "role": "head",
+        "departmentId": "engineering",
+        "runtime": "codex-local",
+        "model": "gpt-6-astra",
+        "effort": "low",
+        "instructions": "Plan exactly one task, assigned to engineer-one, fixing only src/math.mjs. The request is a tiny addition bug. Use the required actual workforce_propose_plan tool. Preserve original acceptance tests and package configuration. On final review inspect the actual diff and verifier receipts, and use the required structured review tool. Do not call other agents or install packages.",
+        "capabilities": [
+          "planning"
+        ],
+        "policy": "analysis",
+        "projectIds": [],
+        "archived": false
+      },
+      {
+        "id": "engineer-one",
+        "name": "Engineer One",
+        "role": "worker",
+        "departmentId": "engineering",
+        "runtime": "codex-local",
+        "model": "gpt-6-astra",
+        "effort": "low",
+        "instructions": "Fix only src/math.mjs. Preserve test/ and package.json. Reproduce the provided bug, make the smallest source fix, run the existing tests, and finish. Do not spawn subagents, install packages, commit, push or deploy.",
+        "capabilities": [
+          "coding",
+          "testing"
+        ],
+        "policy": "local-development",
+        "projectIds": [
+          "mcp-math"
+        ],
+        "archived": false
+      }
+    ],
+    "limits": {
+      "maxConcurrentProjectRuns": 1,
+      "maxActiveTurns": 1,
+      "maxActiveWriters": 1,
+      "maxTasksPerRun": 1,
+      "maxDelegationDepth": 0,
+      "maxRepairAttempts": 1,
+      "maxTransientRetries": 0,
+      "runTimeoutMinutes": 5
+    },
+    "retiredIds": {
+      "projects": [],
+      "departments": [],
+      "agents": []
+    }
+  },
+  "checkFlags": [
+    "node --test test/math.test.mjs"
+  ]
+}

@@ -41,8 +41,8 @@ async function workspace(): Promise<string> {
     { op: 'control-center.set', runtime: 'codex-local', model: 'control-default', effort: 'high', instructions: 'Explain the recorded workspace context.' },
     { op: 'department.add', id: 'eng', name: 'Engineering' },
     { op: 'agent.add', id: 'head', name: 'Head', role: 'head', departmentId: 'eng', runtime: 'codex-local', model: 'head-model', effort: 'medium' },
-    { op: 'agent.add', id: 'one-worker', name: 'One worker', role: 'worker', departmentId: 'eng', runtime: 'codex-local', model: 'worker-model', effort: 'low', projectIds: ['one'] },
-    { op: 'agent.add', id: 'two-worker', name: 'Two worker', role: 'worker', departmentId: 'eng', runtime: 'codex-local', projectIds: ['two'] },
+    { op: 'agent.add', id: 'one-worker', name: 'One worker', role: 'worker', projectScope: 'restricted', departmentId: 'eng', runtime: 'codex-local', model: 'worker-model', effort: 'low', projectIds: ['one'] },
+    { op: 'agent.add', id: 'two-worker', name: 'Two worker', role: 'worker', projectScope: 'restricted', departmentId: 'eng', runtime: 'codex-local', projectIds: ['two'] },
   ]);
   return root;
 }

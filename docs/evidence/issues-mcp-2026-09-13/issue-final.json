@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "01a09bdd-ae2b-70ed-b539-6554049260c2",
+  "projectId": "mcp-math",
+  "revision": 2,
+  "title": "Correct addition in the math module",
+  "description": "PRD: Correct numeric addition in the disposable math project.\n\nProblem: add(2, 3) currently returns -1 instead of 5.\n\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\n\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\n\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\n",
+  "kind": "prd",
+  "source": "codex-proof",
+  "manualStatus": "backlog",
+  "status": "done",
+  "createdAt": "2026-09-13T17:43:11.659Z",
+  "updatedAt": "2026-09-13T17:43:11.660Z",
+  "requestId": "01a09bdd-b19b-71b3-88df-31f29927ade5",
+  "runId": "01a09bdd-fa39-70e1-9024-7e675841e52d",
+  "execution": {
+    "state": "completed",
+    "reason": "The candidate passed independent checks and department-head review.",
+    "verified": true,
+    "requestState": "ended",
+    "runState": "ready_for_review"
+  }
+}

@@ -1,0 +1,439 @@
+[
+  {
+    "sequence": 1,
+    "type": "run.created",
+    "at": "2026-09-13T17:43:31.129Z",
+    "payload": {
+      "repoPath": "/private/tmp/wf-mcp-proof-Bkd0u2/fixture",
+      "baseRevision": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+      "agentId": "engineer-one",
+      "path": "planned",
+      "taskCount": null,
+      "checkSource": "cli_flags",
+      "planning": "head"
+    }
+  },
+  {
+    "sequence": 2,
+    "type": "head.planning_started",
+    "at": "2026-09-13T17:43:31.141Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "departmentId": "engineering",
+      "projectId": "mcp-math",
+      "planningId": "01a09bdd-fa45-765c-a9ce-85fbda689180",
+      "runtimeId": "codex-local",
+      "adapter": "codex",
+      "maxAttempts": 2,
+      "workers": [
+        "engineer-one"
+      ]
+    }
+  },
+  {
+    "sequence": 3,
+    "type": "head.workspace_created",
+    "at": "2026-09-13T17:43:32.193Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "planningId": "01a09bdd-fa45-765c-a9ce-85fbda689180",
+      "path": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/workspaces/01a09bdd-fa39-70e1-9024-7e675841e52d/head/01a09bdd-fa45-765c-a9ce-85fbda689180",
+      "branch": "workforce/01a09bdd-fa39-70e1-9024-7e675841e52d/head/01a09bdd-fa45-765c-a9ce-85fbda689180",
+      "baseRevision": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+      "readOnly": true
+    }
+  },
+  {
+    "sequence": 4,
+    "type": "head.session_requested",
+    "at": "2026-09-13T17:43:32.194Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "attempt": 1,
+      "planningId": "01a09bdd-fa45-765c-a9ce-85fbda689180",
+      "adapter": "codex",
+      "runtimeId": "codex-local",
+      "workspacePath": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/workspaces/01a09bdd-fa39-70e1-9024-7e675841e52d/head/01a09bdd-fa45-765c-a9ce-85fbda689180",
+      "policy": "analysis"
+    }
+  },
+  {
+    "sequence": 5,
+    "type": "head.session_opened",
+    "at": "2026-09-13T17:43:32.483Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "planningId": "01a09bdd-fa45-765c-a9ce-85fbda689180",
+      "attempt": 1,
+      "sessionId": "01a09bdd-fea5-7d63-80dd-083d75fc644c",
+      "processId": 22989,
+      "process": {
+        "pid": 22989,
+        "startedAtMs": 1789321412195,
+        "spawnToken": "bb75edabc7c90725"
+      }
+    }
+  },
+  {
+    "sequence": 6,
+    "type": "head.turn_started",
+    "at": "2026-09-13T17:43:32.493Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "attempt": 1,
+      "sessionId": "01a09bdd-fea5-7d63-80dd-083d75fc644c",
+      "turnId": "01a09bdd-ff85-7b23-8d7c-7eab6be3ebcb",
+      "promptCharacters": 3595
+    }
+  },
+  {
+    "sequence": 40,
+    "type": "plan.proposed",
+    "at": "2026-09-13T17:43:56.894Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "attempt": 1,
+      "proposal": 1,
+      "artifactId": "01a09bde-5edd-7370-92c0-cdccf1063937",
+      "relativePath": "head/01a09bdd-fa45-765c-a9ce-85fbda689180/proposal-1.json",
+      "taskCount": 1
+    }
+  },
+  {
+    "sequence": 49,
+    "type": "head.session_stopped",
+    "at": "2026-09-13T17:44:06.280Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "planningId": "01a09bdd-fa45-765c-a9ce-85fbda689180",
+      "attempt": 1,
+      "sessionId": "01a09bdd-fea5-7d63-80dd-083d75fc644c",
+      "state": "process_tree_terminated",
+      "detail": null
+    }
+  },
+  {
+    "sequence": 50,
+    "type": "plan.validated",
+    "at": "2026-09-13T17:44:06.306Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "attempt": 1,
+      "taskCount": 1,
+      "summary": "Assign the tiny addition correction to exactly one Engineering worker, engineer-one, with changes limited to src/math.mjs. Preserve the existing acceptance checks for coordinator verification of the frozen local candidate and subsequent Engineering head review.",
+      "order": [
+        "t1"
+      ]
+    }
+  },
+  {
+    "sequence": 51,
+    "type": "head.assigned",
+    "at": "2026-09-13T17:44:06.525Z",
+    "payload": {
+      "key": "t1",
+      "taskId": "01a09bde-847c-7590-b3e8-a2a0e2d8f352",
+      "agentId": "engineer-one",
+      "headAgentId": "engineering-head",
+      "objective": "Correct add(a, b) in src/math.mjs to return the numeric sum for the existing supported numbers by fixing the subtraction defect.",
+      "dependencies": [],
+      "attempt": 1,
+      "decidedBy": "head"
+    }
+  },
+  {
+    "sequence": 52,
+    "type": "head.planning_finished",
+    "at": "2026-09-13T17:44:06.526Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "outcome": "planned",
+      "attempts": 1,
+      "taskCount": 1
+    }
+  },
+  {
+    "sequence": 53,
+    "type": "plan.registered",
+    "at": "2026-09-13T17:44:06.529Z",
+    "payload": {
+      "taskCount": 1,
+      "sha256": "5ff00c8a097dcb6f7516e7fddc8e8f1feff5be1864707f3761858d8012f430d1",
+      "keys": [
+        "t1"
+      ],
+      "headReview": {
+        "headAgentId": "engineering-head",
+        "required": true
+      }
+    }
+  },
+  {
+    "sequence": 54,
+    "type": "task.registered",
+    "at": "2026-09-13T17:44:06.532Z",
+    "payload": {
+      "key": "t1",
+      "agentId": "engineer-one",
+      "objective": "Correct add(a, b) in src/math.mjs to return the numeric sum for the existing supported numbers by fixing the subtraction defect.\nStay within: src/math.mjs\nDo not change: test/, package.json, AGENTS.md\nDone when (your department head's criteria; the coordinator runs the project's own checks to accept the work):\n- add(2, 3) returns 5, add(-2, 5) returns 3, and add(1.25, 2.5) returns 3.75; the unchanged command node --test test/math.test.mjs passes.\n- The actual candidate diff changes only src/math.mjs; original test/ files, package.json, and repository instructions are preserved.\n- Return a local candidate for coordinator capture and independent execution of existing checks against the frozen candidate, followed by Engineering head review of the actual diff and verifier receipts using the required structured review tool. Do not apply the candidate to the original repository.\nConstraint: Do not install packages, make network calls, create subagents, commit, push, merge, or deploy.\nConstraint: The coordinator owns candidate capture and independent checks.\nConstraint: Preserve the original PRD wording and line breaks, including MCP-PRD-2026-09-13; do not rewrite the PRD."
+    }
+  },
+  {
+    "sequence": 55,
+    "type": "task.created",
+    "at": "2026-09-13T17:44:08.326Z",
+    "payload": {
+      "repoPath": "/private/tmp/wf-mcp-proof-Bkd0u2/fixture",
+      "baseRevision": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+      "branch": "fixture-base",
+      "dirty": "clean",
+      "uncommittedChangesExcluded": false,
+      "agentId": "engineer-one",
+      "adapter": "codex",
+      "checkSource": "cli_flags"
+    }
+  },
+  {
+    "sequence": 56,
+    "type": "operation.intended",
+    "at": "2026-09-13T17:44:08.342Z",
+    "payload": {
+      "operationId": "01a09bde-8b96-753e-a6b2-68a0a586589a",
+      "kind": "dispatch_worker",
+      "generation": 1
+    }
+  },
+  {
+    "sequence": 57,
+    "type": "workspace.created",
+    "at": "2026-09-13T17:44:08.504Z",
+    "payload": {
+      "path": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/workspaces/01a09bdd-fa39-70e1-9024-7e675841e52d/01a09bde-847c-7590-b3e8-a2a0e2d8f352/01a09bde-8487-70a7-b915-92eee522d28d",
+      "branch": "workforce/01a09bdd-fa39-70e1-9024-7e675841e52d/01a09bde-847c-7590-b3e8-a2a0e2d8f352/01a09bde-8487-70a7-b915-92eee522d28d",
+      "baseRevision": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+      "excludedUncommittedChanges": false
+    }
+  },
+  {
+    "sequence": 58,
+    "type": "operation.dispatched",
+    "at": "2026-09-13T17:44:08.509Z",
+    "payload": {
+      "operationId": "01a09bde-8b96-753e-a6b2-68a0a586589a",
+      "kind": "dispatch_worker",
+      "generation": 1,
+      "workspacePath": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/workspaces/01a09bdd-fa39-70e1-9024-7e675841e52d/01a09bde-847c-7590-b3e8-a2a0e2d8f352/01a09bde-8487-70a7-b915-92eee522d28d",
+      "branch": "workforce/01a09bdd-fa39-70e1-9024-7e675841e52d/01a09bde-847c-7590-b3e8-a2a0e2d8f352/01a09bde-8487-70a7-b915-92eee522d28d"
+    }
+  },
+  {
+    "sequence": 59,
+    "type": "coordination.attached",
+    "at": "2026-09-13T17:44:08.518Z",
+    "payload": {
+      "socketPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-9006df8ab5135788522eae92/c.sock",
+      "serverName": "workforce",
+      "adapter": "codex",
+      "argumentCount": 20
+    }
+  },
+  {
+    "sequence": 60,
+    "type": "session.opened",
+    "at": "2026-09-13T17:44:10.383Z",
+    "payload": {
+      "adapter": "codex",
+      "sessionId": "01a09bde-8d22-75b1-873d-5c10bedef79a",
+      "processId": 94076
+    }
+  },
+  {
+    "sequence": 61,
+    "type": "turn.started",
+    "at": "2026-09-13T17:44:10.464Z",
+    "payload": {
+      "sessionId": "01a09bde-8d22-75b1-873d-5c10bedef79a",
+      "turnId": "01a09bde-9399-7f50-aac9-59ad2d2b4a58",
+      "promptCharacters": 3076
+    }
+  },
+  {
+    "sequence": 111,
+    "type": "candidate.snapshot",
+    "at": "2026-09-13T17:44:49.952Z",
+    "payload": {
+      "baseRevision": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+      "candidateRevision": "5fcfa69135e16a6397724ab17598b2ba0f70b968",
+      "patchHash": "906b24ce5c4f892bf19cd9d9ac4005520b3989b5964c0a914912bbb8cb7b4ff4",
+      "changedFileCount": 1,
+      "checkpointCreated": true
+    }
+  },
+  {
+    "sequence": 112,
+    "type": "operation.completed",
+    "at": "2026-09-13T17:44:50.252Z",
+    "payload": {
+      "operationId": "01a09bde-8b96-753e-a6b2-68a0a586589a",
+      "kind": "dispatch_worker",
+      "generation": 1
+    }
+  },
+  {
+    "sequence": 113,
+    "type": "run.accepted",
+    "at": "2026-09-13T17:44:50.253Z",
+    "payload": {
+      "outcome": "accepted",
+      "accepted": true,
+      "requiredPassed": 1,
+      "requiredTotal": 1,
+      "candidateRevision": "5fcfa69135e16a6397724ab17598b2ba0f70b968",
+      "reasons": []
+    }
+  },
+  {
+    "sequence": 114,
+    "type": "task.settled",
+    "at": "2026-09-13T17:44:50.300Z",
+    "payload": {
+      "key": "t1",
+      "accepted": true,
+      "repairsUsed": 0
+    }
+  },
+  {
+    "sequence": 115,
+    "type": "integration.combined",
+    "at": "2026-09-13T17:44:51.110Z",
+    "payload": {
+      "combinedRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "order": [
+        "01a09bde-8487-70a7-b915-92eee522d28d"
+      ],
+      "accepted": true,
+      "unverifiedCriteria": []
+    }
+  },
+  {
+    "sequence": 116,
+    "type": "head.review_started",
+    "at": "2026-09-13T17:44:51.113Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "deadlineMs": 300000
+    }
+  },
+  {
+    "sequence": 117,
+    "type": "head.review_workspace_created",
+    "at": "2026-09-13T17:44:51.354Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "path": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/workspaces/01a09bdd-fa39-70e1-9024-7e675841e52d/head-review/01a09bdf-32a9-73ae-a210-874e132f281a",
+      "readOnly": true
+    }
+  },
+  {
+    "sequence": 118,
+    "type": "head.review_session_requested",
+    "at": "2026-09-13T17:44:51.355Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "adapter": "codex",
+      "runtimeId": "codex-local",
+      "policy": "analysis",
+      "workspacePath": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math/workspaces/01a09bdd-fa39-70e1-9024-7e675841e52d/head-review/01a09bdf-32a9-73ae-a210-874e132f281a"
+    }
+  },
+  {
+    "sequence": 119,
+    "type": "head.review_session_opened",
+    "at": "2026-09-13T17:44:52.373Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "sessionId": "01a09bdf-347b-7410-8c95-82936fc8f43e",
+      "processId": 44154,
+      "process": {
+        "pid": 44154,
+        "startedAtMs": 1789321491356,
+        "spawnToken": "f4ffac5ab6bc93b0"
+      }
+    }
+  },
+  {
+    "sequence": 120,
+    "type": "head.review_turn_started",
+    "at": "2026-09-13T17:44:52.394Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "sessionId": "01a09bdf-347b-7410-8c95-82936fc8f43e",
+      "turnId": "01a09bdf-379e-7f52-bef6-98651d5abee3"
+    }
+  },
+  {
+    "sequence": 156,
+    "type": "head.review_submitted",
+    "at": "2026-09-13T17:45:15.876Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "verdict": "approve",
+      "artifactId": "01a09bdf-9364-7369-a729-5f2bde8b6d7e",
+      "diffHash": "89944ad5ed644d3d599baa44fc9521a38f30ea64566eda0bba41e22bc97a3254"
+    }
+  },
+  {
+    "sequence": 165,
+    "type": "head.review_session_stopped",
+    "at": "2026-09-13T17:45:19.044Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "sessionId": "01a09bdf-347b-7410-8c95-82936fc8f43e",
+      "state": "process_tree_terminated"
+    }
+  },
+  {
+    "sequence": 166,
+    "type": "head.review_finished",
+    "at": "2026-09-13T17:45:19.228Z",
+    "payload": {
+      "headAgentId": "engineering-head",
+      "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "verdict": "passed",
+      "summary": "Approved the verified local candidate. Inspected HEAD at the specified revision, the actual full diff against base 496c1eccddeae6aa1554498ee95c933841eb7c85, and the source, existing tests, package configuration, and repository instructions. The sole change replaces subtraction with addition in src/math.mjs, preserving the exported API and correctly computing the numeric sum for the existing supported numbers. The unchanged tests assert add(2, 3) === 5, add(-2, 5) === 3, and add(1.25, 2.5) === 3.75. Coordinator verifier receipt 01a09bdf-3079-7621-a883-f874c53496e0 records that node --test test/math.test.mjs passed for this exact candidate revision with verifier_executed provenance. The actual diff confirms test/, package.json, and AGENTS.md are unchanged, and the working tree is clean. No concrete unresolved defects were found. This approval covers the local candidate only; it does not claim application to the original repository, merge, or deployment.",
+      "artifactId": "01a09bdf-a07b-731e-a013-9de05d0a06d0",
+      "diffHash": "89944ad5ed644d3d599baa44fc9521a38f30ea64566eda0bba41e22bc97a3254",
+      "interrupted": false,
+      "sessionStopped": true
+    }
+  },
+  {
+    "sequence": 167,
+    "type": "control.final_reply",
+    "at": "2026-09-13T17:45:19.228Z",
+    "payload": {
+      "text": "Approved the verified local candidate. Inspected HEAD at the specified revision, the actual full diff against base 496c1eccddeae6aa1554498ee95c933841eb7c85, and the source, existing tests, package configuration, and repository instructions. The sole change replaces subtraction with addition in src/math.mjs, preserving the exported API and correctly computing the numeric sum for the existing supported numbers. The unchanged tests assert add(2, 3) === 5, add(-2, 5) === 3, and add(1.25, 2.5) === 3.75. Coordinator verifier receipt 01a09bdf-3079-7621-a883-f874c53496e0 records that node --test test/math.test.mjs passed for this exact candidate revision with verifier_executed provenance. The actual diff confirms test/, package.json, and AGENTS.md are unchanged, and the working tree is clean. No concrete unresolved defects were found. This approval covers the local candidate only; it does not claim application to the original repository, merge, or deployment.",
+      "summary": "Approved the verified local candidate. Inspected HEAD at the specified revision, the actual full diff against base 496c1eccddeae6aa1554498ee95c933841eb7c85, and the source, existing tests, package configuration, and repository instructions. The sole change replaces subtraction with addition in src/math.mjs, preserving the exported API and correctly computing the numeric sum for the existing supported numbers. The unchanged tests assert add(2, 3) === 5, add(-2, 5) === 3, and add(1.25, 2.5) === 3.75. Coordinator verifier receipt 01a09bdf-3079-7621-a883-f874c53496e0 records that node --test test/math.test.mjs passed for this exact candidate revision with verifier_executed provenance. The actual diff confirms test/, package.json, and AGENTS.md are unchanged, and the working tree is clean. No concrete unresolved defects were found. This approval covers the local candidate only; it does not claim application to the original repository, merge, or deployment.",
+      "headAgentId": "engineering-head",
+      "verificationStatus": "verified",
+      "source": "department_head_review",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "artifactId": "01a09bdf-a07b-731e-a013-9de05d0a06d0"
+    }
+  }
+]

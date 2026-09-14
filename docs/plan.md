@@ -1117,3 +1117,113 @@ post-repair commands, counts, browser receipts, real runtime version and candida
 
 The page is intended for local engineering dogfooding with these limits visible. Full stable
 product claims still require the original release checklist and independent user evidence.
+
+### Consolidated Headquarters, project issues and external MCP — 13 September 2026
+
+The user requested one source checkout under `CODES/CursorFiles/AI Employee`, moving the
+Headquarters frontend from `Documents/ChatGPT/AI Employee System` beside the backend before
+removing the former directory. The implementation preserves original frontend bytes and Git
+metadata in a dated recovery archive. Existing backend changes and external workspace state
+must survive the move. Headquarters is served directly by the existing loopback server; one
+`npm start` builds/opens both the frontend and backend. The old frontend bridge is no longer a
+required runtime process. Startup preferences choose the existing state root explicitly.
+
+This request brings a project issue board and external MCP intake into the current local
+milestone. It supersedes earlier deferral of this bounded project filter and intake capability.
+It does not add remote issue-host integration, a second scheduler or automatic publication.
+
+| ID | Feature | Acceptance criterion |
+| --- | --- | --- |
+| FR094 | Project issues | Durable, versioned project issues preserve title, exact brief/plan/PRD, source, revision and submission identity. The board has Backlog, To Do, In Progress, In Review and Done. Users can create, inspect, edit and organize cards; ordinary column changes start no execution. Explicit Send to Control Center freezes the submitted content and records its existing-queue request/run link. Execution progress and blockers derive from durable request/run evidence. Manual completion never represents independent verification. Concurrent edits conflict and uncertain retries do not duplicate work. |
+| FR095 | External coding-agent MCP | A local stdio `workforce mcp` connection exposes project/issue reads and bounded issue creation/update/plan submission/start tools. Codex and Claude use their documented MCP configuration. MCP forwards to the existing running loopback server and its session/Origin gates, never its own execution authority. Tool discovery starts no model turn. Complete plan content, stable mutation keys, useful offline/errors and project identity are preserved. Explicit execution proceeds through Control Center, department planning, existing capacity rules, worker isolation, independent checks and head review. |
+
+A saved plan (`start: false`) does not dispatch; explicitly starting it can consume the selected
+runtime's allowance. An imported plan is the submitted brief for the configured department head,
+not permission to bypass roster, checks, containment or review. Each started issue creates one
+logical Control Center request; a different issue does not cancel it. Applied, merged and
+deployed remain separate delivery facts.
+
+Acceptance covers actual served frontend modules and fonts, project isolation, issue persistence,
+optimistic edits, idempotent retry/start, literal plan forwarding, auth/origin/path rejection,
+real MCP initialize/list/call behavior, and browser create/edit/move/open flows. A disposable
+real Codex fixture provides separate runtime proof; a mock or successful transport handshake
+cannot establish agent execution. Evidence is in `docs/evidence/issues-mcp-2026-09-13` and
+`docs/evidence/consolidation-2026-09-13`.
+
+### One-click local access and coding-agent setup — 13 September 2026
+
+The user's latest requirement makes a graphical, automated path the primary workflow.
+Routine opening and connector setup must not require pasted shell commands, tool identifiers,
+configuration JSON or manually entered executable paths. Technical details may remain in an
+optional Advanced view for diagnosis.
+
+FR095 now includes automatic bounded discovery of installed Codex and Claude Code, a Connect
+button that registers the local Workforce MCP entry through each supported CLI's documented
+configuration operation, safe repeat clicks, readback and actual bridge/tool verification.
+The UI distinguishes saved/verified configuration from an already running client loading that
+configuration. An existing conversation may need reopening; the app must explain that directly.
+Setup never starts a paid model turn, extracts provider credentials, expands global approval
+policy, replaces an unrelated connector, or scans arbitrary user files. Missing/failed setup
+has a visible actionable state rather than a fabricated connected indicator.
+
+A local macOS launcher named AI Workforce provides one-click access. It verifies an existing
+matching workspace or builds and starts the local server on demand, opens the page without a
+terminal workflow, and reports startup errors in plain language. This is an installed local
+launcher for this source checkout, not a signed standalone desktop distribution or automatic
+updater. The same saved team, project state, server identity and queue remain authoritative.
+
+
+### Automatic shared workforce and multi-project visibility — 14 September 2026
+
+The user explicitly replaces manual worker placement as the default. Every active specialist
+is eligible across active registered projects, including existing configurations with empty or
+legacy projectIds. Optional projectScope restricted is an intentional advanced restriction;
+its allowlist remains enforced. Frozen admitted rosters remain exact. Availability and saved
+specialties determine selection; the same named worker cannot run on two projects at once.
+Existing project locks, configured parallel-project capacity and containment remain enforced.
+
+Intake distinguishes analysis from implementation. An authorized read-only codebase review
+must run without manually configured test commands. Its result consists of captured reports,
+coordinator-checked unchanged source and terminated sessions, plus independent department-head
+review. It is labeled Reviewed analysis and does not claim verified code, tests or deployment.
+Implementation acceptance still requires independently executed checks and head review. The
+work kind and exact admitted roster are frozen for execution and recovery.
+
+Headquarters shows all current project requests together and identifies actual owners,
+reserved versus working agents, current phase/action, timestamps and task evidence. The old
+single Work in focus panel and special Control Center banner are removed. Tom Chandler uses
+a normal neutral avatar card. The task rail displays readable work and results first, keeping
+raw diagnostics and optional runtime settings secondary. Routine work uses automatic handoff;
+historical failures remain recorded failures, not fabricated approvals or completed work.
+
+### Flight-control-inspired visual system and selectable headshots — 14 September 2026
+
+The user requests a consistent, modern light/dark visual system across every Headquarters
+page while retaining the compact agent roster. Distinct navigation, work, task-feed and
+conversation surfaces remove the former white-on-white ambiguity. Aviation influence is
+functional: labeled annunciators for actual runtime, MCP, queue and team state, crisp panel
+boundaries and tactile controls. No decorative gauge or animation may imply unrecorded work.
+Shared tokens govern semantic status colors, spacing, elevation and accessible contrast.
+Motion is bundled locally and respects reduced-motion preferences; ordinary updates and
+keyboard actions remain immediate. No CDN or new user setup is needed for the frontend.
+
+Agents, Control Center and department heads may select from 16 bundled, pre-rendered original
+portraits during creation or edit. A whitelisted optional avatarId is persisted through the
+existing revision-checked workspace operations. Existing identity-based faces remain the
+default. Avatar choice never changes runtime identity, eligibility or authorization.
+
+MCP readiness is visible from Headquarters and the global navigation bar. Connections offers
+one-step registration and tool verification for detected supported coding agents, with separate
+saved, verified and unavailable states. Transport is local stdio; the coordinator address must
+not be presented as an HTTP MCP endpoint. A saved, verified connector does not imply that an
+already-open external client session has loaded it.
+
+### Single-script startup — 14 September 2026
+
+The user requests a root `run.sh` for their usual launch workflow. It locates a supported local
+Node runtime, resolves this repository from any working directory, and uses the existing startup
+identity and concurrency protections. A cold launch installs missing or mismatched locked
+dependencies, builds the backend and frontend vendor assets, starts one detached local server,
+and opens its verified URL. A matching running workspace is reused with its existing data.
+`Run Workforce.command` provides the same behavior by double-click on macOS. Startup never
+requires launching the frontend and backend separately or entering per-project settings.

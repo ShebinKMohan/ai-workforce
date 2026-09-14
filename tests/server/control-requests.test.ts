@@ -43,8 +43,8 @@ async function workspace(extra: Array<Record<string, unknown>> = []): Promise<st
     { op: 'project.add', repoPath: two, name: 'two', checks: ['node --version'] },
     { op: 'department.add', id: 'eng', name: 'Engineering' },
     { op: 'agent.add', id: 'head', name: 'Head', role: 'head', departmentId: 'eng', runtime: 'codex-local' },
-    { op: 'agent.add', id: 'shared', name: 'Shared', role: 'worker', departmentId: 'eng', runtime: 'codex-local', projectIds: ['one', 'two'] },
-    { op: 'agent.add', id: 'free', name: 'Free', role: 'worker', departmentId: 'eng', runtime: 'codex-local', projectIds: ['two'] },
+    { op: 'agent.add', id: 'shared', name: 'Shared', role: 'worker', projectScope: 'restricted', departmentId: 'eng', runtime: 'codex-local', projectIds: ['one', 'two'] },
+    { op: 'agent.add', id: 'free', name: 'Free', role: 'worker', projectScope: 'restricted', departmentId: 'eng', runtime: 'codex-local', projectIds: ['two'] },
     { op: 'department.add', id: 'finance', name: 'Finance' },
     { op: 'agent.add', id: 'finance-head', name: 'Finance head', role: 'head', departmentId: 'finance', runtime: 'codex-local' },
     ...extra,
@@ -208,7 +208,7 @@ describe('automatic Control Center request admission', () => {
   it('uses available Codex workers without requiring consent for an unselected Claude worker', async () => {
     const root = await workspace([
       { op: 'runtime.set', id: 'claude-local', adapter: 'claude-code', executable: 'claude' },
-      { op: 'agent.add', id: 'unconfined', name: 'Unconfined', role: 'worker', departmentId: 'eng', runtime: 'claude-local', projectIds: ['two'] },
+      { op: 'agent.add', id: 'unconfined', name: 'Unconfined', role: 'worker', projectScope: 'restricted', departmentId: 'eng', runtime: 'claude-local', projectIds: ['two'] },
     ]);
     const h = harness(root, async (input) => selected(input));
     const receipt = await h.queue.submit({ projectId: 'two', departmentId: 'eng', task: 'Use the available worker.' });

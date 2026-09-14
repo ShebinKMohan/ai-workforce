@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "action": "started",
+  "url": "http://127.0.0.1:4421/",
+  "repoRoot": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee",
+  "stateRoot": "/Users/shebin_mohan_k/Documents/Workforce-Dynamic-Office-2026-09-12/empty-state",
+  "serverPid": 23694,
+  "serverStartedAt": "2026-09-13T18:14:30.528Z",
+  "logPath": "/Users/shebin_mohan_k/Library/Logs/AI Workforce/workspace-4421-2026-09-13T18-14-30-034Z.log",
+  "completedAt": "2026-09-13T18:14:31.109Z"
+}

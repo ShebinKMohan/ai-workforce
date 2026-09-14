@@ -1,0 +1,273 @@
+{
+  "ok": true,
+  "command": "status",
+  "exitCode": 0,
+  "stateRoot": "/private/tmp/wf-mcp-proof-Bkd0u2/state/projects/mcp-math",
+  "readOnly": true,
+  "run": {
+    "id": "01a09bdd-fa39-70e1-9024-7e675841e52d",
+    "state": "ready_for_review",
+    "headReview": {
+      "headAgentId": "engineering-head",
+      "reviewId": "01a09bdf-32a9-73ae-a210-874e132f281a",
+      "candidateRevision": "3e9c8b505abeba0e2665e198e3fdb779c518aa2f",
+      "verdict": "passed",
+      "summary": "Approved the verified local candidate. Inspected HEAD at the specified revision, the actual full diff against base 496c1eccddeae6aa1554498ee95c933841eb7c85, and the source, existing tests, package configuration, and repository instructions. The sole change replaces subtraction with addition in src/math.mjs, preserving the exported API and correctly computing the numeric sum for the existing supported numbers. The unchanged tests assert add(2, 3) === 5, add(-2, 5) === 3, and add(1.25, 2.5) === 3.75. Coordinator verifier receipt 01a09bdf-3079-7621-a883-f874c53496e0 records that node --test test/math.test.mjs passed for this exact candidate revision with verifier_executed provenance. The actual diff confirms test/, package.json, and AGENTS.md are unchanged, and the working tree is clean. No concrete unresolved defects were found. This approval covers the local candidate only; it does not claim application to the original repository, merge, or deployment.",
+      "artifactId": "01a09bdf-a07b-731e-a013-9de05d0a06d0",
+      "diffHash": "89944ad5ed644d3d599baa44fc9521a38f30ea64566eda0bba41e22bc97a3254",
+      "interrupted": false,
+      "sessionStopped": true,
+      "state": "passed",
+      "at": "2026-09-13T17:45:19.228Z"
+    },
+    "finalReply": "Approved the verified local candidate. Inspected HEAD at the specified revision, the actual full diff against base 496c1eccddeae6aa1554498ee95c933841eb7c85, and the source, existing tests, package configuration, and repository instructions. The sole change replaces subtraction with addition in src/math.mjs, preserving the exported API and correctly computing the numeric sum for the existing supported numbers. The unchanged tests assert add(2, 3) === 5, add(-2, 5) === 3, and add(1.25, 2.5) === 3.75. Coordinator verifier receipt 01a09bdf-3079-7621-a883-f874c53496e0 records that node --test test/math.test.mjs passed for this exact candidate revision with verifier_executed provenance. The actual diff confirms test/, package.json, and AGENTS.md are unchanged, and the working tree is clean. No concrete unresolved defects were found. This approval covers the local candidate only; it does not claim application to the original repository, merge, or deployment.",
+    "repoPath": "/private/tmp/wf-mcp-proof-Bkd0u2/fixture",
+    "baseRevision": "496c1eccddeae6aa1554498ee95c933841eb7c85",
+    "policy": "local-development",
+    "ownershipEpoch": 0,
+    "createdAt": "2026-09-13T17:43:31.129Z",
+    "updatedAt": "2026-09-13T17:45:19.228Z",
+    "endedAt": "2026-09-13T17:45:19.228Z",
+    "request": {
+      "requestVersion": 1,
+      "runId": "01a09bdd-fa39-70e1-9024-7e675841e52d",
+      "text": "Correct addition in the math module\n\nPRD: Correct numeric addition in the disposable math project.\n\nProblem: add(2, 3) currently returns -1 instead of 5.\n\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\n\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\n\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\n",
+      "contextRefs": [],
+      "repoPath": "/private/tmp/wf-mcp-proof-Bkd0u2/fixture",
+      "baseMode": "head",
+      "submittedAt": "2026-09-13T17:43:31.129Z"
+    }
+  },
+  "tasks": [
+    {
+      "id": "01a09bde-847c-7590-b3e8-a2a0e2d8f352",
+      "objective": "Correct add(a, b) in src/math.mjs to return the numeric sum for the existing supported numbers by fixing the subtraction defect.",
+      "state": "accepted",
+      "waitReason": null,
+      "generation": 1,
+      "ownerAgentId": "engineer-one"
+    }
+  ],
+  "taskViews": [
+    {
+      "id": "01a09bde-847c-7590-b3e8-a2a0e2d8f352",
+      "objective": "Correct add(a, b) in src/math.mjs to return the numeric sum for the existing supported numbers by fixing the subtraction defect.",
+      "state": "accepted",
+      "waitReason": null,
+      "ownerAgentId": "engineer-one",
+      "generation": 1,
+      "attempt": {
+        "id": "01a09bde-8487-70a7-b915-92eee522d28d",
+        "generation": 1,
+        "state": "completed",
+        "startedAt": "2026-09-13T17:44:10.464Z",
+        "endedAt": "2026-09-13T17:44:50.249Z"
+      },
+      "receipts": {
+        "verifierExecutedPassed": 1,
+        "verifierExecutedCompromised": 0,
+        "verifierExecutedFailed": 0,
+        "verifierExecutedOther": 0,
+        "otherProvenance": 0
+      },
+      "lastEvent": {
+        "type": "task.settled",
+        "timestamp": "2026-09-13T17:44:50.300Z",
+        "sequence": 114
+      }
+    }
+  ],
+  "compromisedReceiptIds": [],
+  "unverifiedReceiptIds": [],
+  "evidenceIssues": [],
+  "outcome": null,
+  "checks": [
+    {
+      "id": "01a09bdf-2e29-76a8-8eb7-0659baee85ec",
+      "criterionIds": [
+        "check-1"
+      ],
+      "command": "node --test test/math.test.mjs",
+      "outcome": "passed",
+      "exitCode": 0,
+      "candidateRevision": "5fcfa69135e16a6397724ab17598b2ba0f70b968",
+      "evidenceProvenance": "verifier_executed"
+    }
+  ],
+  "requirements": [],
+  "events": [
+    {
+      "sequence": 158,
+      "type": "runtime.raw",
+      "timestamp": "2026-09-13T17:45:15.898Z",
+      "taskId": null
+    },
+    {
+      "sequence": 159,
+      "type": "runtime.raw",
+      "timestamp": "2026-09-13T17:45:15.899Z",
+      "taskId": null
+    },
+    {
+      "sequence": 160,
+      "type": "runtime.assistant_message",
+      "timestamp": "2026-09-13T17:45:17.942Z",
+      "taskId": null
+    },
+    {
+      "sequence": 161,
+      "type": "runtime.raw",
+      "timestamp": "2026-09-13T17:45:17.996Z",
+      "taskId": null
+    },
+    {
+      "sequence": 162,
+      "type": "runtime.raw",
+      "timestamp": "2026-09-13T17:45:17.997Z",
+      "taskId": null
+    },
+    {
+      "sequence": 163,
+      "type": "runtime.raw",
+      "timestamp": "2026-09-13T17:45:18.002Z",
+      "taskId": null
+    },
+    {
+      "sequence": 164,
+      "type": "runtime.turn_completed",
+      "timestamp": "2026-09-13T17:45:18.002Z",
+      "taskId": null
+    },
+    {
+      "sequence": 165,
+      "type": "head.review_session_stopped",
+      "timestamp": "2026-09-13T17:45:19.044Z",
+      "taskId": null
+    },
+    {
+      "sequence": 166,
+      "type": "head.review_finished",
+      "timestamp": "2026-09-13T17:45:19.228Z",
+      "taskId": null
+    },
+    {
+      "sequence": 167,
+      "type": "control.final_reply",
+      "timestamp": "2026-09-13T17:45:19.228Z",
+      "taskId": null
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "01a09bdd-fa45-765b-9afb-439763771929",
+      "type": "head_planning_input",
+      "path": "head/planning-input.json",
+      "sha256": "f3772967425c7028b2fea6248491d68a7e35cdb20dd221f83e33e30c042be728",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09bde-5edd-7370-92c0-cdccf1063937",
+      "type": "head_plan_proposal",
+      "path": "head/01a09bdd-fa45-765c-a9ce-85fbda689180/proposal-1.json",
+      "sha256": "796a3e411a6fa0b3ef4b059cde6cfc8633dbd58f947d4f3c4c8bf253ed5b713a",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09bde-8399-724b-bc73-c76be4f1155a",
+      "type": "runtime_event_log",
+      "path": "head/01a09bdd-fa45-765c-a9ce-85fbda689180/runtime-events-1.jsonl",
+      "sha256": "7e478bd84c111d764eef815b87b9d5d653fa52305596a4c84c0c09368e1702d8",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09bdf-2f1c-769b-a6a4-2960c62d9ea0",
+      "type": "check_stdout",
+      "path": "checks/01a09bde-8487-70a7-b915-92eee522d28d/check-1/stdout.log",
+      "sha256": "edbab510231747adbc7c36927bc6a59754b44641daf6c4259b1f7070aac9fc55",
+      "candidateRevision": "5fcfa69135e16a6397724ab17598b2ba0f70b968"
+    },
+    {
+      "id": "01a09bdf-2f25-73eb-8389-69b0802d58ee",
+      "type": "check_stderr",
+      "path": "checks/01a09bde-8487-70a7-b915-92eee522d28d/check-1/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "candidateRevision": "5fcfa69135e16a6397724ab17598b2ba0f70b968"
+    },
+    {
+      "id": "01a09bdf-2f2e-759b-be8e-26f01904b9d9",
+      "type": "check_receipt",
+      "path": "checks/01a09bde-8487-70a7-b915-92eee522d28d/check-1/receipt.json",
+      "sha256": "820c7226be7c94a0f8a161e4d14b933b1da3466eebe9323ef6db068d131d3562",
+      "candidateRevision": "5fcfa69135e16a6397724ab17598b2ba0f70b968"
+    },
+    {
+      "id": "01a09bdf-2f39-776f-91d1-715e25e7d073",
+      "type": "candidate_patch",
+      "path": "tasks/01a09bde-8487-70a7-b915-92eee522d28d/candidate.patch",
+      "sha256": "906b24ce5c4f892bf19cd9d9ac4005520b3989b5964c0a914912bbb8cb7b4ff4",
+      "candidateRevision": "5fcfa69135e16a6397724ab17598b2ba0f70b968"
+    },
+    {
+      "id": "01a09bdf-2f48-775f-afbe-947b30bf4798",
+      "type": "runtime_event_log",
+      "path": "tasks/01a09bde-8487-70a7-b915-92eee522d28d/logs/runtime-events.jsonl",
+      "sha256": "ce8ed1a3d6e6b967a86c6182a171926f71c8266146b0efbd8b4e63c6bc4419a6",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09bdf-2f63-777c-9db0-c0033c075a7a",
+      "type": "result",
+      "path": "tasks/01a09bde-8487-70a7-b915-92eee522d28d/result.json",
+      "sha256": "c68b8999524c26b8f2d11da24378d0e1d4f32a4a0b3d040a4b876191f75ea3ef",
+      "candidateRevision": "5fcfa69135e16a6397724ab17598b2ba0f70b968"
+    },
+    {
+      "id": "01a09bdf-2f71-74b8-9abf-327a649bb8eb",
+      "type": "summary",
+      "path": "tasks/01a09bde-8487-70a7-b915-92eee522d28d/summary.md",
+      "sha256": "6e5147c528e003e23fe42d89d4cf28d583434036ffeb4f416be80eab5de619b7",
+      "candidateRevision": "5fcfa69135e16a6397724ab17598b2ba0f70b968"
+    },
+    {
+      "id": "01a09bdf-32fb-7678-9008-3ce1575549a7",
+      "type": "head_review_diff",
+      "path": "head/reviews/01a09bdf-32a9-73ae-a210-874e132f281a/candidate.patch",
+      "sha256": "89944ad5ed644d3d599baa44fc9521a38f30ea64566eda0bba41e22bc97a3254",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09bdf-379c-7766-b040-8ef937064388",
+      "type": "head_review_input",
+      "path": "head/reviews/01a09bdf-32a9-73ae-a210-874e132f281a/input.json",
+      "sha256": "8cfa8cdf490814baf31da8d34278b80757a2fc7a4b2d0d85e5ec163f0d5e8c79",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09bdf-9364-7369-a729-5f2bde8b6d7e",
+      "type": "head_review_proposal",
+      "path": "head/reviews/01a09bdf-32a9-73ae-a210-874e132f281a/proposal.json",
+      "sha256": "8027c0ca79fc07cd6eb6a7f92b1cd5e1055796e4a124bb46cc0d313286d85821",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09bdf-9fcf-76cd-a94b-4c729b694528",
+      "type": "runtime_event_log",
+      "path": "head/reviews/01a09bdf-32a9-73ae-a210-874e132f281a/runtime-events.jsonl",
+      "sha256": "8f4cca000bc3f3e6fbce5dced04e2da728bf5ec3a658127e3607e4a3f5c91712",
+      "candidateRevision": null
+    },
+    {
+      "id": "01a09bdf-a07b-731e-a013-9de05d0a06d0",
+      "type": "head_review_result",
+      "path": "head/reviews/01a09bdf-32a9-73ae-a210-874e132f281a/result.json",
+      "sha256": "8e3e7e5ef9de1531100456d2df7807a1ada9231ee8853c378ad359425dd8a5b6",
+      "candidateRevision": null
+    }
+  ],
+  "eventCount": 167,
+  "manifestPath": null,
+  "candidate": null,
+  "acceptance": null,
+  "timing": null,
+  "unresolved": []
+}

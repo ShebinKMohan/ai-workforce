@@ -27,7 +27,7 @@ import path from 'node:path';
 import type { AgentDefinition } from '../core/contracts.js';
 import { newId } from '../core/ids.js';
 import { createAdapter, runDirect, type RunDirectInput, type RunDirectResult } from '../core/run-direct.js';
-import type { RuntimeAdapter, RuntimeReadiness } from '../adapters/types.js';
+import { capabilityWasTestedOn, type RuntimeAdapter, type RuntimeReadiness } from '../adapters/types.js';
 import { beginNewGeneration } from '../storage/records.js';
 import {
   applyHandoffPacket,
@@ -246,7 +246,7 @@ async function candidatesFrom(input: RunDirectInput, first: RunDirectResult): Pr
     // A status is a claim about the build it was established against. A
     // replacement runtime that is not that build has not been shown to bound
     // writes, so it does not pass the writing-profile gate on its name alone.
-    const establishedForThisBuild = report.testedVersion !== null && readiness?.version != null && readiness.version === report.testedVersion;
+    const establishedForThisBuild = capabilityWasTestedOn(report, readiness?.version);
     candidates.push({
       ...base,
       adapterSupported: true,

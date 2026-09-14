@@ -1,0 +1,169 @@
+{
+  "runtimeId": "codex-local",
+  "adapter": "codex",
+  "configuredExecutable": "/opt/homebrew/bin/codex",
+  "executable": "/opt/homebrew/bin/codex",
+  "resolvedExecutable": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+  "version": "0.154.0",
+  "checkedAt": "2026-09-13T10:50:02.433Z",
+  "source": "codex:model/list",
+  "installations": [
+    {
+      "path": "/opt/homebrew/bin/codex",
+      "realPath": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+      "source": "path",
+      "origins": [
+        "PATH entry /opt/homebrew/bin"
+      ],
+      "selected": true
+    },
+    {
+      "path": "/Applications/ChatGPT.app/Contents/Resources/codex",
+      "realPath": "/Applications/ChatGPT.app/Contents/Resources/codex",
+      "source": "path",
+      "origins": [
+        "PATH entry /Applications/ChatGPT.app/Contents/Resources"
+      ],
+      "selected": false
+    }
+  ],
+  "status": "available",
+  "models": [
+    {
+      "id": "gpt-6-astra",
+      "label": "GPT-6-Astra",
+      "runtimeLabel": "GPT-6-Astra",
+      "provenance": "runtime-reported",
+      "resolvedModel": "gpt-6-astra",
+      "description": "Our most capable model for complex, demanding work.",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "defaultEffort": "medium",
+      "isDefault": true,
+      "effortStatus": "reported",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "label": "GPT-5.6-Sol",
+      "runtimeLabel": "GPT-5.6-Sol",
+      "provenance": "runtime-reported",
+      "resolvedModel": "gpt-5.6-sol",
+      "description": "Reliable agentic workhorse for everyday tasks.",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "defaultEffort": "low",
+      "isDefault": false,
+      "effortStatus": "reported",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "label": "GPT-5.6-Terra",
+      "runtimeLabel": "GPT-5.6-Terra",
+      "provenance": "runtime-reported",
+      "resolvedModel": "gpt-5.6-terra",
+      "description": "Balanced agentic coding model for everyday work.",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra"
+      ],
+      "defaultEffort": "medium",
+      "isDefault": false,
+      "effortStatus": "reported",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "label": "GPT-5.6-Luna",
+      "runtimeLabel": "GPT-5.6-Luna",
+      "provenance": "runtime-reported",
+      "resolvedModel": "gpt-5.6-luna",
+      "description": "Fast and affordable agentic coding model.",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "defaultEffort": "medium",
+      "isDefault": false,
+      "effortStatus": "reported",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.5",
+      "label": "GPT-5.5",
+      "runtimeLabel": "GPT-5.5",
+      "provenance": "runtime-reported",
+      "resolvedModel": "gpt-5.5",
+      "description": "Proven previous-generation model for coding and general work.",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "medium",
+      "isDefault": false,
+      "effortStatus": "reported",
+      "inputModalities": [
+        "text",
+        "image"
+      ]
+    },
+    {
+      "id": "gpt-5.3-codex-spark",
+      "label": "GPT-5.3-Codex-Spark",
+      "runtimeLabel": "GPT-5.3-Codex-Spark",
+      "provenance": "runtime-reported",
+      "resolvedModel": "gpt-5.3-codex-spark",
+      "description": "Ultra-fast coding model.",
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "defaultEffort": "high",
+      "isDefault": false,
+      "effortStatus": "reported",
+      "inputModalities": [
+        "text"
+      ]
+    }
+  ],
+  "defaultModel": "gpt-6-astra",
+  "diagnostics": [
+    "This catalog belongs to /opt/homebrew/bin/codex (0.154.0). Other installed executables may offer different models; select their own runtime binding to load those models."
+  ]
+}

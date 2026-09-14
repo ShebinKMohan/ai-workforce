@@ -1,0 +1,79 @@
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status
+codex version 0.154.0, authentication logged_in
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status 97ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports
+codex models: gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.3-codex-spark
+codex efforts: low, medium, high, xhigh, max, ultra
+
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree
+codex effective settings: {"model":"gpt-5.6-sol","effort":"low","sandbox":{"type":"workspaceWrite","writableRoots":[],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false},"approvalPolicy":"never","modelProvider":"openai"} diagnostics []
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports 832ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree 1897ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > rejects an interrupt with no active turn and a resume of a thread with no rollout 1832ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: execution boundary (FR042, no model tokens) > confines writes to the granted roots and denies /tmp, $TMPDIR, a sibling workspace and the network 7419ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository
+codex token usage notification observed: true
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository 26675ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > steers an active turn through turn/steer and reports submission, not queueing 9405ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone
+codex resumed thread reply: ["banana"]
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone 13814ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > interrupts a running turn and leaves no owned process behind 11979ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > denies a model-driven write outside the granted workspace and shows the denial in the events 41390ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > reports a "done" message with no file change as an assistant message, not as success 20383ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+codex coordination bridge: message 01a09a66-6d09-7407-b1fa-180c073e255c from task 01a09a66-4279-7468-98c6-7325a0a729a3, body {"text":"schema is ready"}
+
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+codex coordination authorization: {"version":"0.154.0","authorized":0,"denied":0}
+codex coordination bridge: observed tool result {"phase":"completed","itemId":"exec-db14385b-430f-40ab-b3e7-54f960fd67d4","itemType":"mcpToolCall","tool":"send_message","server":"workforce","status":"completed","error":null}
+
+stdout | tests/adapters/codex/real-runtime.test.ts
+
+codex real-runtime timings
+{"check":"passive probe","ms":96}
+{"check":"model/list","ms":830}
+{"check":"process start to thread/start response","ms":578}
+{"check":"stopOwnedProcesses","ms":411,"state":"process_tree_terminated","signal":null}
+{"check":"command/exec inside granted root","ms":814,"exitCode":0}
+{"check":"local-development network boundary","positiveControl":true,"listenerRequests":1,"deniedExitCode":7,"stderr":"curl: (7) Failed to connect to 127.0.0.1 port 51150 after 0 ms: Couldn't connect to server\n"}
+{"check":"analysis network boundary","positiveControl":true,"listenerRequests":1,"deniedExitCode":7,"stderr":"curl: (7) Failed to connect to 127.0.0.1 port 51150 after 0 ms: Couldn't connect to server\n"}
+{"check":"model turn","sessionOpenedMs":336,"turnStartedMs":356,"firstEventMs":356,"firstToolActionMs":7375,"completedMs":24598}
+{"check":"token usage observed","observed":true,"payload":"{\"method\":\"thread/tokenUsage/updated\",\"params\":{\"threadId\":\"01a09a64-6385-7f71-ad66-83e9925361df\",\"turnId\":\"01a09a64-6474-7d43-b243-4aee04cbc5e3\",\"tokenUsage\":{\"total\":{\"totalTokens\":26058,\"inputTokens\":25984,\"cachedInputTokens\":12032,\"cacheWriteInputTokens\":0,\"outputTokens\":74,\"reasoningOutputToken"}
+{"check":"turn/steer","ms":1,"state":"submitted_to_active_turn"}
+{"check":"thread/resume","ms":251}
+{"check":"interrupt","requestToObservedMs":11,"state":"observed"}
+{"check":"coordination bridge tool call","ms":12606}
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it 14148ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  16:20:51
+   Duration  150.18s (tests 100%)
+
+
+Independent full-suite provenance
+Recorded: 2026-09-13T10:54:44.104529+00:00
+CLI executable: /opt/homebrew/bin/codex
+Resolved launcher: /opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js
+Reported version: codex-cli 0.154.0
+Launcher SHA256 before and after suite: 61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70
+Native executable: /opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex
+Native executable SHA256 before and after suite: 4f85982624b3898c8991cb80c0981b2aa71070e3537046c9a95950318a95afcc
+Platform: darwin, arm64
+Test source SHA256 loaded at suite start: b395cff0a9e6c0b75f34888eaded4141a1d89eb5f9224b3943a937bee5e8ac3b
+Coordination source SHA256 loaded at suite start: 527ae8f0fdebb2639bb8ec93dba349883a49cd8b694bee1d955101b6e41223f0
+Command: WORKFORCE_REAL_RUNTIMES=1 WORKFORCE_CODEX_PATH='/opt/homebrew/bin/codex' npx vitest run tests/adapters/codex/real-runtime.test.ts --reporter=verbose
+Result: exit 0; all 12 tests passed; zero failures or skips; duration 150.18s. Real model turns used gpt-5.6-sol with low effort. Astra was observed in the native model catalog, not used by this suite.
+Filesystem proof: command/exec wrote in the granted root, rejected writes to sibling workspace, /tmp and TMPDIR, and rejected analysis-profile writes while allowing analysis reads. Unsandboxed positive control reached an owned local HTTP listener; both sandbox profiles returned curl exit 7 and never reached it.
+Coordination proof: exactly one persisted message from the correct worker task with canonical body {text: schema is ready}; completed send_message result from the provisioned workforce server with null error; assistant returned the exact same stored message ID. Zero interactive server authorization requests under scoped preauthorization; global approvalPolicy remained never.
+Cleanup: real session and interrupt tests explicitly checked owned process/tree termination. Post-suite executable-name inventory showed no Homebrew Codex or Vitest process remaining. Previously existing desktop app-server PIDs 36203, 45507 and 62591 and the unrelated Cursor-bundled Codex process remained unchanged. No existing process was signalled, no shared server restarted, and no source or runtime configuration edited by this test agent.
+Limits: model-driven outside-write test proves unchanged outside files and a visible refusal, which may be assistant-only. Separate command/exec checks prove actual filesystem denial. Queued delivery and live head/reviewer role calls are not separately exercised by this suite and must not inherit new-version proof from these results.

@@ -1,6 +1,6 @@
 /**
  * The roster of one request: a department's head plus that department's
- * workers placed on the project. ALL work for the request goes through that
+ * workers eligible for the project. ALL work for the request goes through that
  * head, and only these agents may be assigned tasks.
  *
  * `rosterAgentConfig` turns the roster into a v1 `AgentConfigFile` holding
@@ -49,7 +49,7 @@ function known(items: ReadonlyArray<{ id: string }>): string {
 /**
  * Build the roster for (project, department), or refuse with exit 2 and a
  * plain reason: an unknown or archived project or department, a department
- * with no head, or no worker of the department placed on the project.
+ * with no head, or no active worker permitted for the project.
  */
 export function buildRoster(config: WorkspaceConfig, selector: RosterSelector): Roster {
   const project = config.projects.find((p) => p.id === selector.projectId);
@@ -70,12 +70,12 @@ export function buildRoster(config: WorkspaceConfig, selector: RosterSelector): 
     const members = config.agents.filter((agent) => agent.departmentId === department.id && agent.role === 'worker' && !agent.archived);
     throw invalid(
       'no_worker_on_project',
-      `no worker of department "${department.id}" is placed on project "${project.id}", so nobody could do the work`,
+      `department "${department.id}" has no active worker permitted for project "${project.id}"`,
       members.length === 0
-        ? [`the department has no workers yet: workforce workspace agent add --department ${department.id} --role worker --runtime codex --name <name>`]
+        ? ['Add an active worker to this department. Workers can work across all projects by default.']
         : [
-            ...members.map((worker) => `worker "${worker.id}" is on: ${worker.projectIds.length === 0 ? 'no project (on the bench)' : worker.projectIds.join(', ')}`),
-            `place one: workforce workspace assign <worker> ${project.id}`,
+            ...members.map((worker) => `worker "${worker.id}" is explicitly restricted to: ${worker.projectIds.length === 0 ? 'no projects' : worker.projectIds.join(', ')}`),
+            'Update an explicit project restriction in Agents to make a worker available for this project.',
           ],
     );
   }

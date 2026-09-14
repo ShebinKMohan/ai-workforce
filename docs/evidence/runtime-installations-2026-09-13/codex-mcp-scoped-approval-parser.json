@@ -1,0 +1,78 @@
+{
+  "checkedAt": "2026-09-13T09:21:45.273831+00:00",
+  "method": "Native transient CLI configuration parser check through features list. No model, thread or MCP tool execution; no config file edits. The dummy MCP command was not launched.",
+  "schemaSource": "/tmp/workforce-codex-app-schema/v2/ConfigReadResponse.json definitions.AppToolApproval",
+  "recognizedValues": [
+    "auto",
+    "prompt",
+    "writes",
+    "approve"
+  ],
+  "limit": "Parser recognition proves the exact key and enum are supported; successful preauthorized tool execution requires separate live conformance.",
+  "records": [
+    {
+      "executable": "/Applications/ChatGPT.app/Contents/Resources/codex",
+      "field": "mcp_servers.workforce.tools.send_message.approval_mode",
+      "value": "__invalid_scope_probe__",
+      "argv": [
+        "-c",
+        "mcp_servers.workforce.command=\"/usr/bin/true\"",
+        "-c",
+        "mcp_servers.workforce.tools.send_message.approval_mode=\"__invalid_scope_probe__\"",
+        "features",
+        "list"
+      ],
+      "exitCode": 1,
+      "stderr": "Error: failed to load bootstrap configuration\n\nCaused by:\n    unknown variant `__invalid_scope_probe__`, expected one of `auto`, `prompt`, `writes`, `approve`\n    in `mcp_servers.workforce.tools.send_message.approval_mode`\n    \n",
+      "stdoutLineCount": 0
+    },
+    {
+      "executable": "/Applications/ChatGPT.app/Contents/Resources/codex",
+      "field": "mcp_servers.workforce.tools.send_message.approval_mode",
+      "value": "approve",
+      "argv": [
+        "-c",
+        "mcp_servers.workforce.command=\"/usr/bin/true\"",
+        "-c",
+        "mcp_servers.workforce.tools.send_message.approval_mode=\"approve\"",
+        "features",
+        "list"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "stdoutLineCount": 140
+    },
+    {
+      "executable": "/opt/homebrew/bin/codex",
+      "field": "mcp_servers.workforce.tools.send_message.approval_mode",
+      "value": "__invalid_scope_probe__",
+      "argv": [
+        "-c",
+        "mcp_servers.workforce.command=\"/usr/bin/true\"",
+        "-c",
+        "mcp_servers.workforce.tools.send_message.approval_mode=\"__invalid_scope_probe__\"",
+        "features",
+        "list"
+      ],
+      "exitCode": 1,
+      "stderr": "Error: unknown variant `__invalid_scope_probe__`, expected one of `auto`, `prompt`, `writes`, `approve`\nin `mcp_servers.workforce.tools.send_message.approval_mode`\n\n",
+      "stdoutLineCount": 0
+    },
+    {
+      "executable": "/opt/homebrew/bin/codex",
+      "field": "mcp_servers.workforce.tools.send_message.approval_mode",
+      "value": "approve",
+      "argv": [
+        "-c",
+        "mcp_servers.workforce.command=\"/usr/bin/true\"",
+        "-c",
+        "mcp_servers.workforce.tools.send_message.approval_mode=\"approve\"",
+        "features",
+        "list"
+      ],
+      "exitCode": 0,
+      "stderr": "",
+      "stdoutLineCount": 104
+    }
+  ]
+}

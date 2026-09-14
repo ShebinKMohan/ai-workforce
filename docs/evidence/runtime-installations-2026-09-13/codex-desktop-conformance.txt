@@ -1,0 +1,47 @@
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports
+codex models: gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, gpt-5.5, gpt-5.3-codex-spark
+codex efforts: low, medium, high, xhigh, max, ultra
+
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports 868ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree
+codex effective settings: {"model":"gpt-5.6-sol","effort":"low","sandbox":{"type":"workspaceWrite","writableRoots":[],"networkAccess":false,"excludeTmpdirEnvVar":false,"excludeSlashTmp":false},"approvalPolicy":"never","modelProvider":"openai"} diagnostics []
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree 1741ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > rejects an interrupt with no active turn and a resume of a thread with no rollout 1659ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens)
+
+codex real-runtime timings
+{"check":"model/list","ms":865}
+{"check":"process start to thread/start response","ms":383}
+{"check":"stopOwnedProcesses","ms":492,"state":"process_tree_terminated","signal":null}
+{"check":"command/exec inside granted root","ms":853,"exitCode":0}
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: execution boundary (FR042, no model tokens) > confines writes to the granted roots and denies /tmp, $TMPDIR, a sibling workspace and the network 6163ms
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > steers an active turn through turn/steer and reports submission, not queueing
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > interrupts a running turn and leaves no owned process behind
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > denies a model-driven write outside the granted workspace and shows the denial in the events
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > reports a "done" message with no file change as an assistant message, not as success
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 8 skipped (12)
+   Start at  14:37:53
+   Duration  10.70s (tests 98%, transform 1%, import 1%)
+
+
+Independent conformance provenance
+Recorded: 2026-09-13T09:09:02.912178+00:00
+Executable: /Applications/ChatGPT.app/Contents/Resources/codex
+CLI version: 0.154.0-alpha.6.2
+Executable SHA256: ecad78dbf98adb89ec475edac86630406cbe59d9f3070b17d88065f136b94bcb
+Test source SHA256 at run: 0ebc146497eb082ba4b69b5aa5922cf45aef865f4e346c94ae545e7176b04416
+Command: WORKFORCE_REAL_RUNTIMES=1 WORKFORCE_CODEX_PATH='/Applications/ChatGPT.app/Contents/Resources/codex' npx vitest run tests/adapters/codex/real-runtime.test.ts -t 'discovers the model|opens a real thread|rejects an interrupt|execution boundary' --reporter=verbose
+Result: exit 0; four selected tests passed, eight other tests skipped by name filter. No model turns were selected or started.
+Process check: before and after the run, app-server PIDs were 36203, 45507, and 62591; code-mode-host PID37533 also remained. No new app-server persisted. Existing processes were not signalled. The real session test also independently asserted the owned PID and process group were absent after stop.
+Proof limit: command/exec filesystem containment, native model metadata, session reported settings, inactive-turn interrupt/refused missing-rollout resume, and owned session cleanup were checked. Model-driven containment, active-turn stop/steering/resume, Astra inference, and the MCP coordination bridge were not selected. The network assertion observes a nonzero curl exit; it does not independently distinguish a sandbox network refusal from another network failure.

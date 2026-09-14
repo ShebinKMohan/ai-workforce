@@ -9,7 +9,7 @@
 import { accessSync, constants, realpathSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { KNOWN_LOCATIONS, runtimeDescriptor, type DiscoverableAdapter } from './runtimes.js';
+import { knownRuntimeLocations, runtimeDescriptor, type DiscoverableAdapter } from './runtimes.js';
 
 export type InstallationSource = 'override' | 'path' | 'known_location';
 
@@ -46,7 +46,7 @@ export interface ResolveOptions {
   readonly pathValue?: string | undefined;
   /** Home directory used to expand `~` in the known locations. */
   readonly homeDir?: string;
-  /** Known locations to check after PATH; defaults to `KNOWN_LOCATIONS`. */
+  /** Known locations to check after PATH; defaults to this adapter's bounded install locations. */
   readonly knownLocations?: ReadonlyArray<string>;
 }
 
@@ -86,7 +86,7 @@ export function resolveExecutable(adapter: DiscoverableAdapter, options: Resolve
   const executableName = options.executableName ?? descriptor.executableName;
   const homeDir = options.homeDir ?? os.homedir();
   const pathValue = options.pathValue ?? process.env['PATH'] ?? '';
-  const knownLocations = options.knownLocations ?? KNOWN_LOCATIONS;
+  const knownLocations = options.knownLocations ?? knownRuntimeLocations(adapter);
   const override = options.override === undefined || options.override === null || options.override.trim() === '' ? null : options.override;
 
   const searched: string[] = [];

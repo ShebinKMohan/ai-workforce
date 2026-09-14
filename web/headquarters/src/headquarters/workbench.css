@@ -1,0 +1,101 @@
+/* Canvas-first application frame. Page content and the task rail own their surfaces. */
+:root { --topbar-height: 52px; --chat-width: 370px; --navigation-width: 84px; }
+.shell.live-shell.workforce-workbench { grid-template-columns: var(--navigation-width) minmax(0, 1fr); }
+.workforce-workbench .sidebar { padding: 18px 8px 12px; align-items: center; overflow-x: hidden; background: var(--chrome-bg); border-color: color-mix(in srgb, var(--line) 60%, transparent); }
+.workforce-workbench .brand { padding: 0; display: flex; justify-content: center; gap: 9px; width: 100%; }
+.workforce-workbench .brand-symbol { width: 34px; height: 34px; border-radius: 10px; }
+.workforce-workbench .brand > span:last-child,
+.workforce-workbench .workspace-switch,
+.workforce-workbench .nav-label { display: none; }
+.workforce-workbench .nav-list { margin-top: 28px; width: 100%; gap: 8px; }
+.workforce-workbench .nav-button { width: 100%; display: flex; flex-direction: column; justify-content: center; gap: 7px; min-height: 55px; padding: 8px 2px; border-radius: 9px; font-size: 10.5px; line-height: 1.15; font-weight: 500; letter-spacing: -.15px; color: var(--sidebar-muted); }
+.workforce-workbench .nav-button > span { display: block; }
+.workforce-workbench .nav-button .icon { width: 20px; height: 20px; stroke-width: 1.65; }
+.workforce-workbench .nav-button:hover { background: var(--sidebar-hover); color: var(--sidebar-ink); }
+.workforce-workbench .nav-button.active { background: var(--accent-light); color: var(--accent); }
+.workforce-workbench .sidebar-bottom { padding-top: 20px; width: 100%; }
+.workforce-workbench .profile { justify-content: center; width: 100%; padding: 8px 0; }
+.workforce-workbench .profile > div:not(.user-avatar), .workforce-workbench .profile > .icon { display: none; }
+.workforce-workbench .user-avatar { width: 31px; height: 31px; font-size: 11px; }
+.workforce-workbench .topbar { padding: 0 20px 0 14px; gap: 14px; border-color: color-mix(in srgb, var(--line) 65%, transparent); background: var(--paper); }
+.workforce-workbench .navigation-toggle { width: 30px; height: 30px; flex: 0 0 30px; }
+.workforce-workbench .navigation-toggle .icon { transform: rotate(180deg); width: 17px; height: 17px; }
+.workforce-workbench .breadcrumb { margin-right: auto; font-size: 12px; gap: 8px; }
+.workforce-workbench .breadcrumb .breadcrumb-home > .icon { display: none; }
+.workforce-workbench .breadcrumb > button { padding: 5px 3px; }
+.workforce-workbench .top-actions { gap: 12px; }
+.workforce-workbench .topbar .connection-note { font-size: 11px; gap: 7px; }
+.workforce-workbench .connection-led { width: 6px; height: 6px; }
+.workforce-workbench .search-trigger { gap: 7px; font-size: 11px; }
+.workforce-workbench .chat-open-button { display: inline-flex; gap: 7px; align-items: center; font-size: 11px; padding: 6px 9px; min-height: 30px; background: transparent; box-shadow: none; border-color: color-mix(in srgb, var(--line) 70%, transparent); }
+.workforce-workbench .main-content[data-view='headquarters'] { position: relative; padding: 0; overflow: hidden; }
+.workforce-workbench #live-overview-host { height: 100%; min-height: 0; width: 100%; }
+.workforce-workbench .main-content:not([data-view='headquarters']) { padding: 32px clamp(22px, 3vw, 50px) 40px; }
+.workforce-workbench .main-content:not([data-view='headquarters']) > .eyebrow,
+.workforce-workbench .live-page-header .eyebrow { display: none; }
+.workforce-workbench .live-page-header h1 { font-size: 28px; font-weight: 620; letter-spacing: -.8px; margin: 0 0 9px; }
+.workforce-workbench .live-page-header p:not(.eyebrow) { font-size: 13px; line-height: 1.65; }
+.workforce-workbench .live-page-header { margin-bottom: 28px; }
+.workforce-workbench .live-section-heading h2 { font-size: 15px; }
+.workforce-workbench .live-search input { font-size: 13px; }
+.workforce-workbench .main-content :is(.cm-page-heading h1, .pm-header h1) { font-size: 28px; letter-spacing: -.8px; }
+.workforce-workbench.navigation-expanded { --navigation-width: 216px; }
+.workforce-workbench.navigation-expanded .sidebar { align-items: stretch; padding-inline: 14px; }
+.workforce-workbench.navigation-expanded .brand { justify-content: flex-start; padding-left: 5px; }
+.workforce-workbench.navigation-expanded .brand > span:last-child { display: block; font-size: 22px; }
+.workforce-workbench.navigation-expanded .workspace-switch { display: flex; margin: 25px 0 4px; }
+.workforce-workbench.navigation-expanded .nav-list { margin-top: 22px; gap: 5px; }
+.workforce-workbench.navigation-expanded .nav-button { flex-direction: row; justify-content: flex-start; min-height: 42px; padding: 10px 12px; gap: 11px; font-size: 13px; }
+.workforce-workbench.navigation-expanded .nav-button .icon { width: 18px; height: 18px; }
+.workforce-workbench.navigation-expanded .profile { justify-content: flex-start; gap: 9px; padding-inline: 6px; }
+.workforce-workbench.navigation-expanded .profile > div:not(.user-avatar) { display: block; }
+.workforce-workbench.navigation-expanded .profile strong { font-size: 12px; }
+.workforce-workbench.navigation-expanded .profile small { font-size: 10px; }
+.workforce-workbench ::-webkit-scrollbar { width: 6px; height: 6px; }
+.workforce-workbench ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--faint) 35%, transparent); border-radius: 8px; }
+.workforce-workbench ::-webkit-scrollbar-track { background: transparent; }
+:root[data-theme='dark'] .workforce-workbench .topbar { background: var(--chrome-bg); }
+:root[data-theme='dark'] .workforce-workbench .nav-button.active { background: var(--sidebar-selected); color: var(--sidebar-selected-ink); }
+@media (min-width: 1081px) {
+  .workforce-workbench .main-columns { grid-template-columns: minmax(0, 1fr) var(--chat-width); }
+  .workforce-workbench .main-columns.chat-closed, .workforce-workbench .main-columns.chat-focused { grid-template-columns: minmax(0, 1fr); }
+  .workforce-workbench .main-columns.chat-expanded { --chat-width: min(600px, 45vw); }
+}
+@media (max-width: 1080px) {
+  .workforce-workbench .main-columns { grid-template-columns: minmax(0, 1fr); }
+  .workforce-workbench .main-columns > .live-control-chat,
+  .workforce-workbench .main-columns.chat-focused > .live-control-chat { width: min(430px, calc(100vw - var(--navigation-width))); }
+  .workforce-workbench .topbar .connection-note { display: none; }
+}
+@media (max-width: 760px) {
+  :root { --navigation-width: 56px; --topbar-height: 52px; }
+  .shell.live-shell.workforce-workbench { grid-template-columns: var(--navigation-width) minmax(0, 1fr); }
+  .workforce-workbench .sidebar { padding: 14px 5px 10px; }
+  .workforce-workbench .nav-list { margin-top: 25px; gap: 7px; }
+  .workforce-workbench .nav-button { min-height: 42px; padding: 10px 4px; }
+  .workforce-workbench .nav-button > span { display: none; }
+  .workforce-workbench .brand-symbol { width: 30px; height: 30px; }
+  .workforce-workbench .topbar { padding-inline: 12px; gap: 8px; }
+  .workforce-workbench .navigation-toggle { display: none; }
+  .workforce-workbench .breadcrumb { font-size: 11px; gap: 5px; }
+  .workforce-workbench .breadcrumb-home > span { max-width: 75px; }
+  .workforce-workbench .top-actions { gap: 3px; }
+  .workforce-workbench .top-actions > [data-refresh] { display: none; }
+  .workforce-workbench .chat-open-button { font-size: 0; width: 30px; height: 30px; min-height: 30px; padding: 6px; }
+  .workforce-workbench .chat-open-button .icon { width: 16px; height: 16px; }
+  .workforce-workbench .main-content:not([data-view='headquarters']) { padding: 23px 17px 30px; }
+  .workforce-workbench .live-page-header h1 { font-size: 24px; }
+  .workforce-workbench.navigation-expanded { --navigation-width: 56px; }
+  .workforce-workbench.navigation-expanded .brand > span:last-child,
+  .workforce-workbench.navigation-expanded .workspace-switch,
+  .workforce-workbench.navigation-expanded .nav-button > span,
+  .workforce-workbench.navigation-expanded .profile > div:not(.user-avatar) { display: none; }
+  .workforce-workbench.navigation-expanded .sidebar { padding-inline: 5px; }
+  .workforce-workbench.navigation-expanded .brand, .workforce-workbench.navigation-expanded .profile { justify-content: center; padding-inline: 0; }
+  .workforce-workbench.navigation-expanded .nav-button { justify-content: center; padding: 10px 4px; }
+}
+@media (max-height: 690px) and (min-width: 761px) {
+  .workforce-workbench .nav-list { margin-top: 15px; gap: 3px; }
+  .workforce-workbench .nav-button { min-height: 48px; gap: 5px; }
+  .workforce-workbench .sidebar { padding-top: 13px; }
+}

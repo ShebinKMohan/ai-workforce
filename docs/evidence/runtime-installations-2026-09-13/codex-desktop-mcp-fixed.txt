@@ -1,0 +1,51 @@
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > rejects an interrupt with no active turn and a resume of a thread with no rollout
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: execution boundary (FR042, no model tokens) > confines writes to the granted roots and denies /tmp, $TMPDIR, a sibling workspace and the network
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > steers an active turn through turn/steer and reports submission, not queueing
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > interrupts a running turn and leaves no owned process behind
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > denies a model-driven write outside the granted workspace and shows the denial in the events
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > reports a "done" message with no file change as an assistant message, not as success
+stdout | tests/adapters/codex/real-runtime.test.ts
+
+codex real-runtime timings
+{"check":"coordination bridge tool call","ms":14495}
+
+ × tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it 16788ms
+   → expected { text: 'schema is ready' } to be 'schema is ready' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+AssertionError: expected { text: 'schema is ready' } to be 'schema is ready' // Object.is equality
+
+- Expected:
+"schema is ready"
+
++ Received:
+{
+  "text": "schema is ready",
+}
+
+ ❯ tests/adapters/codex/real-runtime.test.ts:598:33
+    596|       expect(messages.length, 'the coordinator must record exactly one…
+    597|       expect(messages[0]!.senderTaskId).toBe(task.id);
+    598|       expect(messages[0]!.body).toBe('schema is ready');
+       |                                 ^
+    599|       console.log(`codex coordination bridge: message ${messages[0]!.i…
+    600|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 skipped (12)
+   Start at  14:53:00
+   Duration  17.04s (tests 99%, transform 1%)
+

@@ -10,7 +10,7 @@ it('both UI entry modules resolve their shared formatter through actual served H
   const server = await startOfficeServer({ stateRoot: root, port: 0, discover: async () => [] });
   try {
     const implementations = [];
-    for (const entry of ['/workspace/src/pages/task.js', '/src/sidebar.js']) {
+    for (const entry of ['/workspace/src/pages/task.js', '/office/src/sidebar.js']) {
       let url = new URL(entry, server.url);
       const module = await rawRequest(server, { path: url.pathname });
       expect(module.status).toBe(200);

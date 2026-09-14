@@ -133,13 +133,13 @@ async function workspace(extraOps: Array<Record<string, unknown>> = []): Promise
         { op: 'project.add', repoPath: repos[3], name: 'docs' },
         { op: 'department.add', id: 'eng', name: 'Engineering' },
         { op: 'agent.add', id: 'atlas', name: 'Atlas', role: 'head', departmentId: 'eng', runtime: 'codex-local' },
-        { op: 'agent.add', id: 'nova', name: 'Nova', role: 'worker', departmentId: 'eng', runtime: 'codex-local', projectIds: ['checkout', 'docs'] },
-        { op: 'agent.add', id: 'probe', name: 'Probe', role: 'worker', departmentId: 'eng', runtime: 'codex-local', projectIds: ['billing'] },
-        { op: 'agent.add', id: 'echo', name: 'Echo', role: 'worker', departmentId: 'eng', runtime: 'codex-local', projectIds: ['search'] },
+        { op: 'agent.add', id: 'nova', name: 'Nova', role: 'worker', projectScope: 'restricted', departmentId: 'eng', runtime: 'codex-local', projectIds: ['checkout', 'docs'] },
+        { op: 'agent.add', id: 'probe', name: 'Probe', role: 'worker', projectScope: 'restricted', departmentId: 'eng', runtime: 'codex-local', projectIds: ['billing'] },
+        { op: 'agent.add', id: 'echo', name: 'Echo', role: 'worker', projectScope: 'restricted', departmentId: 'eng', runtime: 'codex-local', projectIds: ['search'] },
         { op: 'department.add', id: 'research', name: 'Research' },
         { op: 'agent.add', id: 'iris', name: 'Iris', role: 'head', departmentId: 'research', runtime: 'codex-local' },
-        { op: 'agent.add', id: 'shared', name: 'Shared', role: 'worker', departmentId: 'research', runtime: 'codex-local', projectIds: ['checkout', 'billing'] },
-        { op: 'agent.add', id: 'forge', name: 'Forge', role: 'worker', departmentId: 'research', runtime: 'claude-local', projectIds: ['search'] },
+        { op: 'agent.add', id: 'shared', name: 'Shared', role: 'worker', projectScope: 'restricted', departmentId: 'research', runtime: 'codex-local', projectIds: ['checkout', 'billing'] },
+        { op: 'agent.add', id: 'forge', name: 'Forge', role: 'worker', projectScope: 'restricted', departmentId: 'research', runtime: 'claude-local', projectIds: ['search'] },
         { op: 'department.add', id: 'design', name: 'Design' },
         { op: 'agent.add', id: 'mo', name: 'Mo', role: 'head', departmentId: 'design', runtime: 'codex-local' },
         ...extraOps,
@@ -264,7 +264,7 @@ describe('a request becomes exactly one `workforce run --project --department` a
     expect(call!.options.detached).toBe(true);
     expect((call!.options.stdio as unknown[])[0]).toBe('ignore');
     expect(call!.command).toBe(STUB_INVOCATION.command);
-    expect(call!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, `--task=${hostile}`, `--state-dir=${stateRoot}`]);
+    expect(call!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--work-kind=implementation', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, `--task=${hostile}`, `--state-dir=${stateRoot}`]);
     const parsed = parseCliArgs(call!.cliArgv);
     expect(parsed).toMatchObject({ command: 'run', positionals: [], project: 'checkout', department: 'eng', task: hostile, stateDir: stateRoot, json: true, allowUnconfinedWrites: false, help: false });
 
@@ -284,7 +284,7 @@ describe('a request becomes exactly one `workforce run --project --department` a
     const h = harness();
     const target = await office(stateRoot, h, { passStateDir: false });
     await send(target, 'checkout', 'eng', 'Fix it.');
-    expect(h.calls[0]!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--task=Fix it.']);
+    expect(h.calls[0]!.cliArgv).toEqual(['run', '--json', '--project=checkout', '--department=eng', '--work-kind=implementation', '--worker=nova', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--task=Fix it.']);
   });
 
   it('refuses what the run would refuse — and asks for consent for a writer without a file boundary — before anything is queued', async () => {
@@ -407,7 +407,7 @@ describe('when a request starts', () => {
 
     h.release('checkout-1');
     await until(target, claude.id, running);
-    expect(h.calls[1]!.cliArgv).toEqual(['run', '--json', '--project=search', '--department=research', '--worker=forge', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--task=search work', '--allow-unconfined-writes', `--state-dir=${stateRoot}`]);
+    expect(h.calls[1]!.cliArgv).toEqual(['run', '--json', '--project=search', '--department=research', '--work-kind=implementation', '--worker=forge', `--workspace-revision=${loadWorkspace(stateRoot).config.revision}`, '--task=search work', '--allow-unconfined-writes', `--state-dir=${stateRoot}`]);
     expect(await item(target, later.id)).toMatchObject({ state: 'queued', reason: 'waiting: a Claude Code task runs on its own' });
     const queue = json(await rawRequest(target.server, { path: '/api/requests' }));
     expect(queue.live).toEqual([expect.objectContaining({ projectId: 'search', runsOnItsOwn: true, runsOnItsOwnBecause: 'Claude Code has no verified file boundary' })]);
@@ -682,7 +682,7 @@ describe('end to end with the real CLI', () => {
           { op: 'project.add', repoPath: fixture.path, name: 'app' },
           { op: 'department.add', id: 'eng', name: 'Engineering' },
           { op: 'agent.add', id: 'lead', name: 'Lead', role: 'head', departmentId: 'eng', runtime: 'fake-local' },
-          { op: 'agent.add', id: 'engineer', name: 'Engineer', role: 'worker', departmentId: 'eng', runtime: 'fake-local', projectIds: ['app'] },
+          { op: 'agent.add', id: 'engineer', name: 'Engineer', role: 'worker', projectScope: 'restricted', departmentId: 'eng', runtime: 'fake-local', projectIds: ['app'] },
         ]),
       ),
     );
@@ -713,4 +713,48 @@ describe('end to end with the real CLI', () => {
     expect(existsSync(path.join(stateRoot, 'projects', 'app'))).toBe(true);
     expect(await fingerprintCheckout(fixture.path)).toEqual(before);
   }, 180_000);
+});
+
+
+describe('automatic shared specialists and analysis admission',()=>{
+ it('runs two projects concurrently with shared automatic workers, no project assignment, and no analysis check setup',async()=>{
+  const stateRoot=await workspace([
+   {op:'agent.edit',id:'nova',projectScope:'all',projectIds:[],capabilities:['frontend']},
+   {op:'agent.edit',id:'probe',projectScope:'all',projectIds:[],capabilities:['backend','api']},
+   {op:'agent.edit',id:'echo',projectScope:'all',projectIds:[],capabilities:['architecture'],policy:'analysis'},
+  ]);
+  const h=harness();const target=await office(stateRoot,h);
+  const first=await send(target,'docs','eng','Explain this codebase with exactly one worker');
+  const firstRunning=await until(target,first.id,running);
+  const second=await send(target,'billing','eng','Inspect the backend API with exactly one worker');
+  const secondRunning=await until(target,second.id,running);
+  expect(firstRunning.workerIds).toEqual(['echo']);expect(secondRunning.workerIds).toEqual(['probe']);
+  expect(h.calls).toHaveLength(2);expect(h.calls.every(call=>call.cliArgv.includes('--work-kind=analysis'))).toBe(true);
+  expect(loadWorkspace(stateRoot).config.agents.filter(a=>['nova','probe','echo'].includes(a.id)).every(a=>a.projectIds.length===0)).toBe(true);
+  h.release('docs-1');h.release('billing-2');await until(target,first.id,ended);await until(target,second.id,ended);
+ });
+ it('keeps implementation checks required and detects changed work kind on uncertain retry',async()=>{
+  const stateRoot=await workspace();const h=harness();const target=await office(stateRoot,h);
+  const denied=await post(target,'/api/requests',{projectId:'docs',departmentId:'eng',task:'Implement a feature'});
+  expect(json(denied).error.code).toBe('project_has_no_checks');expect(h.calls).toHaveLength(0);
+  const body={projectId:'docs',departmentId:'eng',task:'Inspect code',clientRequestId:'analysis-id',workKind:'analysis'};
+  const request=json(await post(target,'/api/requests',body)).request;
+  const conflict=await post(target,'/api/requests',{...body,workKind:'implementation'});
+  expect(json(conflict).error.code).toBe('request_id_conflict');h.release('docs-1');await until(target,request.id,ended);
+ });
+});
+
+
+describe('analysis admission survives restart',()=>{
+ it('starts a held read-only request on a project without checks',async()=>{
+  const stateRoot=await workspace();const h=harness();const first=await office(stateRoot,h);
+  const live=await send(first,'docs','eng','Inspect the codebase');await until(first,live.id,running);
+  const waiting=await send(first,'docs','eng','Explain the architecture');
+  await first.server.close();const second=await office(stateRoot,h);
+  expect(await item(second,waiting.id)).toMatchObject({state:'held',workKind:'analysis'});
+  h.release('docs-1');await until(second,live.id,ended);
+  const restarted=await post(second,`/api/requests/${waiting.id}/start`);
+  expect(restarted.status).toBe(200);await until(second,waiting.id,running);
+  expect(h.calls[1]?.cliArgv).toContain('--work-kind=analysis');h.release('docs-2');await until(second,waiting.id,ended);
+ });
 });

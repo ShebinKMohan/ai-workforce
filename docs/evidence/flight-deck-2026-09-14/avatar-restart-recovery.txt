@@ -1,0 +1,278 @@
+- complementary "Workspace navigation":
+  - link:
+    - /url: ./index.html
+  - navigation:
+    - button "Headquarters":
+      - generic: Headquarters
+    - button "Issues":
+      - generic: Issues
+    - button "Assignments":
+      - generic: Assignments
+    - button "Agents":
+      - generic: Agents
+    - button "Departments":
+      - generic: Departments
+    - button "Projects":
+      - generic: Projects
+    - button "Connections":
+      - generic: Connections
+    - button "Runtimes":
+      - generic: Runtimes
+    - button "Executions":
+      - generic: Executions
+    - button "Settings":
+      - generic: Settings
+  - button "Open workspace settings":
+    - generic: SM
+- button "Expand navigation":
+- navigation "Breadcrumb":
+  - button "Workforce headquarters":
+    - generic: Workforce
+  - generic: /
+  - strong: Agents
+- status "0 active requests":
+  - generic: Local runtime connected
+- button "MCP connections":
+  - generic: MCP · unavailable
+- button "Search assignments":
+  - generic: Search work
+  - generic: ⌘ K
+- button "Refresh workspace":
+- button "Open task status":
+  - text: Task status
+- main "Company workspace":
+  - paragraph: YOUR ORGANIZATION
+  - heading "Your agents" [level=1]
+  - paragraph: Give every agent a clear role, the right model, and a place in your team.
+  - button "New department":
+    - text: New department
+  - button "Add agent":
+    - text: Add agent
+  - strong: "11"
+  - text: agents
+  - strong: "1"
+  - text: departments
+  - strong: "1"
+  - text: department heads
+  - text: Connected to your workspace
+  - tablist "Company management":
+    - tab "Agents 11" [selected]:
+      - text: Agents
+      - generic: "11"
+    - tab "Departments 1":
+      - text: Departments
+      - generic: "1"
+    - tab "Archived 0":
+      - text: Archived
+      - generic: "0"
+  - status:
+    - text: Restart recovered avatar updated in your workspace.
+  - generic: Search organization
+  - searchbox "Search organization"
+  - generic: Filter by department
+  - combobox "Filter by department":
+    - option "All departments" [selected]
+    - option "Company leadership"
+    - option "Nathan James Engineering"
+  - generic: Filter by responsibility
+  - combobox "Filter by responsibility":
+    - option "All roles" [selected]
+    - option "Department heads"
+    - option "Specialists"
+  - tabpanel "Agents 11":
+    - text: 11 team agents
+    - generic: MODEL / RUNTIME
+    - article:
+      - heading "Tom Chandler" [level=2]
+      - paragraph: Control Center
+      - generic: Company leadership · All projects · automatic
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Tom Chandler":
+        - text: Edit
+    - article:
+      - heading "Mike Slattery Head" [level=2]:
+        - text: Mike Slattery
+        - generic: Head
+      - paragraph: Department head
+      - generic: Nathan James Engineering
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Mike Slattery":
+        - text: Edit
+    - article:
+      - heading "Russ Jeter" [level=2]
+      - paragraph: Specialist
+      - generic: Nathan James Engineering · All projects · automatic
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Russ Jeter":
+        - text: Edit
+      - button "Archive agent Russ Jeter":
+    - article:
+      - heading "Kara Foster" [level=2]
+      - paragraph: Specialist
+      - generic: Nathan James Engineering · All projects · automatic
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Kara Foster":
+        - text: Edit
+      - button "Archive agent Kara Foster":
+    - article:
+      - heading "Alisha Granderson" [level=2]
+      - paragraph: Specialist
+      - generic: Nathan James Engineering · All projects · automatic
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Alisha Granderson":
+        - text: Edit
+      - button "Archive agent Alisha Granderson":
+    - article:
+      - heading "Danny Green" [level=2]
+      - paragraph: Specialist
+      - generic: Nathan James Engineering · All projects · automatic
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Danny Green":
+        - text: Edit
+      - button "Archive agent Danny Green":
+    - article:
+      - heading "Andrea Garnett" [level=2]
+      - paragraph: Specialist
+      - generic: Nathan James Engineering · All projects · automatic
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Andrea Garnett":
+        - text: Edit
+      - button "Archive agent Andrea Garnett":
+    - article:
+      - heading "Sasha Cooper" [level=2]
+      - paragraph: Specialist
+      - generic: Nathan James Engineering · All projects · automatic
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Sasha Cooper":
+        - text: Edit
+      - button "Archive agent Sasha Cooper":
+    - article:
+      - heading "Rachel Scott" [level=2]
+      - paragraph: Specialist
+      - generic: Nathan James Engineering · All projects · automatic
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Rachel Scott":
+        - text: Edit
+      - button "Archive agent Rachel Scott":
+    - article:
+      - heading "Eric Miller" [level=2]
+      - paragraph: Specialist
+      - generic: Nathan James Engineering · All projects · automatic
+      - strong:
+        - text: gpt-6-astra
+        - emphasis: medium
+      - code: gpt-6-astra
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Eric Miller":
+        - text: Edit
+      - button "Archive agent Eric Miller":
+    - article:
+      - heading "Restart recovered avatar" [level=2]
+      - paragraph: Specialist
+      - generic: Nathan James Engineering · All projects · automatic
+      - strong: Runtime default
+      - generic: Codex · codex-installed
+      - generic: Runtime not verified
+      - button "Edit Restart recovered avatar":
+        - text: Edit
+      - button "Archive agent Restart recovered avatar":
+  - strong: Connected workspace
+  - text: · Revision 12. Settings are shared across your workforce.
+  - status
+- complementary "Control Center task status":
+  - separator "Resize conversation panel"
+  - strong: Task status
+  - generic: Live requests from your workforce
+  - generic "Conversation history":
+  - button "New conversation":
+  - button "Focus conversation":
+  - button "Close conversation":
+  - navigation "Filter task status":
+    - button "All 0" [pressed]:
+      - generic: All
+      - generic: "0"
+    - button "Backlog 0":
+      - generic: Backlog
+      - generic: "0"
+    - button "In progress 0":
+      - generic: In progress
+      - generic: "0"
+    - button "Waiting 0":
+      - generic: Waiting
+      - generic: "0"
+    - button "Done 0":
+      - generic: Done
+      - generic: "0"
+  - log "Task status feed":
+    - generic "Task status feed":
+      - heading "Your next task starts here." [level=3]
+      - paragraph: Describe an outcome below. Every new task runs independently.
+  - text: Ask Control Center
+  - generic: Message Control Center
+  - textbox "Message Control Center":
+    - /placeholder: Give your team a new task…
+  - generic "Agent settings":
+    - text: Agent settings
+  - option "Claude Code"
+  - option "Codex CLI" [selected]
+  - option "Runtime default"
+  - option "gpt-6-astra · unavailable" [disabled] [selected]
+  - option "Default effort"
+  - option "medium · unavailable" [disabled] [selected]
+  - button "Send message" [disabled]:
+  - button "Attach files":
+  - combobox "Project":
+    - option "agents-office" [selected]
+  - generic "Control Center selects available specialists and starts authorized work automatically.":
+    - text: Automatic team
+  - status: Choose a model reported by this runtime, or select Runtime default.
+  - generic "Model details":
+    - text: Model details
+  - button "Refresh runtimes and models":
+- status: Restart recovered avatar updated in your workspace.

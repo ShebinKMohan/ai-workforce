@@ -29,6 +29,7 @@ import type { StatePaths } from '../storage/paths.js';
 import { DEFAULT_LIST_RUNS, findRun, listRuns, listTasks, MAX_LIST_RUNS, type RunRow } from '../storage/records.js';
 import { headReviewView } from '../storage/head-review-view.js';
 import { runEvidenceView } from '../storage/run-evidence.js';
+import { analysisEvidenceView } from '../storage/analysis-view.js';
 import { redactText } from '../telemetry/redaction.js';
 import { ApiError } from './http.js';
 
@@ -62,7 +63,7 @@ function withReadOnlyStore<T>(paths: StatePaths, fn: (store: StateStore) => T): 
 export interface OfficeInputs {
   readonly paths: StatePaths;
   readonly version: string;
-  readonly server: { readonly pid: number; readonly startedAt: string; readonly url: string };
+  readonly server: { readonly pid: number; readonly startedAt: string; readonly url: string; readonly packageRoot?: string };
   readonly readiness: { readonly checkedAt: string; readonly reports: ReadonlyArray<RuntimeReadinessReport> } | { readonly error: string };
   readonly env: Readonly<Record<string, string | undefined>>;
 }
@@ -244,6 +245,7 @@ function runSummary(store: StateStore, run: RunRow): Record<string, unknown> {
     taskViews: facts.taskViews,
     // How the run ended and why, from its manifest; null while it has none.
     outcome: facts.outcome,
+    ...analysisEvidenceView(store, run.id, facts.manifest, facts.evidenceIssues),
     compromisedReceiptIds: facts.compromisedReceiptIds,
     unverifiedReceiptIds: facts.unverifiedReceiptIds,
     evidenceIssues: facts.evidenceIssues,

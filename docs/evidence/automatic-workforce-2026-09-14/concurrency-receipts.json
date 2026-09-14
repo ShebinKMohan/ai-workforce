@@ -1,0 +1,1422 @@
+{
+  "schemaVersion": 1,
+  "proofLayer": "controlled-runtime HTTP admission and real owned process concurrency; no coding-model execution or verification claim",
+  "passed": true,
+  "startedAt": "2026-09-13T19:05:26.459Z",
+  "completedAt": "2026-09-13T19:05:27.694Z",
+  "nodeVersion": "v26.8.1",
+  "origin": "http://127.0.0.1:49417/",
+  "readinessProvenance": "Injected known-version Codex metadata tests the nonexclusive admission branch; actual executable is replaced by a controlled Node process. This is not a Codex containment or model-execution proof.",
+  "workspace": {
+    "revision": 1,
+    "limits": {
+      "maxConcurrentProjectRuns": 2,
+      "maxActiveTurns": 2,
+      "maxActiveWriters": 2,
+      "maxTasksPerRun": 4,
+      "maxDelegationDepth": 2,
+      "maxRepairAttempts": 2,
+      "maxTransientRetries": 2,
+      "runTimeoutMinutes": 30
+    },
+    "workers": [
+      {
+        "id": "frontend",
+        "capabilities": [
+          "frontend",
+          "ui",
+          "design"
+        ],
+        "projectIds": [],
+        "projectScope": "all (legacy default)",
+        "policy": "local-development"
+      },
+      {
+        "id": "backend",
+        "capabilities": [
+          "backend",
+          "api",
+          "database"
+        ],
+        "projectIds": [],
+        "projectScope": "all (legacy default)",
+        "policy": "local-development"
+      }
+    ],
+    "configurationUnchanged": true
+  },
+  "assertions": {
+    "concurrentProjects": 2,
+    "maximumObservedLiveRequests": 2,
+    "overlappingProcessMilliseconds": 464,
+    "workerSelectedByCapabilities": true,
+    "manualProjectAssignments": 0,
+    "thirdQueuedWithoutSpawn": true,
+    "duplicateRequestReusedReceipt": true,
+    "workerReusedOnlyAfterProcessExit": true,
+    "noConcurrentDuplicateWorker": true,
+    "dirtyOriginalRepositoriesUnchanged": true,
+    "allRequestsSettled": true
+  },
+  "requests": {
+    "first": {
+      "id": "01a09c28-fc4c-726d-951c-179bdfb6a272",
+      "kind": "request",
+      "clientRequestId": "concurrency-api",
+      "projectId": "api",
+      "departmentId": "engineering",
+      "task": "Fix the backend API response using exactly one worker.",
+      "resumeRunId": null,
+      "allowUnconfinedWrites": false,
+      "agentIds": [
+        "head",
+        "backend"
+      ],
+      "workerIds": [
+        "backend"
+      ],
+      "exclusive": false,
+      "unconfinedRuntimes": [],
+      "state": "running",
+      "reason": null,
+      "receivedAt": "2026-09-13T19:05:26.860Z",
+      "startedAt": "2026-09-13T19:05:26.866Z",
+      "endedAt": null,
+      "heldAt": null,
+      "launchId": "01a09c28-fc52-77bd-a408-98b392c60866",
+      "pid": 78512,
+      "pidStartedAtMs": 1789326326870,
+      "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stdout.jsonl",
+      "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stderr.log",
+      "runId": "controlled-api-1-78512",
+      "stopRequestedAt": null,
+      "exitCode": null,
+      "signal": null,
+      "result": null,
+      "submittedDepartmentId": "engineering",
+      "workKind": "implementation",
+      "mode": "delegate",
+      "submittedWorkKind": "implementation",
+      "submittedAttachmentIds": [],
+      "approvedRosterHash": "c9e02595e948832ab6f1a64bd8f75e09b544ebcd8a170578750ae0d540c67573",
+      "route": {
+        "state": "selected",
+        "projectId": "api",
+        "departmentId": "engineering",
+        "headAgentId": "head",
+        "reason": "The request explicitly selected this department.",
+        "decidedAt": "2026-09-13T19:05:26.860Z",
+        "elapsedMs": 0,
+        "method": "explicit",
+        "workspaceRevision": 1
+      },
+      "admittedWorkspaceRevision": 1,
+      "admissionElapsedMs": 0.2821249999999509
+    },
+    "second": {
+      "id": "01a09c28-fcba-7518-b37b-634c516165e2",
+      "kind": "request",
+      "clientRequestId": "concurrency-website",
+      "projectId": "website",
+      "departmentId": "engineering",
+      "task": "Fix the frontend UI layout using exactly one worker.",
+      "resumeRunId": null,
+      "allowUnconfinedWrites": false,
+      "agentIds": [
+        "head",
+        "frontend"
+      ],
+      "workerIds": [
+        "frontend"
+      ],
+      "exclusive": false,
+      "unconfinedRuntimes": [],
+      "state": "running",
+      "reason": null,
+      "receivedAt": "2026-09-13T19:05:26.970Z",
+      "startedAt": "2026-09-13T19:05:26.974Z",
+      "endedAt": null,
+      "heldAt": null,
+      "launchId": "01a09c28-fcbe-7734-8cbe-e32b9d53d861",
+      "pid": 78563,
+      "pidStartedAtMs": 1789326326979,
+      "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stdout.jsonl",
+      "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stderr.log",
+      "runId": "controlled-website-2-78563",
+      "stopRequestedAt": null,
+      "exitCode": null,
+      "signal": null,
+      "result": null,
+      "submittedDepartmentId": "engineering",
+      "workKind": "implementation",
+      "mode": "delegate",
+      "submittedWorkKind": "implementation",
+      "submittedAttachmentIds": [],
+      "approvedRosterHash": "6d5a1dc6f4d86d202367a89890a1e331a87a237021ade7a1ddee6bdc09fde025",
+      "route": {
+        "state": "selected",
+        "projectId": "website",
+        "departmentId": "engineering",
+        "headAgentId": "head",
+        "reason": "The request explicitly selected this department.",
+        "decidedAt": "2026-09-13T19:05:26.970Z",
+        "elapsedMs": 0,
+        "method": "explicit",
+        "workspaceRevision": 1
+      },
+      "admittedWorkspaceRevision": 1,
+      "admissionElapsedMs": 0.14554200000009132
+    },
+    "thirdQueued": {
+      "id": "01a09c28-fd6a-7319-8510-add1f80ec629",
+      "kind": "request",
+      "clientRequestId": "concurrency-reporting",
+      "projectId": "reporting",
+      "departmentId": "engineering",
+      "task": "Fix the backend database report using exactly one worker.",
+      "resumeRunId": null,
+      "allowUnconfinedWrites": false,
+      "agentIds": [
+        "head",
+        "frontend",
+        "backend"
+      ],
+      "workerIds": [
+        "frontend",
+        "backend"
+      ],
+      "exclusive": false,
+      "unconfinedRuntimes": [],
+      "state": "queued",
+      "reason": "waiting: Frontend specialist is busy on website",
+      "receivedAt": "2026-09-13T19:05:27.147Z",
+      "startedAt": null,
+      "endedAt": null,
+      "heldAt": null,
+      "launchId": null,
+      "pid": null,
+      "pidStartedAtMs": null,
+      "stdoutPath": null,
+      "stderrPath": null,
+      "runId": null,
+      "stopRequestedAt": null,
+      "exitCode": null,
+      "signal": null,
+      "result": null,
+      "submittedDepartmentId": "engineering",
+      "workKind": "implementation",
+      "mode": "delegate",
+      "submittedWorkKind": "implementation",
+      "submittedAttachmentIds": [],
+      "approvedRosterHash": "1338c5c1067da7ff21131f21c1c7b94062d549b4758de5d1b53d58de5ca42f32",
+      "route": {
+        "state": "selected",
+        "projectId": "reporting",
+        "departmentId": "engineering",
+        "headAgentId": "head",
+        "reason": "The request explicitly selected this department.",
+        "decidedAt": "2026-09-13T19:05:27.147Z",
+        "elapsedMs": 0,
+        "method": "explicit",
+        "workspaceRevision": 1
+      }
+    },
+    "thirdAfterAutomaticAdmission": {
+      "id": "01a09c28-fd6a-7319-8510-add1f80ec629",
+      "kind": "request",
+      "clientRequestId": "concurrency-reporting",
+      "projectId": "reporting",
+      "departmentId": "engineering",
+      "task": "Fix the backend database report using exactly one worker.",
+      "resumeRunId": null,
+      "allowUnconfinedWrites": false,
+      "agentIds": [
+        "head",
+        "backend"
+      ],
+      "workerIds": [
+        "backend"
+      ],
+      "exclusive": false,
+      "unconfinedRuntimes": [],
+      "state": "running",
+      "reason": null,
+      "receivedAt": "2026-09-13T19:05:27.147Z",
+      "startedAt": "2026-09-13T19:05:27.484Z",
+      "endedAt": null,
+      "heldAt": null,
+      "launchId": "01a09c28-febc-7173-a153-710e4bea7d94",
+      "pid": 78613,
+      "pidStartedAtMs": 1789326327491,
+      "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-febc-7173-a153-710e4bea7d94.stdout.jsonl",
+      "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-febc-7173-a153-710e4bea7d94.stderr.log",
+      "runId": "controlled-reporting-3-78613",
+      "stopRequestedAt": null,
+      "exitCode": null,
+      "signal": null,
+      "result": null,
+      "submittedDepartmentId": "engineering",
+      "workKind": "implementation",
+      "mode": "delegate",
+      "submittedWorkKind": "implementation",
+      "submittedAttachmentIds": [],
+      "approvedRosterHash": "1338c5c1067da7ff21131f21c1c7b94062d549b4758de5d1b53d58de5ca42f32",
+      "route": {
+        "state": "selected",
+        "projectId": "reporting",
+        "departmentId": "engineering",
+        "headAgentId": "head",
+        "reason": "The request explicitly selected this department.",
+        "decidedAt": "2026-09-13T19:05:27.147Z",
+        "elapsedMs": 0,
+        "method": "explicit",
+        "workspaceRevision": 1
+      },
+      "admittedWorkspaceRevision": 1,
+      "admissionElapsedMs": 0.1712079999999787
+    },
+    "final": [
+      {
+        "id": "01a09c28-fc4c-726d-951c-179bdfb6a272",
+        "kind": "request",
+        "clientRequestId": "concurrency-api",
+        "projectId": "api",
+        "departmentId": "engineering",
+        "task": "Fix the backend API response using exactly one worker.",
+        "resumeRunId": null,
+        "allowUnconfinedWrites": false,
+        "agentIds": [
+          "head",
+          "backend"
+        ],
+        "workerIds": [
+          "backend"
+        ],
+        "exclusive": false,
+        "unconfinedRuntimes": [],
+        "state": "ended",
+        "reason": null,
+        "receivedAt": "2026-09-13T19:05:26.860Z",
+        "startedAt": "2026-09-13T19:05:26.866Z",
+        "endedAt": "2026-09-13T19:05:27.476Z",
+        "heldAt": null,
+        "launchId": "01a09c28-fc52-77bd-a408-98b392c60866",
+        "pid": 78512,
+        "pidStartedAtMs": 1789326326870,
+        "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stdout.jsonl",
+        "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stderr.log",
+        "runId": "controlled-api-1-78512",
+        "stopRequestedAt": null,
+        "exitCode": 0,
+        "signal": null,
+        "result": {
+          "exitCode": 0,
+          "code": null,
+          "message": null,
+          "details": []
+        },
+        "submittedDepartmentId": "engineering",
+        "workKind": "implementation",
+        "mode": "delegate",
+        "submittedWorkKind": "implementation",
+        "submittedAttachmentIds": [],
+        "approvedRosterHash": "c9e02595e948832ab6f1a64bd8f75e09b544ebcd8a170578750ae0d540c67573",
+        "route": {
+          "state": "selected",
+          "projectId": "api",
+          "departmentId": "engineering",
+          "headAgentId": "head",
+          "reason": "The request explicitly selected this department.",
+          "decidedAt": "2026-09-13T19:05:26.860Z",
+          "elapsedMs": 0,
+          "method": "explicit",
+          "workspaceRevision": 1
+        },
+        "admittedWorkspaceRevision": 1,
+        "admissionElapsedMs": 0.2821249999999509
+      },
+      {
+        "id": "01a09c28-fcba-7518-b37b-634c516165e2",
+        "kind": "request",
+        "clientRequestId": "concurrency-website",
+        "projectId": "website",
+        "departmentId": "engineering",
+        "task": "Fix the frontend UI layout using exactly one worker.",
+        "resumeRunId": null,
+        "allowUnconfinedWrites": false,
+        "agentIds": [
+          "head",
+          "frontend"
+        ],
+        "workerIds": [
+          "frontend"
+        ],
+        "exclusive": false,
+        "unconfinedRuntimes": [],
+        "state": "ended",
+        "reason": null,
+        "receivedAt": "2026-09-13T19:05:26.970Z",
+        "startedAt": "2026-09-13T19:05:26.974Z",
+        "endedAt": "2026-09-13T19:05:27.577Z",
+        "heldAt": null,
+        "launchId": "01a09c28-fcbe-7734-8cbe-e32b9d53d861",
+        "pid": 78563,
+        "pidStartedAtMs": 1789326326979,
+        "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stdout.jsonl",
+        "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stderr.log",
+        "runId": "controlled-website-2-78563",
+        "stopRequestedAt": null,
+        "exitCode": 0,
+        "signal": null,
+        "result": {
+          "exitCode": 0,
+          "code": null,
+          "message": null,
+          "details": []
+        },
+        "submittedDepartmentId": "engineering",
+        "workKind": "implementation",
+        "mode": "delegate",
+        "submittedWorkKind": "implementation",
+        "submittedAttachmentIds": [],
+        "approvedRosterHash": "6d5a1dc6f4d86d202367a89890a1e331a87a237021ade7a1ddee6bdc09fde025",
+        "route": {
+          "state": "selected",
+          "projectId": "website",
+          "departmentId": "engineering",
+          "headAgentId": "head",
+          "reason": "The request explicitly selected this department.",
+          "decidedAt": "2026-09-13T19:05:26.970Z",
+          "elapsedMs": 0,
+          "method": "explicit",
+          "workspaceRevision": 1
+        },
+        "admittedWorkspaceRevision": 1,
+        "admissionElapsedMs": 0.14554200000009132
+      },
+      {
+        "id": "01a09c28-fd6a-7319-8510-add1f80ec629",
+        "kind": "request",
+        "clientRequestId": "concurrency-reporting",
+        "projectId": "reporting",
+        "departmentId": "engineering",
+        "task": "Fix the backend database report using exactly one worker.",
+        "resumeRunId": null,
+        "allowUnconfinedWrites": false,
+        "agentIds": [
+          "head",
+          "backend"
+        ],
+        "workerIds": [
+          "backend"
+        ],
+        "exclusive": false,
+        "unconfinedRuntimes": [],
+        "state": "ended",
+        "reason": null,
+        "receivedAt": "2026-09-13T19:05:27.147Z",
+        "startedAt": "2026-09-13T19:05:27.484Z",
+        "endedAt": "2026-09-13T19:05:27.582Z",
+        "heldAt": null,
+        "launchId": "01a09c28-febc-7173-a153-710e4bea7d94",
+        "pid": 78613,
+        "pidStartedAtMs": 1789326327491,
+        "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-febc-7173-a153-710e4bea7d94.stdout.jsonl",
+        "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-febc-7173-a153-710e4bea7d94.stderr.log",
+        "runId": "controlled-reporting-3-78613",
+        "stopRequestedAt": null,
+        "exitCode": 0,
+        "signal": null,
+        "result": {
+          "exitCode": 0,
+          "code": null,
+          "message": null,
+          "details": []
+        },
+        "submittedDepartmentId": "engineering",
+        "workKind": "implementation",
+        "mode": "delegate",
+        "submittedWorkKind": "implementation",
+        "submittedAttachmentIds": [],
+        "approvedRosterHash": "1338c5c1067da7ff21131f21c1c7b94062d549b4758de5d1b53d58de5ca42f32",
+        "route": {
+          "state": "selected",
+          "projectId": "reporting",
+          "departmentId": "engineering",
+          "headAgentId": "head",
+          "reason": "The request explicitly selected this department.",
+          "decidedAt": "2026-09-13T19:05:27.147Z",
+          "elapsedMs": 0,
+          "method": "explicit",
+          "workspaceRevision": 1
+        },
+        "admittedWorkspaceRevision": 1,
+        "admissionElapsedMs": 0.1712079999999787
+      }
+    ]
+  },
+  "snapshots": {
+    "overlap": {
+      "at": "2026-09-13T19:05:27.055Z",
+      "queue": {
+        "ok": true,
+        "accepting": true,
+        "managedElsewhere": null,
+        "notice": null,
+        "limits": {
+          "maxConcurrentProjectRuns": 2
+        },
+        "live": [
+          {
+            "projectId": "api",
+            "requestId": "01a09c28-fc4c-726d-951c-179bdfb6a272",
+            "startedOutsideThisPage": false,
+            "pid": 78512,
+            "workerIds": [
+              "backend"
+            ],
+            "runsOnItsOwn": false,
+            "runsOnItsOwnBecause": null
+          },
+          {
+            "projectId": "website",
+            "requestId": "01a09c28-fcba-7518-b37b-634c516165e2",
+            "startedOutsideThisPage": false,
+            "pid": 78563,
+            "workerIds": [
+              "frontend"
+            ],
+            "runsOnItsOwn": false,
+            "runsOnItsOwnBecause": null
+          }
+        ],
+        "items": [
+          {
+            "id": "01a09c28-fcba-7518-b37b-634c516165e2",
+            "kind": "request",
+            "clientRequestId": "concurrency-website",
+            "projectId": "website",
+            "departmentId": "engineering",
+            "task": "Fix the frontend UI layout using exactly one worker.",
+            "resumeRunId": null,
+            "allowUnconfinedWrites": false,
+            "agentIds": [
+              "head",
+              "frontend"
+            ],
+            "workerIds": [
+              "frontend"
+            ],
+            "exclusive": false,
+            "unconfinedRuntimes": [],
+            "state": "running",
+            "reason": null,
+            "receivedAt": "2026-09-13T19:05:26.970Z",
+            "startedAt": "2026-09-13T19:05:26.974Z",
+            "endedAt": null,
+            "heldAt": null,
+            "launchId": "01a09c28-fcbe-7734-8cbe-e32b9d53d861",
+            "pid": 78563,
+            "pidStartedAtMs": 1789326326979,
+            "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stdout.jsonl",
+            "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stderr.log",
+            "runId": "controlled-website-2-78563",
+            "stopRequestedAt": null,
+            "exitCode": null,
+            "signal": null,
+            "result": null,
+            "submittedDepartmentId": "engineering",
+            "workKind": "implementation",
+            "mode": "delegate",
+            "submittedWorkKind": "implementation",
+            "submittedAttachmentIds": [],
+            "approvedRosterHash": "6d5a1dc6f4d86d202367a89890a1e331a87a237021ade7a1ddee6bdc09fde025",
+            "route": {
+              "state": "selected",
+              "projectId": "website",
+              "departmentId": "engineering",
+              "headAgentId": "head",
+              "reason": "The request explicitly selected this department.",
+              "decidedAt": "2026-09-13T19:05:26.970Z",
+              "elapsedMs": 0,
+              "method": "explicit",
+              "workspaceRevision": 1
+            },
+            "admittedWorkspaceRevision": 1,
+            "admissionElapsedMs": 0.14554200000009132
+          },
+          {
+            "id": "01a09c28-fc4c-726d-951c-179bdfb6a272",
+            "kind": "request",
+            "clientRequestId": "concurrency-api",
+            "projectId": "api",
+            "departmentId": "engineering",
+            "task": "Fix the backend API response using exactly one worker.",
+            "resumeRunId": null,
+            "allowUnconfinedWrites": false,
+            "agentIds": [
+              "head",
+              "backend"
+            ],
+            "workerIds": [
+              "backend"
+            ],
+            "exclusive": false,
+            "unconfinedRuntimes": [],
+            "state": "running",
+            "reason": null,
+            "receivedAt": "2026-09-13T19:05:26.860Z",
+            "startedAt": "2026-09-13T19:05:26.866Z",
+            "endedAt": null,
+            "heldAt": null,
+            "launchId": "01a09c28-fc52-77bd-a408-98b392c60866",
+            "pid": 78512,
+            "pidStartedAtMs": 1789326326870,
+            "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stdout.jsonl",
+            "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stderr.log",
+            "runId": "controlled-api-1-78512",
+            "stopRequestedAt": null,
+            "exitCode": null,
+            "signal": null,
+            "result": null,
+            "submittedDepartmentId": "engineering",
+            "workKind": "implementation",
+            "mode": "delegate",
+            "submittedWorkKind": "implementation",
+            "submittedAttachmentIds": [],
+            "approvedRosterHash": "c9e02595e948832ab6f1a64bd8f75e09b544ebcd8a170578750ae0d540c67573",
+            "route": {
+              "state": "selected",
+              "projectId": "api",
+              "departmentId": "engineering",
+              "headAgentId": "head",
+              "reason": "The request explicitly selected this department.",
+              "decidedAt": "2026-09-13T19:05:26.860Z",
+              "elapsedMs": 0,
+              "method": "explicit",
+              "workspaceRevision": 1
+            },
+            "admittedWorkspaceRevision": 1,
+            "admissionElapsedMs": 0.2821249999999509
+          }
+        ]
+      }
+    },
+    "queued": {
+      "at": "2026-09-13T19:05:27.155Z",
+      "queue": {
+        "ok": true,
+        "accepting": true,
+        "managedElsewhere": null,
+        "notice": null,
+        "limits": {
+          "maxConcurrentProjectRuns": 2
+        },
+        "live": [
+          {
+            "projectId": "api",
+            "requestId": "01a09c28-fc4c-726d-951c-179bdfb6a272",
+            "startedOutsideThisPage": false,
+            "pid": 78512,
+            "workerIds": [
+              "backend"
+            ],
+            "runsOnItsOwn": false,
+            "runsOnItsOwnBecause": null
+          },
+          {
+            "projectId": "website",
+            "requestId": "01a09c28-fcba-7518-b37b-634c516165e2",
+            "startedOutsideThisPage": false,
+            "pid": 78563,
+            "workerIds": [
+              "frontend"
+            ],
+            "runsOnItsOwn": false,
+            "runsOnItsOwnBecause": null
+          }
+        ],
+        "items": [
+          {
+            "id": "01a09c28-fd6a-7319-8510-add1f80ec629",
+            "kind": "request",
+            "clientRequestId": "concurrency-reporting",
+            "projectId": "reporting",
+            "departmentId": "engineering",
+            "task": "Fix the backend database report using exactly one worker.",
+            "resumeRunId": null,
+            "allowUnconfinedWrites": false,
+            "agentIds": [
+              "head",
+              "frontend",
+              "backend"
+            ],
+            "workerIds": [
+              "frontend",
+              "backend"
+            ],
+            "exclusive": false,
+            "unconfinedRuntimes": [],
+            "state": "queued",
+            "reason": "waiting: Frontend specialist is busy on website",
+            "receivedAt": "2026-09-13T19:05:27.147Z",
+            "startedAt": null,
+            "endedAt": null,
+            "heldAt": null,
+            "launchId": null,
+            "pid": null,
+            "pidStartedAtMs": null,
+            "stdoutPath": null,
+            "stderrPath": null,
+            "runId": null,
+            "stopRequestedAt": null,
+            "exitCode": null,
+            "signal": null,
+            "result": null,
+            "submittedDepartmentId": "engineering",
+            "workKind": "implementation",
+            "mode": "delegate",
+            "submittedWorkKind": "implementation",
+            "submittedAttachmentIds": [],
+            "approvedRosterHash": "1338c5c1067da7ff21131f21c1c7b94062d549b4758de5d1b53d58de5ca42f32",
+            "route": {
+              "state": "selected",
+              "projectId": "reporting",
+              "departmentId": "engineering",
+              "headAgentId": "head",
+              "reason": "The request explicitly selected this department.",
+              "decidedAt": "2026-09-13T19:05:27.147Z",
+              "elapsedMs": 0,
+              "method": "explicit",
+              "workspaceRevision": 1
+            }
+          },
+          {
+            "id": "01a09c28-fcba-7518-b37b-634c516165e2",
+            "kind": "request",
+            "clientRequestId": "concurrency-website",
+            "projectId": "website",
+            "departmentId": "engineering",
+            "task": "Fix the frontend UI layout using exactly one worker.",
+            "resumeRunId": null,
+            "allowUnconfinedWrites": false,
+            "agentIds": [
+              "head",
+              "frontend"
+            ],
+            "workerIds": [
+              "frontend"
+            ],
+            "exclusive": false,
+            "unconfinedRuntimes": [],
+            "state": "running",
+            "reason": null,
+            "receivedAt": "2026-09-13T19:05:26.970Z",
+            "startedAt": "2026-09-13T19:05:26.974Z",
+            "endedAt": null,
+            "heldAt": null,
+            "launchId": "01a09c28-fcbe-7734-8cbe-e32b9d53d861",
+            "pid": 78563,
+            "pidStartedAtMs": 1789326326979,
+            "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stdout.jsonl",
+            "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stderr.log",
+            "runId": "controlled-website-2-78563",
+            "stopRequestedAt": null,
+            "exitCode": null,
+            "signal": null,
+            "result": null,
+            "submittedDepartmentId": "engineering",
+            "workKind": "implementation",
+            "mode": "delegate",
+            "submittedWorkKind": "implementation",
+            "submittedAttachmentIds": [],
+            "approvedRosterHash": "6d5a1dc6f4d86d202367a89890a1e331a87a237021ade7a1ddee6bdc09fde025",
+            "route": {
+              "state": "selected",
+              "projectId": "website",
+              "departmentId": "engineering",
+              "headAgentId": "head",
+              "reason": "The request explicitly selected this department.",
+              "decidedAt": "2026-09-13T19:05:26.970Z",
+              "elapsedMs": 0,
+              "method": "explicit",
+              "workspaceRevision": 1
+            },
+            "admittedWorkspaceRevision": 1,
+            "admissionElapsedMs": 0.14554200000009132
+          },
+          {
+            "id": "01a09c28-fc4c-726d-951c-179bdfb6a272",
+            "kind": "request",
+            "clientRequestId": "concurrency-api",
+            "projectId": "api",
+            "departmentId": "engineering",
+            "task": "Fix the backend API response using exactly one worker.",
+            "resumeRunId": null,
+            "allowUnconfinedWrites": false,
+            "agentIds": [
+              "head",
+              "backend"
+            ],
+            "workerIds": [
+              "backend"
+            ],
+            "exclusive": false,
+            "unconfinedRuntimes": [],
+            "state": "running",
+            "reason": null,
+            "receivedAt": "2026-09-13T19:05:26.860Z",
+            "startedAt": "2026-09-13T19:05:26.866Z",
+            "endedAt": null,
+            "heldAt": null,
+            "launchId": "01a09c28-fc52-77bd-a408-98b392c60866",
+            "pid": 78512,
+            "pidStartedAtMs": 1789326326870,
+            "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stdout.jsonl",
+            "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stderr.log",
+            "runId": "controlled-api-1-78512",
+            "stopRequestedAt": null,
+            "exitCode": null,
+            "signal": null,
+            "result": null,
+            "submittedDepartmentId": "engineering",
+            "workKind": "implementation",
+            "mode": "delegate",
+            "submittedWorkKind": "implementation",
+            "submittedAttachmentIds": [],
+            "approvedRosterHash": "c9e02595e948832ab6f1a64bd8f75e09b544ebcd8a170578750ae0d540c67573",
+            "route": {
+              "state": "selected",
+              "projectId": "api",
+              "departmentId": "engineering",
+              "headAgentId": "head",
+              "reason": "The request explicitly selected this department.",
+              "decidedAt": "2026-09-13T19:05:26.860Z",
+              "elapsedMs": 0,
+              "method": "explicit",
+              "workspaceRevision": 1
+            },
+            "admittedWorkspaceRevision": 1,
+            "admissionElapsedMs": 0.2821249999999509
+          }
+        ]
+      }
+    },
+    "automaticReuse": {
+      "at": "2026-09-13T19:05:27.571Z",
+      "queue": {
+        "ok": true,
+        "accepting": true,
+        "managedElsewhere": null,
+        "notice": null,
+        "limits": {
+          "maxConcurrentProjectRuns": 2
+        },
+        "live": [
+          {
+            "projectId": "website",
+            "requestId": "01a09c28-fcba-7518-b37b-634c516165e2",
+            "startedOutsideThisPage": false,
+            "pid": 78563,
+            "workerIds": [
+              "frontend"
+            ],
+            "runsOnItsOwn": false,
+            "runsOnItsOwnBecause": null
+          },
+          {
+            "projectId": "reporting",
+            "requestId": "01a09c28-fd6a-7319-8510-add1f80ec629",
+            "startedOutsideThisPage": false,
+            "pid": 78613,
+            "workerIds": [
+              "backend"
+            ],
+            "runsOnItsOwn": false,
+            "runsOnItsOwnBecause": null
+          }
+        ],
+        "items": [
+          {
+            "id": "01a09c28-fd6a-7319-8510-add1f80ec629",
+            "kind": "request",
+            "clientRequestId": "concurrency-reporting",
+            "projectId": "reporting",
+            "departmentId": "engineering",
+            "task": "Fix the backend database report using exactly one worker.",
+            "resumeRunId": null,
+            "allowUnconfinedWrites": false,
+            "agentIds": [
+              "head",
+              "backend"
+            ],
+            "workerIds": [
+              "backend"
+            ],
+            "exclusive": false,
+            "unconfinedRuntimes": [],
+            "state": "running",
+            "reason": null,
+            "receivedAt": "2026-09-13T19:05:27.147Z",
+            "startedAt": "2026-09-13T19:05:27.484Z",
+            "endedAt": null,
+            "heldAt": null,
+            "launchId": "01a09c28-febc-7173-a153-710e4bea7d94",
+            "pid": 78613,
+            "pidStartedAtMs": 1789326327491,
+            "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-febc-7173-a153-710e4bea7d94.stdout.jsonl",
+            "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-febc-7173-a153-710e4bea7d94.stderr.log",
+            "runId": "controlled-reporting-3-78613",
+            "stopRequestedAt": null,
+            "exitCode": null,
+            "signal": null,
+            "result": null,
+            "submittedDepartmentId": "engineering",
+            "workKind": "implementation",
+            "mode": "delegate",
+            "submittedWorkKind": "implementation",
+            "submittedAttachmentIds": [],
+            "approvedRosterHash": "1338c5c1067da7ff21131f21c1c7b94062d549b4758de5d1b53d58de5ca42f32",
+            "route": {
+              "state": "selected",
+              "projectId": "reporting",
+              "departmentId": "engineering",
+              "headAgentId": "head",
+              "reason": "The request explicitly selected this department.",
+              "decidedAt": "2026-09-13T19:05:27.147Z",
+              "elapsedMs": 0,
+              "method": "explicit",
+              "workspaceRevision": 1
+            },
+            "admittedWorkspaceRevision": 1,
+            "admissionElapsedMs": 0.1712079999999787
+          },
+          {
+            "id": "01a09c28-fcba-7518-b37b-634c516165e2",
+            "kind": "request",
+            "clientRequestId": "concurrency-website",
+            "projectId": "website",
+            "departmentId": "engineering",
+            "task": "Fix the frontend UI layout using exactly one worker.",
+            "resumeRunId": null,
+            "allowUnconfinedWrites": false,
+            "agentIds": [
+              "head",
+              "frontend"
+            ],
+            "workerIds": [
+              "frontend"
+            ],
+            "exclusive": false,
+            "unconfinedRuntimes": [],
+            "state": "running",
+            "reason": null,
+            "receivedAt": "2026-09-13T19:05:26.970Z",
+            "startedAt": "2026-09-13T19:05:26.974Z",
+            "endedAt": null,
+            "heldAt": null,
+            "launchId": "01a09c28-fcbe-7734-8cbe-e32b9d53d861",
+            "pid": 78563,
+            "pidStartedAtMs": 1789326326979,
+            "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stdout.jsonl",
+            "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stderr.log",
+            "runId": "controlled-website-2-78563",
+            "stopRequestedAt": null,
+            "exitCode": null,
+            "signal": null,
+            "result": null,
+            "submittedDepartmentId": "engineering",
+            "workKind": "implementation",
+            "mode": "delegate",
+            "submittedWorkKind": "implementation",
+            "submittedAttachmentIds": [],
+            "approvedRosterHash": "6d5a1dc6f4d86d202367a89890a1e331a87a237021ade7a1ddee6bdc09fde025",
+            "route": {
+              "state": "selected",
+              "projectId": "website",
+              "departmentId": "engineering",
+              "headAgentId": "head",
+              "reason": "The request explicitly selected this department.",
+              "decidedAt": "2026-09-13T19:05:26.970Z",
+              "elapsedMs": 0,
+              "method": "explicit",
+              "workspaceRevision": 1
+            },
+            "admittedWorkspaceRevision": 1,
+            "admissionElapsedMs": 0.14554200000009132
+          },
+          {
+            "id": "01a09c28-fc4c-726d-951c-179bdfb6a272",
+            "kind": "request",
+            "clientRequestId": "concurrency-api",
+            "projectId": "api",
+            "departmentId": "engineering",
+            "task": "Fix the backend API response using exactly one worker.",
+            "resumeRunId": null,
+            "allowUnconfinedWrites": false,
+            "agentIds": [
+              "head",
+              "backend"
+            ],
+            "workerIds": [
+              "backend"
+            ],
+            "exclusive": false,
+            "unconfinedRuntimes": [],
+            "state": "ended",
+            "reason": null,
+            "receivedAt": "2026-09-13T19:05:26.860Z",
+            "startedAt": "2026-09-13T19:05:26.866Z",
+            "endedAt": "2026-09-13T19:05:27.476Z",
+            "heldAt": null,
+            "launchId": "01a09c28-fc52-77bd-a408-98b392c60866",
+            "pid": 78512,
+            "pidStartedAtMs": 1789326326870,
+            "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stdout.jsonl",
+            "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stderr.log",
+            "runId": "controlled-api-1-78512",
+            "stopRequestedAt": null,
+            "exitCode": 0,
+            "signal": null,
+            "result": {
+              "exitCode": 0,
+              "code": null,
+              "message": null,
+              "details": []
+            },
+            "submittedDepartmentId": "engineering",
+            "workKind": "implementation",
+            "mode": "delegate",
+            "submittedWorkKind": "implementation",
+            "submittedAttachmentIds": [],
+            "approvedRosterHash": "c9e02595e948832ab6f1a64bd8f75e09b544ebcd8a170578750ae0d540c67573",
+            "route": {
+              "state": "selected",
+              "projectId": "api",
+              "departmentId": "engineering",
+              "headAgentId": "head",
+              "reason": "The request explicitly selected this department.",
+              "decidedAt": "2026-09-13T19:05:26.860Z",
+              "elapsedMs": 0,
+              "method": "explicit",
+              "workspaceRevision": 1
+            },
+            "admittedWorkspaceRevision": 1,
+            "admissionElapsedMs": 0.2821249999999509
+          }
+        ]
+      }
+    },
+    "final": {
+      "ok": true,
+      "accepting": true,
+      "managedElsewhere": null,
+      "notice": null,
+      "limits": {
+        "maxConcurrentProjectRuns": 2
+      },
+      "live": [],
+      "items": [
+        {
+          "id": "01a09c28-fd6a-7319-8510-add1f80ec629",
+          "kind": "request",
+          "clientRequestId": "concurrency-reporting",
+          "projectId": "reporting",
+          "departmentId": "engineering",
+          "task": "Fix the backend database report using exactly one worker.",
+          "resumeRunId": null,
+          "allowUnconfinedWrites": false,
+          "agentIds": [
+            "head",
+            "backend"
+          ],
+          "workerIds": [
+            "backend"
+          ],
+          "exclusive": false,
+          "unconfinedRuntimes": [],
+          "state": "ended",
+          "reason": null,
+          "receivedAt": "2026-09-13T19:05:27.147Z",
+          "startedAt": "2026-09-13T19:05:27.484Z",
+          "endedAt": "2026-09-13T19:05:27.582Z",
+          "heldAt": null,
+          "launchId": "01a09c28-febc-7173-a153-710e4bea7d94",
+          "pid": 78613,
+          "pidStartedAtMs": 1789326327491,
+          "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-febc-7173-a153-710e4bea7d94.stdout.jsonl",
+          "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-febc-7173-a153-710e4bea7d94.stderr.log",
+          "runId": "controlled-reporting-3-78613",
+          "stopRequestedAt": null,
+          "exitCode": 0,
+          "signal": null,
+          "result": {
+            "exitCode": 0,
+            "code": null,
+            "message": null,
+            "details": []
+          },
+          "submittedDepartmentId": "engineering",
+          "workKind": "implementation",
+          "mode": "delegate",
+          "submittedWorkKind": "implementation",
+          "submittedAttachmentIds": [],
+          "approvedRosterHash": "1338c5c1067da7ff21131f21c1c7b94062d549b4758de5d1b53d58de5ca42f32",
+          "route": {
+            "state": "selected",
+            "projectId": "reporting",
+            "departmentId": "engineering",
+            "headAgentId": "head",
+            "reason": "The request explicitly selected this department.",
+            "decidedAt": "2026-09-13T19:05:27.147Z",
+            "elapsedMs": 0,
+            "method": "explicit",
+            "workspaceRevision": 1
+          },
+          "admittedWorkspaceRevision": 1,
+          "admissionElapsedMs": 0.1712079999999787
+        },
+        {
+          "id": "01a09c28-fcba-7518-b37b-634c516165e2",
+          "kind": "request",
+          "clientRequestId": "concurrency-website",
+          "projectId": "website",
+          "departmentId": "engineering",
+          "task": "Fix the frontend UI layout using exactly one worker.",
+          "resumeRunId": null,
+          "allowUnconfinedWrites": false,
+          "agentIds": [
+            "head",
+            "frontend"
+          ],
+          "workerIds": [
+            "frontend"
+          ],
+          "exclusive": false,
+          "unconfinedRuntimes": [],
+          "state": "ended",
+          "reason": null,
+          "receivedAt": "2026-09-13T19:05:26.970Z",
+          "startedAt": "2026-09-13T19:05:26.974Z",
+          "endedAt": "2026-09-13T19:05:27.577Z",
+          "heldAt": null,
+          "launchId": "01a09c28-fcbe-7734-8cbe-e32b9d53d861",
+          "pid": 78563,
+          "pidStartedAtMs": 1789326326979,
+          "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stdout.jsonl",
+          "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fcbe-7734-8cbe-e32b9d53d861.stderr.log",
+          "runId": "controlled-website-2-78563",
+          "stopRequestedAt": null,
+          "exitCode": 0,
+          "signal": null,
+          "result": {
+            "exitCode": 0,
+            "code": null,
+            "message": null,
+            "details": []
+          },
+          "submittedDepartmentId": "engineering",
+          "workKind": "implementation",
+          "mode": "delegate",
+          "submittedWorkKind": "implementation",
+          "submittedAttachmentIds": [],
+          "approvedRosterHash": "6d5a1dc6f4d86d202367a89890a1e331a87a237021ade7a1ddee6bdc09fde025",
+          "route": {
+            "state": "selected",
+            "projectId": "website",
+            "departmentId": "engineering",
+            "headAgentId": "head",
+            "reason": "The request explicitly selected this department.",
+            "decidedAt": "2026-09-13T19:05:26.970Z",
+            "elapsedMs": 0,
+            "method": "explicit",
+            "workspaceRevision": 1
+          },
+          "admittedWorkspaceRevision": 1,
+          "admissionElapsedMs": 0.14554200000009132
+        },
+        {
+          "id": "01a09c28-fc4c-726d-951c-179bdfb6a272",
+          "kind": "request",
+          "clientRequestId": "concurrency-api",
+          "projectId": "api",
+          "departmentId": "engineering",
+          "task": "Fix the backend API response using exactly one worker.",
+          "resumeRunId": null,
+          "allowUnconfinedWrites": false,
+          "agentIds": [
+            "head",
+            "backend"
+          ],
+          "workerIds": [
+            "backend"
+          ],
+          "exclusive": false,
+          "unconfinedRuntimes": [],
+          "state": "ended",
+          "reason": null,
+          "receivedAt": "2026-09-13T19:05:26.860Z",
+          "startedAt": "2026-09-13T19:05:26.866Z",
+          "endedAt": "2026-09-13T19:05:27.476Z",
+          "heldAt": null,
+          "launchId": "01a09c28-fc52-77bd-a408-98b392c60866",
+          "pid": 78512,
+          "pidStartedAtMs": 1789326326870,
+          "stdoutPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stdout.jsonl",
+          "stderrPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state/serve/launches/01a09c28-fc52-77bd-a408-98b392c60866.stderr.log",
+          "runId": "controlled-api-1-78512",
+          "stopRequestedAt": null,
+          "exitCode": 0,
+          "signal": null,
+          "result": {
+            "exitCode": 0,
+            "code": null,
+            "message": null,
+            "details": []
+          },
+          "submittedDepartmentId": "engineering",
+          "workKind": "implementation",
+          "mode": "delegate",
+          "submittedWorkKind": "implementation",
+          "submittedAttachmentIds": [],
+          "approvedRosterHash": "c9e02595e948832ab6f1a64bd8f75e09b544ebcd8a170578750ae0d540c67573",
+          "route": {
+            "state": "selected",
+            "projectId": "api",
+            "departmentId": "engineering",
+            "headAgentId": "head",
+            "reason": "The request explicitly selected this department.",
+            "decidedAt": "2026-09-13T19:05:26.860Z",
+            "elapsedMs": 0,
+            "method": "explicit",
+            "workspaceRevision": 1
+          },
+          "admittedWorkspaceRevision": 1,
+          "admissionElapsedMs": 0.2821249999999509
+        }
+      ]
+    }
+  },
+  "calls": [
+    {
+      "projectId": "api",
+      "name": "api-1",
+      "requestedCommand": "/opt/homebrew/Cellar/node/26.8.1/bin/node",
+      "requestedArgs": [
+        "--import",
+        "tsx",
+        "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/src/cli/index.ts",
+        "run",
+        "--json",
+        "--project=api",
+        "--department=engineering",
+        "--work-kind=implementation",
+        "--worker=backend",
+        "--workspace-revision=1",
+        "--task=Fix the backend API response using exactly one worker.",
+        "--state-dir=/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state"
+      ],
+      "cliArgv": [
+        "run",
+        "--json",
+        "--project=api",
+        "--department=engineering",
+        "--work-kind=implementation",
+        "--worker=backend",
+        "--workspace-revision=1",
+        "--task=Fix the backend API response using exactly one worker.",
+        "--state-dir=/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state"
+      ],
+      "shell": false,
+      "detached": true,
+      "pid": 78512,
+      "spawnAt": "2026-09-13T19:05:26.870Z",
+      "exitAt": "2026-09-13T19:05:27.476Z",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "projectId": "website",
+      "name": "website-2",
+      "requestedCommand": "/opt/homebrew/Cellar/node/26.8.1/bin/node",
+      "requestedArgs": [
+        "--import",
+        "tsx",
+        "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/src/cli/index.ts",
+        "run",
+        "--json",
+        "--project=website",
+        "--department=engineering",
+        "--work-kind=implementation",
+        "--worker=frontend",
+        "--workspace-revision=1",
+        "--task=Fix the frontend UI layout using exactly one worker.",
+        "--state-dir=/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state"
+      ],
+      "cliArgv": [
+        "run",
+        "--json",
+        "--project=website",
+        "--department=engineering",
+        "--work-kind=implementation",
+        "--worker=frontend",
+        "--workspace-revision=1",
+        "--task=Fix the frontend UI layout using exactly one worker.",
+        "--state-dir=/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state"
+      ],
+      "shell": false,
+      "detached": true,
+      "pid": 78563,
+      "spawnAt": "2026-09-13T19:05:26.979Z",
+      "exitAt": "2026-09-13T19:05:27.577Z",
+      "exitCode": 0,
+      "signal": null
+    },
+    {
+      "projectId": "reporting",
+      "name": "reporting-3",
+      "requestedCommand": "/opt/homebrew/Cellar/node/26.8.1/bin/node",
+      "requestedArgs": [
+        "--import",
+        "tsx",
+        "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/src/cli/index.ts",
+        "run",
+        "--json",
+        "--project=reporting",
+        "--department=engineering",
+        "--work-kind=implementation",
+        "--worker=backend",
+        "--workspace-revision=1",
+        "--task=Fix the backend database report using exactly one worker.",
+        "--state-dir=/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state"
+      ],
+      "cliArgv": [
+        "run",
+        "--json",
+        "--project=reporting",
+        "--department=engineering",
+        "--work-kind=implementation",
+        "--worker=backend",
+        "--workspace-revision=1",
+        "--task=Fix the backend database report using exactly one worker.",
+        "--state-dir=/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-concurrency-proof-49vtMd/state"
+      ],
+      "shell": false,
+      "detached": true,
+      "pid": 78613,
+      "spawnAt": "2026-09-13T19:05:27.491Z",
+      "exitAt": "2026-09-13T19:05:27.582Z",
+      "exitCode": 0,
+      "signal": null
+    }
+  ],
+  "processReceipts": [
+    {
+      "started": {
+        "name": "api-1",
+        "pid": 78512,
+        "startedAt": "2026-09-13T19:05:26.897Z",
+        "runId": "controlled-api-1-78512"
+      },
+      "ended": {
+        "name": "api-1",
+        "pid": 78512,
+        "startedAt": "2026-09-13T19:05:26.897Z",
+        "runId": "controlled-api-1-78512",
+        "endedAt": "2026-09-13T19:05:27.469Z",
+        "exitCode": 0
+      }
+    },
+    {
+      "started": {
+        "name": "website-2",
+        "pid": 78563,
+        "startedAt": "2026-09-13T19:05:27.005Z",
+        "runId": "controlled-website-2-78563"
+      },
+      "ended": {
+        "name": "website-2",
+        "pid": 78563,
+        "startedAt": "2026-09-13T19:05:27.005Z",
+        "runId": "controlled-website-2-78563",
+        "endedAt": "2026-09-13T19:05:27.575Z",
+        "exitCode": 0
+      }
+    },
+    {
+      "started": {
+        "name": "reporting-3",
+        "pid": 78613,
+        "startedAt": "2026-09-13T19:05:27.532Z",
+        "runId": "controlled-reporting-3-78613"
+      },
+      "ended": {
+        "name": "reporting-3",
+        "pid": 78613,
+        "startedAt": "2026-09-13T19:05:27.532Z",
+        "runId": "controlled-reporting-3-78613",
+        "endedAt": "2026-09-13T19:05:27.575Z",
+        "exitCode": 0
+      }
+    }
+  ],
+  "repositories": {
+    "before": {
+      "api": {
+        "head": "e3b73362691fb77def5cd99b3faac07bbd55463b",
+        "status": "M README.md\n?? local-notes.txt",
+        "files": {
+          "README.md": "3d99204505ce01867e1a7dd270b219309959bc5a5915be93fdd760ad062b533f",
+          "local-notes.txt": "46878cddb02eaf8e4649328fa13f4380b0c02e0daf8f8505d41640bb1b48b4df"
+        }
+      },
+      "website": {
+        "head": "9d86d75d1e10d1a21db9d64c100d1f2f4ac5aae0",
+        "status": "M README.md\n?? local-notes.txt",
+        "files": {
+          "README.md": "f0a1967ce676e17bea071748f13ed502a1d5af837991da636d54428cf68dcdef",
+          "local-notes.txt": "b9d4f9933050cb3c47b0c6165c1b662d3d77d0d0b013e5668b91ca8cd0dba6f2"
+        }
+      },
+      "reporting": {
+        "head": "7ab921f9078a81f0eccac26269a9f8a432717a48",
+        "status": "M README.md\n?? local-notes.txt",
+        "files": {
+          "README.md": "50b8fa3682a97a6f09cb4a8bf746391afc5d6740f284b9b3304c7184697932dc",
+          "local-notes.txt": "97c34527fb0dfc3d94d7a73f62bbe1146588b9b879593a606bcc4dd13f3e2b6d"
+        }
+      }
+    },
+    "after": {
+      "api": {
+        "head": "e3b73362691fb77def5cd99b3faac07bbd55463b",
+        "status": "M README.md\n?? local-notes.txt",
+        "files": {
+          "README.md": "3d99204505ce01867e1a7dd270b219309959bc5a5915be93fdd760ad062b533f",
+          "local-notes.txt": "46878cddb02eaf8e4649328fa13f4380b0c02e0daf8f8505d41640bb1b48b4df"
+        }
+      },
+      "website": {
+        "head": "9d86d75d1e10d1a21db9d64c100d1f2f4ac5aae0",
+        "status": "M README.md\n?? local-notes.txt",
+        "files": {
+          "README.md": "f0a1967ce676e17bea071748f13ed502a1d5af837991da636d54428cf68dcdef",
+          "local-notes.txt": "b9d4f9933050cb3c47b0c6165c1b662d3d77d0d0b013e5668b91ca8cd0dba6f2"
+        }
+      },
+      "reporting": {
+        "head": "7ab921f9078a81f0eccac26269a9f8a432717a48",
+        "status": "M README.md\n?? local-notes.txt",
+        "files": {
+          "README.md": "50b8fa3682a97a6f09cb4a8bf746391afc5d6740f284b9b3304c7184697932dc",
+          "local-notes.txt": "97c34527fb0dfc3d94d7a73f62bbe1146588b9b879593a606bcc4dd13f3e2b6d"
+        }
+      }
+    }
+  },
+  "cleanup": {
+    "serverClosed": true,
+    "ownedChildrenStopped": true,
+    "temporaryRemoved": true
+  }
+}

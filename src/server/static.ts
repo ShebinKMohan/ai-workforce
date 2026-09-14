@@ -1,19 +1,9 @@
 /**
- * Static files for the workspace UI in `web/workspace` (FR084).
- *
- * `web/office` (the raster office prototype) stays in the repository but is no
- * longer served: it cannot draw an empty workspace, repeated departments or a
- * team larger than its drawn seats without inventing people.
- *
- * The mapping: `/` and `/index.html` → `index.html`, `/assets/*` →
- * `public/assets/*`, `/src/*` → `src/*`. Nothing else under the web root is
- * reachable.
- *
- * A path is refused, not normalized, when it could name anything outside
- * those roots: an undecodable escape, a NUL or backslash, a `.` or `..`
- * segment (encoded or not), an empty segment, an extension outside a short
- * allowlist, or a file whose realpath leaves the web root — a symlink
- * pointing out of the tree is refused like `..` is.
+ * Static Headquarters files served directly by the coordinator (FR084/FR094).
+ * `/` resolves the connected `src/headquarters/index.html`; `/workspace/`
+ * and `/office/` retain the earlier evidence and office views.
+ * Only approved src/assets paths and MIME types are exposed. Traversal,
+ * encoded dot segments, external symlinks and non-files remain refused.
  */
 import { realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -31,6 +21,7 @@ const MIME: Readonly<Record<string, string>> = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
 };
 
 /** The package root: two levels above this module in both `src/server` and `dist/server`. */
@@ -39,7 +30,7 @@ export function packageRoot(): string {
 }
 
 export function defaultWebRoot(): string {
-  return path.join(packageRoot(), 'web', 'claude-office');
+  return path.join(packageRoot(), 'web', 'headquarters');
 }
 
 export type StaticResolution =
@@ -56,6 +47,10 @@ export function resolveStaticFile(webRoot: string, rawTarget: string): StaticRes
     const target = rawTarget.slice('/workspace'.length) || '/';
     return resolveStaticFile(path.join(packageRoot(), 'web', 'workspace'), target);
   }
+  if (webRoot === defaultWebRoot() && (rawPath === '/office' || rawPath.startsWith('/office/'))) {
+    const target = rawTarget.slice('/office'.length) || '/';
+    return resolveStaticFile(path.join(packageRoot(), 'web', 'claude-office'), target);
+  }
   if (!rawPath.startsWith('/') || rawPath.startsWith('//')) return BAD_REQUEST;
   let decoded: string;
   try {
@@ -69,7 +64,7 @@ export function resolveStaticFile(webRoot: string, rawTarget: string): StaticRes
   if (segments.some((segment) => segment === '.' || segment === '..')) return NOT_FOUND;
 
   let relative: string[];
-  if (decoded === '/' || decoded === '/index.html') relative = ['index.html'];
+  if (decoded === '/' || decoded === '/index.html') relative = webRoot === defaultWebRoot() ? ['src', 'headquarters', 'index.html'] : ['index.html'];
   else if (segments[0] === 'assets' && segments.length > 1) relative = ['public', ...segments];
   else if (segments[0] === 'src' && segments.length > 1) relative = segments;
   else return NOT_FOUND;

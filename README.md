@@ -1,84 +1,82 @@
 # AI Workforce
 
-A local harness for your coding agents. Add projects, create departments with heads and workers,
-and send a message to **Control Center**, your AI orchestrator. It answers from the supplied
-context, asks a focused question, or routes project work to the responsible department. The head
-plans the work, workers change isolated copies, and an independent verifier checks the candidate.
-The head reviews the checked result before Control Center returns the final response.
+A local workspace for your coding agents. Headquarters, project issues, Control Center,
+department heads, workers and verification run from this one repository. The frontend is in
+`web/headquarters`, beside the TypeScript backend in `src`. One local server serves both.
 
-The desktop workspace combines a readable task conversation, an interactive 3D Office, project
-and agent management, and real execution records. Codex and Claude Code use their installed CLIs
-and configured provider authentication; AI Workforce has no separate product account. Sending a
-message that needs AI uses the selected runtime's model allowance. The CLI command and data
-directory retain the name `workforce` for compatibility.
+## Open the app
 
-## Start here
+Double-click **[Run Workforce.command](Run%20Workforce.command)** on this Mac, or use
+**[run.sh](run.sh)** for your usual script workflow. Both launchers prepare the frontend and
+backend together, start the local workspace, and open its page. If it is already running,
+they open that same workspace. You can close the launcher window while your workforce runs.
 
-From this repository on macOS, with Node.js 22.13 or newer and a supported coding CLI installed:
+The **AI Workforce** app in your Applications folder is also available.
+You can also open **[AI Workforce in your browser](http://127.0.0.1:4421/)**.
 
-```sh
-npm ci
-npm start
+Choose **Connections** to automatically detect Codex and Claude Code. Click **Connect** for the
+agent you use; the app saves and verifies the connection. No copied command or configuration
+is required. See [Connect your coding agents](docs/mcp.md) for the short walkthrough.
+
+The source, frontend and backend live together in this repository. Workspace data remains
+outside the source checkout. The launcher keeps using this Mac's saved workspace and team.
+
+<details>
+<summary>Developer startup and local preferences</summary>
+
+`run.sh` works from any working directory, including paths containing spaces. It finds a supported
+local Node installation, installs missing or mismatched project dependencies from the lock file,
+and builds the backend and frontend assets before a cold start. Repeated launches reuse the
+matching server; simultaneous launches prepare and start it only once. `--no-open` skips opening
+the browser. `npm start` still provides the foreground developer workflow.
+Node.js 22.13 or newer is required. The macOS launcher source and installer are in `scripts/`.
+
+The ignored `.workforce-local.json` selects the saved state folder and port.
+`WORKFORCE_STATE_DIR` and `WORKFORCE_PORT` override it. Without preferences, startup uses
+`~/.workforce` and port 4421. Source changes require restarting the backend after its work has
+stopped. An existing server is reused only when its source and workspace identities match.
+
+</details>
+
+## Project issues and coding-agent connections
+
+Open **Projects** to register a Git repository and its verification commands. Configure a
+department head and project-assigned workers in **Departments** and **Agents**; Control Center
+uses those saved runtime bindings to route work. Adding a project does not invent a team.
+
+Open **Issues** for the project's Kanban board: **Backlog**, **To Do**, **In Progress**,
+**In Review**, and **Done**. Create a brief, plan or PRD, edit its description, and organize its
+column. **Send to Control Center** starts execution through the ordinary durable request queue.
+Changing a manual column never launches an agent. Linked issues show actual request progress,
+blockers and verification; a manually completed card is not a verified coding result.
+
+Open **Connections** to detect and connect Codex or Claude Code with one click. External coding agents can discover
+projects, submit a complete PRD or plan, create and update issues, and explicitly start work.
+Stable idempotency keys make retrying an uncertain submission reuse the same issue/request.
+See **[Connect your coding agents](docs/mcp.md)** for the simple app workflow.
+
+The workflow is:
+
+```text
+Codex / Claude → Workforce MCP → project issue → Control Center
+  → department head → assigned workers → independent checks → head review → result
 ```
 
-Open **[http://127.0.0.1:4317/](http://127.0.0.1:4317/)** if the browser does not open. Keep the
-server terminal open while you use the page. After the first installation, **`npm start`** builds
-the current source and opens the workspace. For the `workforce` commands in this guide, run
-`npm link` once from the checkout; then `workforce serve --open` starts the last build directly.
-`node dist/cli/index.js serve --open` is the equivalent without a global link.
+MCP is a local stdio connection to the same running server. It does not create a second
+scheduler. Saving a plan with `start: false` only records the issue; `start: true` sends it for
+execution and can use the configured runtime's model allowance.
 
-A new workspace opens an empty Office with only Control Center. To get started:
+## Headquarters and results
 
-1. **Check your coding tools.** The page detects installed Codex and Claude Code without a model
-   turn. If a tool is signed out, Settings gives its login command. Check again after signing in.
-   Control Center, runtime defaults and agent editors offer the models and reasoning efforts
-   reported by each installed runtime; unavailable choices remain visible.
-2. **Add a project.** Click **Browse folders** to choose an existing Git repository with at least
-   one commit, then **Use this folder** to inspect it. Review the
-   detected checks, or enter a check such as `npm test`. Work starts from its last commit;
-   uncommitted edits stay in your original folder and are excluded from the task. Adding a project
-   creates no department or employee.
-3. **Create a department.** Use **+ Department** to name the department and configure its head.
-   Both are saved together. Use **Add agent** to add workers and select their projects. Each worker
-   gets a workstation inside the same growing department room. A worker with no project assignment
-   receives no work.
-4. **Send your first task.** In **Chat**, choose the project, describe a bounded change and click
-   **Send to Control Center**. Optionally select its runtime, model and effort for this message.
-   Control Center chooses the department; selecting a room or agent only changes inspection
-   context. Department heads and workers keep their own runtime settings.
+Headquarters shows the configured company and actual work. The task rail opens conversations,
+recorded output and evidence. New feed submissions are independent requests; followups in an
+opened conversation carry that conversation's bounded context. New requests do not cancel
+older work. Projects, Departments, Agents, Runtimes, Executions and Settings share this interface.
 
-Use the attachment button or drag files into Chat to include documents, source files or images.
-You can remove individual files before sending. A message accepts up to **8 files**, **5 MiB per
-supported native image**, **10 MiB per other file**, and **25 MiB total**. Delivery depends on the
-runtime: supported images use native image input, Claude also accepts native PDFs, and other
-files are supplied as staged references with bounded text excerpts where applicable. Uploading
-a binary file does not imply the selected model can interpret its format.
-
-Start with a small change in a demo or development repository whose tests you can interpret.
-For the full walkthrough, troubleshooting and repeat-use commands, read **[Start here](docs/start-here.md)**.
-
-## Follow the work
-
-**Office** shows your saved departments and employees in an interactive 3D scene. A department's
-room grows around its full roster, including the fifth worker and beyond; there is no fixed set
-of islands or four-seat limit. Pan, zoom or select a room or employee to inspect its real context.
-The central **Control Center** represents the AI intake agent. Its chosen runtime interprets
-requests; coordinator code enforces scheduling, worker capacity and execution boundaries.
-
-The **Control Center** has three tabs: **Chat** keeps your message and the main response readable,
-with execution traces collapsed until you expand them; **Activity** shows recorded work and links
-to its evidence; **Runtimes** shows runtime information and configured agent bindings.
-**Projects** opens the workspace pages at `/workspace/`,
-where Home/setup, Departments, Tasks and Settings remain available. **Agents** opens the full
-directory and **Add agent** opens the worker editor. Typing a draft starts no model task. Drag
-the right panel's divider to resize it. Scene packets and phase labels reflect recorded intake,
-delegation, work and review; idle agents do not simulate tasks. Scene motion can be paused and
-respects reduced motion. Opt-in browser notifications report completion or work needing attention
-while the page is running, subject to browser support and permission.
-
-The default application port is **4317**; use the URL printed by your server if you choose another
-port. The original prototype on **4318** is a visual reference with static demo data. The dated
-13 September live checks used a separate workspace at **4421**.
+The earlier evidence workspace remains at `/workspace/`; the older office is at `/office/`.
+Those compatibility views use the same backend. The old separate frontend/proxy server is no
+longer part of startup. Original frontend files and Git metadata were preserved in the
+[consolidation evidence](docs/evidence/consolidation-2026-09-13/README.md).
 
 Open a task to see who is acting now and its five recorded phases:
 

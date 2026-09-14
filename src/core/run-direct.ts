@@ -47,7 +47,7 @@ import {
   type StopReceipt,
   type TurnHandle,
 } from '../adapters/index.js';
-import { AdapterError, type RuntimeAttachment } from '../adapters/types.js';
+import { AdapterError, capabilityWasTestedOn, type RuntimeAttachment } from '../adapters/types.js';
 import { attachmentReferenceText, validateAttachments } from '../adapters/attachments.js';
 import { writeArtifact, type ArtifactRecord } from '../storage/artifacts.js';
 import {
@@ -240,14 +240,16 @@ export interface ContainmentAssessment {
 export function assessContainment(adapter: RuntimeAdapter, policy: Policy, acknowledged: boolean, installedVersion: string | null = null): ContainmentAssessment {
   const report = adapter.capabilities().capabilities.write_containment;
   const writes = WRITING_POLICIES.has(policy);
-  const testedVersion = report.testedVersion;
   // A capability status is a statement about a version on a platform, and the
   // one that matters here is the version that is about to run. `verified`
   // established against codex-cli 0.147.0 says nothing about 0.160.0, which
   // may have changed or removed workspace-write entirely; a run that reads the
   // status without reading the version cannot tell the two apart, and its
   // evidence would be indistinguishable from a contained one.
-  const versionEstablished = testedVersion !== null && installedVersion !== null && installedVersion === testedVersion;
+  const versionEstablished = capabilityWasTestedOn(report, installedVersion);
+  // Preserve the historical baseline in adapter metadata while recording the
+  // exact matching evidence for this particular execution in its manifest.
+  const testedVersion = versionEstablished ? installedVersion : report.testedVersion;
   return {
     policy,
     writes,
@@ -826,12 +828,13 @@ async function detectChecks(repoRoot: string, baseRevision: string): Promise<Res
     if (raw !== null) {
       try {
         const manifest = JSON.parse(raw) as { scripts?: Record<string, unknown> };
-        const testScript = manifest.scripts?.['test'];
-        if (typeof testScript === 'string' && testScript.trim().length > 0) {
+        for (const scriptName of ['test', 'check'] as const) {
+          const script = manifest.scripts?.[scriptName];
+          if (typeof script !== 'string' || !script.trim()) continue;
           return {
             source: 'detected',
-            checks: [{ criterionId: 'package-test-script', description: `package.json test script: ${testScript}`, command: 'npm', args: ['test', '--silent'], required: true }],
-            detail: `detected the package.json "test" script (${testScript}) at base ${baseRevision.slice(0, 12)}`,
+            checks: [{ criterionId: `package-${scriptName}-script`, description: `package.json ${scriptName} script: ${script}`, command: 'npm', args: scriptName === 'test' ? ['test', '--silent'] : ['run', 'check', '--silent'], required: true }],
+            detail: `detected the package.json "${scriptName}" script (${script}) at base ${baseRevision.slice(0, 12)}`,
           };
         }
       } catch {

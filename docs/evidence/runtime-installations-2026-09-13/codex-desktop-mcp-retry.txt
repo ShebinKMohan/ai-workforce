@@ -1,0 +1,58 @@
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > rejects an interrupt with no active turn and a resume of a thread with no rollout
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: execution boundary (FR042, no model tokens) > confines writes to the granted roots and denies /tmp, $TMPDIR, a sibling workspace and the network
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > steers an active turn through turn/steer and reports submission, not queueing
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > interrupts a running turn and leaves no owned process behind
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > denies a model-driven write outside the granted workspace and shows the denial in the events
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > reports a "done" message with no file change as an assistant message, not as success
+stdout | tests/adapters/codex/real-runtime.test.ts
+
+codex real-runtime timings
+{"check":"coordination bridge tool call","ms":14611}
+
+ × tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it 16837ms
+   → the coordinator must record exactly one worker message: expected +0 to be 1 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+AssertionError: the coordinator must record exactly one worker message: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/adapters/codex/real-runtime.test.ts:594:89
+    592|       // desktop protocol may execute the provisioned tool without eli…
+    593|       const messages = bridge.messages();
+    594|       expect(messages.length, 'the coordinator must record exactly one…
+       |                                                                                         ^
+    595|       expect(messages[0]!.senderTaskId).toBe(task.id);
+    596|       expect(messages[0]!.body).toBe('schema is ready');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 skipped (12)
+   Start at  14:43:54
+   Duration  17.11s (tests 99%, transform 1%)
+
+
+Independent retry provenance
+Recorded: 2026-09-13T09:15:19.687718+00:00
+Exact executable: /Applications/ChatGPT.app/Contents/Resources/codex (0.154.0-alpha.6.2)
+Executable SHA256: ecad78dbf98adb89ec475edac86630406cbe59d9f3070b17d88065f136b94bcb
+Test source SHA256 loaded at run start: cb17ecac070f9bcdc2422aee4807f9a2f9dee9ed0c4b56ac760c1c4156905e6f
+Command: WORKFORCE_REAL_RUNTIMES=1 WORKFORCE_CODEX_PATH='/Applications/ChatGPT.app/Contents/Resources/codex' npx vitest run tests/adapters/codex/real-runtime.test.ts -t 'coordination bridge' --reporter=verbose
+Result: exit 1; one MCP test failed, eleven other tests skipped by filter. The receipt-first assertion found zero coordinator messages. No provider/authentication skip was reported. This retry establishes an actual missing coordination receipt, not merely a changed approval handshake.
+The test did not reach its positive tool-result assertion. Event diagnostics were not printed before the failed receipt assertion and temporary test state was cleaned by the existing test cleanup. No source or runtime configuration was modified by this diagnostic agent.

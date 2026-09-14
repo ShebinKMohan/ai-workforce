@@ -1,0 +1,54 @@
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > rejects an interrupt with no active turn and a resume of a thread with no rollout
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: execution boundary (FR042, no model tokens) > confines writes to the granted roots and denies /tmp, $TMPDIR, a sibling workspace and the network
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > steers an active turn through turn/steer and reports submission, not queueing
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > interrupts a running turn and leaves no owned process behind
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > denies a model-driven write outside the granted workspace and shows the denial in the events
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > reports a "done" message with no file change as an assistant message, not as success
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+codex coordination diagnostic: [{"kind":"assistant_message","payload":{"phase":"completed","itemId":"msg_0ea2369f8e6de6b5016aa66aa5a84887d08d5aba2504a6c541","itemType":"agentMessage","text":"I’ll send the exact message once and return only the resulting message ID.","messagePhase":"commentary","claimsDone":false,"phaseKnown":true}},{"kind":"tool_call","payload":{"phase":"started","itemId":"exec-1827a529-1d18-45a3-9093-b8c8a8cf53dc","itemType":"mcpToolCall","tool":"send_message","server":"workforce","status":"inProgress","error":null}},{"kind":"tool_result","payload":{"phase":"completed","itemId":"exec-1827a529-1d18-45a3-9093-b8c8a8cf53dc","itemType":"mcpToolCall","tool":"send_message","server":"workforce","status":"failed","error":{"message":"MCP tool call requires approval, but approval policy is never"}}},{"kind":"assistant_message","payload":{"phase":"completed","itemId":"msg_0ea2369f8e6de6b5016aa66aacae7887d082553b4400f1dd56","itemType":"agentMessage","text":"The workforce tool returned no `messageId`; the single call failed with:\n\n`MCP tool call requires approval, but approval policy is never`","messagePhase":"final_answer","claimsDone":true,"phaseKnown":true}},{"kind":"turn_completed","payload":{"status":"completed","durationMs":16336,"evidence":"runtime_reported"}}]
+
+stdout | tests/adapters/codex/real-runtime.test.ts
+
+codex real-runtime timings
+{"check":"coordination bridge tool call","ms":16349}
+
+ × tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it 18779ms
+   → the coordinator must record exactly one worker message: expected +0 to be 1 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+AssertionError: the coordinator must record exactly one worker message: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/adapters/codex/real-runtime.test.ts:596:89
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 skipped (12)
+   Start at  14:49:23
+   Duration  19.03s (tests 99%, transform 1%)
+
+
+Independent diagnostic provenance
+Exact executable: /Applications/ChatGPT.app/Contents/Resources/codex, version0.154.0-alpha.6.2, SHA256 ecad78dbf98adb89ec475edac86630406cbe59d9f3070b17d88065f136b94bcb
+Test source SHA256 loaded at run start: cb885a9578f3530edde6d081beaaf6071f60bed637186c6f125d70724a89f6a0
+Command: WORKFORCE_REAL_RUNTIMES=1 WORKFORCE_CODEX_PATH='/Applications/ChatGPT.app/Contents/Resources/codex' npx vitest run tests/adapters/codex/real-runtime.test.ts -t 'coordination bridge' --reporter=verbose
+Result: one failed MCP test, eleven filtered skips, exit1. Actual normalized tool_result for serverworkforce/send_message had statusfailed and error MCP tool call requires approval, but approval policy is never. No message was stored. The overall turn still reported completed, demonstrating why that terminal status is not task acceptance.
+Follow-up metadata-only comparison established both CLI versions initialize the provisioned workforce server and list all six tools, with no startup or discovery error. Separate parser evidence proves both versions recognize per-tool mcp_servers.workforce.tools.send_message.approval_mode=approve; that parser check does not prove successful tool execution.

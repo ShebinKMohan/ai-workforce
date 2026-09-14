@@ -1,0 +1,21 @@
+{
+  "planRecordVersion": 1,
+  "runId": "01a09bdd-fa39-70e1-9024-7e675841e52d",
+  "tasks": [
+    {
+      "key": "t1",
+      "taskId": "01a09bde-847c-7590-b3e8-a2a0e2d8f352",
+      "objective": "Correct add(a, b) in src/math.mjs to return the numeric sum for the existing supported numbers by fixing the subtraction defect.\nStay within: src/math.mjs\nDo not change: test/, package.json, AGENTS.md\nDone when (your department head's criteria; the coordinator runs the project's own checks to accept the work):\n- add(2, 3) returns 5, add(-2, 5) returns 3, and add(1.25, 2.5) returns 3.75; the unchanged command node --test test/math.test.mjs passes.\n- The actual candidate diff changes only src/math.mjs; original test/ files, package.json, and repository instructions are preserved.\n- Return a local candidate for coordinator capture and independent execution of existing checks against the frozen candidate, followed by Engineering head review of the actual diff and verifier receipts using the required structured review tool. Do not apply the candidate to the original repository.\nConstraint: Do not install packages, make network calls, create subagents, commit, push, merge, or deploy.\nConstraint: The coordinator owns candidate capture and independent checks.\nConstraint: Preserve the original PRD wording and line breaks, including MCP-PRD-2026-09-13; do not rewrite the PRD.",
+      "agentId": "engineer-one",
+      "dependencies": [],
+      "writer": true
+    }
+  ],
+  "checkFlags": [
+    "node --test test/math.test.mjs"
+  ],
+  "headReview": {
+    "headAgentId": "engineering-head",
+    "required": true
+  }
+}

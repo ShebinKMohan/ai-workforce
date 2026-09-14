@@ -73,7 +73,8 @@ export const WORKSPACE_USAGE = `workspace commands (add --json for a machine-rea
   workforce workspace agent edit <id> [--name] [--runtime] [--instructions | --instructions-file] [--capability]... [--policy] [--model] [--effort] [--department]
   workforce workspace agent archive <id>
   workforce workspace assign <agent> <project> | unassign <agent> <project>
-  workforce workspace runtime set <id> --adapter codex|claude-code|fake [--executable <path>]`;
+  workforce workspace runtime set <id> --adapter codex|claude-code|fake [--executable <path>]
+  workforce workspace runtime remove <id>`;
 
 function usageError(message: string): CliError {
   return new CliError(EXIT_CODES.invalidInput, 'invalid_workspace_command', message, [WORKSPACE_USAGE]);
@@ -188,7 +189,7 @@ async function show(stateRoot: string, deps: WorkspaceCommandDeps): Promise<Comm
   for (const department of config.departments) {
     lines.push(`  ${department.id}  ${department.name}${department.note !== undefined ? ` (${department.note})` : ''}  head: ${department.headAgentId ?? 'none'}${department.archived ? '  [archived]' : ''}`);
     for (const agent of config.agents.filter((a) => a.departmentId === department.id && a.role === 'worker')) {
-      lines.push(`    worker ${agent.id} (${agent.runtime}) on: ${agent.projectIds.length === 0 ? 'no project (on the bench)' : agent.projectIds.join(', ')}${agent.archived ? '  [archived]' : ''}`);
+      lines.push(`    worker ${agent.id} (${agent.runtime}) projects: ${agent.projectScope !== 'restricted' ? 'all registered projects (automatic)' : agent.projectIds.length === 0 ? 'none (explicit restriction)' : agent.projectIds.join(', ')}${agent.archived ? '  [archived]' : ''}`);
     }
   }
   const sendable = readiness.eligibility.filter((pair) => pair.sendable);
@@ -311,12 +312,13 @@ export async function commandWorkspace(args: WorkspaceCommandArgs, deps: Workspa
               model: args.model,
               effort: args.effort,
               projectIds: args.project !== undefined ? [args.project] : undefined,
+              projectScope: args.project !== undefined ? 'restricted' : undefined,
             });
             return mutate(stateRoot, args, 'agent.add', [op], (created, config) => {
               const agent = config.agents.find((a) => a.id === created.agents[0]);
               return agent === undefined
                 ? 'added agent'
-                : `added ${agent.role} ${agent.id} to department ${agent.departmentId} on ${agent.runtime} (${agent.policy})${agent.role === 'worker' && agent.projectIds.length === 0 ? '; it is on the bench until placed on a project' : ''}`;
+                : `added ${agent.role} ${agent.id} to department ${agent.departmentId} on ${agent.runtime} (${agent.policy})${agent.role === 'worker' ? agent.projectScope === 'restricted' ? `; project restriction: ${agent.projectIds.join(', ') || 'none'}` : '; available across all registered projects automatically' : ''}`;
             });
           }
           case 'edit': {
@@ -353,6 +355,10 @@ export async function commandWorkspace(args: WorkspaceCommandArgs, deps: Workspa
       }
 
       case 'runtime': {
+        if (sub === 'remove') {
+          const [id] = positionals(rest, ['id'], 'runtime remove');
+          return mutate(stateRoot, args, 'runtime.remove', [{ op: 'runtime.remove', id }], () => `removed runtime binding ${id}; installed software and run history are unchanged`);
+        }
         if (sub !== 'set') throw usageError(`unknown workspace runtime command "${sub ?? ''}"`);
         const [id] = positionals(rest, ['id'], 'runtime set');
         const adapter = requireFlag(args.adapter, 'adapter codex|claude-code|fake', 'runtime set');

@@ -233,22 +233,22 @@ describe('static files: the page and nothing but the page', () => {
 });
 
 describe('the workspace UI', () => {
-  it('serves the original Claude UI with live bridges and injects its token only in the response', async () => {
+  it('serves consolidated Headquarters with live coordinator APIs and injects its token only in the response', async () => {
     const root = defaultWebRoot();
-    expect(path.basename(root)).toBe('claude-office');
-    const indexPath = path.join(root, 'index.html');
+    expect(path.basename(root)).toBe('headquarters');
+    const indexPath = path.join(root, 'src', 'headquarters', 'index.html');
     const before = createHash('sha256').update(readFileSync(indexPath)).digest('hex');
     const office = await startOfficeServer({ stateRoot: server.stateRoot, port: 0, discover: async () => [] });
     try {
       const page = await rawRequest(office, { path: '/' });
       expect(page.status).toBe(200);
       expect(page.headers['content-security-policy']).toContain("frame-ancestors 'none'");
-      expect(page.body).toContain('<title>AI Workforce · Local developer workspace</title>');
-      expect(page.body).toContain('<script type="module" src="/src/main.js"></script>');
+      expect(page.body).toContain('<title>Workforce — Your company, together</title>');
+      expect(page.body).toContain('<script type="module" src="/src/headquarters/live-app.js"></script>');
       expect(sessionToken(page.body)).toBe(office.token);
       expect(readFileSync(indexPath, 'utf8')).not.toContain('workforce-session-token');
 
-      for (const file of ['/src/main.js', '/src/live-data.js', '/src/agent-store.js', '/src/sidebar.js', '/src/styles.css']) {
+      for (const file of ['/src/headquarters/live-app.js', '/src/headquarters/runtime-client.js', '/src/headquarters/chat.js', '/src/headquarters/styles.css', '/src/headquarters/assets/dm-sans.ttf']) {
         const response = await rawRequest(office, { path: file });
         expect({ file, status: response.status }).toEqual({ file, status: 200 });
         expect(statSync(path.join(root, file)).size).toBe(Number(response.headers['content-length']));

@@ -17,6 +17,7 @@ import {
   BRIDGE_SOCKET_ENV,
   BRIDGE_TOKEN_ENV,
   bridgeEntryPath,
+  bridgeToolsFor,
 } from './bridge.js';
 import { CoordinationServer, MAX_COORDINATION_SOCKET_PATH_BYTES, type CoordinationNotice, type HeadReviewResultHandler, type PlanProposalHandler, type ReceiverRegistry, type WorkerIdentity } from './server.js';
 import {
@@ -205,6 +206,7 @@ export async function createCoordinationBridge(options: CoordinationBridgeOption
     const mcpServers = { [BRIDGE_SERVER_NAME]: serverConfig };
     const claudeMcpConfigJson = JSON.stringify({ mcpServers });
     const prefix = `mcp_servers.${BRIDGE_SERVER_NAME}`;
+    const toolNames = bridgeToolsFor(identity.role ?? 'worker').map(tool => tool.name);
     return {
       runId: identity.runId,
       taskId: identity.taskId,
@@ -227,6 +229,13 @@ export async function createCoordinationBridge(options: CoordinationBridgeOption
         `${prefix}.env={ ${Object.entries(env)
           .map(([key, value]) => `${key} = ${tomlString(value)}`)
           .join(', ')} }`,
+        // This is the coordinator's own, token-scoped control channel. Recent
+        // Codex builds reject its tool calls under the global never policy
+        // before emitting an elicitation. Authorize exactly the offered role
+        // tools at session creation; never authorize a server-wide wildcard.
+        '-c',
+        `${prefix}.enabled_tools=[${toolNames.map(tomlString).join(', ')}]`,
+        ...toolNames.flatMap(tool => ['-c', `${prefix}.tools.${tool}.approval_mode="approve"`]),
       ],
       revoke: () => server.revokeWorker(token),
     };

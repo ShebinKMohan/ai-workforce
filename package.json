@@ -16,20 +16,27 @@
     "web/office",
     "web/workspace",
     "web/claude-office",
-    "fixtures/fake-runtime"
+    "fixtures/fake-runtime",
+    "web/headquarters"
   ],
   "scripts": {
-    "start": "npm run build && node dist/cli/index.js serve --open",
-    "build": "tsc",
+    "start": "node scripts/start.mjs",
+    "build": "tsc && node scripts/build-ui-vendor.mjs",
     "typecheck": "tsc -p tsconfig.check.json",
     "test": "vitest run",
-    "dev": "tsx src/cli/index.ts"
+    "dev": "tsx src/cli/index.ts",
+    "test:frontend": "node --test web/headquarters/src/*.test.js web/headquarters/artifacts/headquarters/bridge.test.mjs web/headquarters/artifacts/headquarters/runtime-client.test.mjs web/headquarters/artifacts/headquarters/task-status.test.mjs web/headquarters/artifacts/headquarters/issues.test.mjs web/headquarters/artifacts/headquarters/connections.test.mjs",
+    "test:launcher": "node --test scripts/launcher/*.test.mjs",
+    "mcp": "node dist/cli/index.js mcp",
+    "build:ui": "node scripts/build-ui-vendor.mjs"
   },
   "dependencies": {
+    "motion": "13.2.0",
     "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
+    "esbuild": "0.28.2",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"

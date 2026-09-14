@@ -1,0 +1,9 @@
+diff --git a/src/math.mjs b/src/math.mjs
+index 29b385181d203ecb3e293909118bd66d5321dad4..7d658310b0d95fd8c4981c2cc0fad840aebd6a20 100644
+--- a/src/math.mjs
++++ b/src/math.mjs
+@@ -1,3 +1,3 @@
+ export function add(a, b) {
+-  return a - b;
++  return a + b;
+ }

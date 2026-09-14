@@ -1,0 +1,262 @@
+{
+  "checkedAt": "2026-09-13T09:17:27.071Z",
+  "method": "Native initialize/thread-start/mcpServerStatus-list comparison with real owned coordination bridge and exact injected argv; no turn/start, no tool calls, no user configuration or credential reads.",
+  "results": [
+    {
+      "label": "homebrew",
+      "executablePath": "/opt/homebrew/bin/codex",
+      "version": "codex-cli 0.147.0",
+      "bridge": {
+        "serverName": "workforce",
+        "socketPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-61146f79a07654564b3cde1b/c.sock",
+        "socketBytes": 91,
+        "command": "/opt/homebrew/Cellar/node/26.8.1/bin/node",
+        "args": [
+          "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/src/coordination/bridge.ts"
+        ],
+        "envKeys": [
+          "WORKFORCE_BRIDGE_SOCKET",
+          "WORKFORCE_BRIDGE_TOKEN"
+        ]
+      },
+      "statuses": [
+        {
+          "stage": "before-thread",
+          "request": {
+            "limit": 100
+          },
+          "name": "workforce",
+          "authStatus": "unsupported",
+          "runtimeStatus": null,
+          "toolsError": null,
+          "toolNames": [
+            "report_result",
+            "request_task",
+            "send_message",
+            "ack_message",
+            "read_inbox",
+            "publish_artifact"
+          ],
+          "serverInfo": {
+            "name": "workforce",
+            "version": "1.0.0"
+          }
+        },
+        {
+          "stage": "after-thread",
+          "request": {
+            "limit": 100,
+            "threadId": "01a09a0e-5df4-7b60-baee-30c8724ba13a"
+          },
+          "name": "workforce",
+          "authStatus": "unsupported",
+          "runtimeStatus": null,
+          "toolsError": null,
+          "toolNames": [
+            "send_message",
+            "publish_artifact",
+            "read_inbox",
+            "report_result",
+            "request_task",
+            "ack_message"
+          ],
+          "serverInfo": {
+            "name": "workforce",
+            "version": "1.0.0"
+          }
+        },
+        {
+          "stage": "after-startup",
+          "request": {
+            "limit": 100,
+            "threadId": "01a09a0e-5df4-7b60-baee-30c8724ba13a"
+          },
+          "name": "workforce",
+          "authStatus": "unsupported",
+          "runtimeStatus": null,
+          "toolsError": null,
+          "toolNames": [
+            "read_inbox",
+            "ack_message",
+            "publish_artifact",
+            "request_task",
+            "send_message",
+            "report_result"
+          ],
+          "serverInfo": {
+            "name": "workforce",
+            "version": "1.0.0"
+          }
+        }
+      ],
+      "notifications": [
+        {
+          "method": "mcpServer/startupStatus/updated",
+          "params": {
+            "threadId": "01a09a0e-5df4-7b60-baee-30c8724ba13a",
+            "name": "workforce",
+            "status": "starting",
+            "error": null,
+            "failureReason": null
+          }
+        },
+        {
+          "method": "mcpServer/startupStatus/updated",
+          "params": {
+            "threadId": "01a09a0e-5df4-7b60-baee-30c8724ba13a",
+            "name": "workforce",
+            "status": "ready",
+            "error": null,
+            "failureReason": null
+          }
+        }
+      ],
+      "stderr": [],
+      "thread": {
+        "id": "01a09a0e-5df4-7b60-baee-30c8724ba13a",
+        "sandbox": {
+          "type": "workspaceWrite",
+          "writableRoots": [],
+          "networkAccess": false,
+          "excludeTmpdirEnvVar": false,
+          "excludeSlashTmp": false
+        },
+        "approvalPolicy": "never"
+      },
+      "storedMessages": 0,
+      "stop": {
+        "signalled": null,
+        "exited": true,
+        "groupAlive": false
+      }
+    },
+    {
+      "label": "desktop",
+      "executablePath": "/Applications/ChatGPT.app/Contents/Resources/codex",
+      "version": "codex-cli 0.154.0-alpha.6.2",
+      "bridge": {
+        "serverName": "workforce",
+        "socketPath": "/private/var/folders/wz/1j18wyv50vb_g1hlhd5zz_yw0000gn/T/wf-f198b0a2cedb297a0bf1eb80/c.sock",
+        "socketBytes": 91,
+        "command": "/opt/homebrew/Cellar/node/26.8.1/bin/node",
+        "args": [
+          "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/src/coordination/bridge.ts"
+        ],
+        "envKeys": [
+          "WORKFORCE_BRIDGE_SOCKET",
+          "WORKFORCE_BRIDGE_TOKEN"
+        ]
+      },
+      "statuses": [
+        {
+          "stage": "before-thread",
+          "request": {
+            "limit": 100
+          },
+          "name": "workforce",
+          "authStatus": "unsupported",
+          "runtimeStatus": null,
+          "toolsError": null,
+          "toolNames": [
+            "ack_message",
+            "send_message",
+            "publish_artifact",
+            "read_inbox",
+            "request_task",
+            "report_result"
+          ],
+          "serverInfo": {
+            "name": "workforce",
+            "version": "1.0.0"
+          }
+        },
+        {
+          "stage": "after-thread",
+          "request": {
+            "limit": 100,
+            "threadId": "01a09a0e-88f0-7b10-b379-f276655f7ad3"
+          },
+          "name": "workforce",
+          "authStatus": "unsupported",
+          "runtimeStatus": "connected",
+          "toolsError": null,
+          "toolNames": [
+            "read_inbox",
+            "report_result",
+            "ack_message",
+            "request_task",
+            "send_message",
+            "publish_artifact"
+          ],
+          "serverInfo": {
+            "name": "workforce",
+            "version": "1.0.0"
+          }
+        },
+        {
+          "stage": "after-startup",
+          "request": {
+            "limit": 100,
+            "threadId": "01a09a0e-88f0-7b10-b379-f276655f7ad3"
+          },
+          "name": "workforce",
+          "authStatus": "unsupported",
+          "runtimeStatus": "connected",
+          "toolsError": null,
+          "toolNames": [
+            "ack_message",
+            "publish_artifact",
+            "read_inbox",
+            "request_task",
+            "report_result",
+            "send_message"
+          ],
+          "serverInfo": {
+            "name": "workforce",
+            "version": "1.0.0"
+          }
+        }
+      ],
+      "notifications": [
+        {
+          "method": "mcpServer/startupStatus/updated",
+          "params": {
+            "threadId": "01a09a0e-88f0-7b10-b379-f276655f7ad3",
+            "name": "workforce",
+            "status": "starting",
+            "error": null,
+            "failureReason": null
+          }
+        },
+        {
+          "method": "mcpServer/startupStatus/updated",
+          "params": {
+            "threadId": "01a09a0e-88f0-7b10-b379-f276655f7ad3",
+            "name": "workforce",
+            "status": "ready",
+            "error": null,
+            "failureReason": null
+          }
+        }
+      ],
+      "stderr": [],
+      "thread": {
+        "id": "01a09a0e-88f0-7b10-b379-f276655f7ad3",
+        "sandbox": {
+          "type": "workspaceWrite",
+          "writableRoots": [],
+          "networkAccess": false,
+          "excludeTmpdirEnvVar": false,
+          "excludeSlashTmp": false
+        },
+        "approvalPolicy": "never"
+      },
+      "storedMessages": 0,
+      "stop": {
+        "signalled": null,
+        "exited": true,
+        "groupAlive": false
+      }
+    }
+  ]
+}

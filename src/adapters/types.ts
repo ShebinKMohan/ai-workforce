@@ -38,9 +38,18 @@ export interface CapabilityReport {
   readonly status: CapabilityStatus;
   /** Executable version the status was established against; `null` when never tested. */
   readonly testedVersion: string | null;
+  /** Additional exact executable versions tested on the same stated OS.
+   * Version ranges and nearby releases never inherit this evidence. */
+  readonly testedVersions?: ReadonlyArray<string>;
   /** `process.platform` value the status was established on; `null` when never tested. */
   readonly os: NodeJS.Platform | null;
   readonly note?: string;
+}
+
+/** A capability is evidence for exact builds on an OS, not for every newer
+ * executable of the same name. Legacy reports retain their single version. */
+export function capabilityWasTestedOn(report: CapabilityReport, version: string | null | undefined, platform: NodeJS.Platform = process.platform): boolean {
+  return version != null && report.os === platform && (report.testedVersion === version || report.testedVersions?.includes(version) === true);
 }
 
 export interface RuntimeCapabilities {

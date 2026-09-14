@@ -1,0 +1,113 @@
+[
+  {
+    "name": "Assignments",
+    "theme": "light",
+    "documentWidth": 1600,
+    "heading": "Assignments",
+    "width": 1600
+  },
+  {
+    "name": "Agents",
+    "theme": "light",
+    "documentWidth": 1600,
+    "heading": "Your agents",
+    "width": 1600
+  },
+  {
+    "name": "Departments",
+    "theme": "light",
+    "documentWidth": 1600,
+    "heading": "Your departments",
+    "width": 1600
+  },
+  {
+    "name": "Projects",
+    "theme": "light",
+    "documentWidth": 1600,
+    "width": 1600
+  },
+  {
+    "name": "Runtimes",
+    "theme": "light",
+    "documentWidth": 1600,
+    "heading": "Runtimes",
+    "width": 1600
+  },
+  {
+    "name": "Executions",
+    "theme": "light",
+    "documentWidth": 1600,
+    "heading": "Live executions",
+    "width": 1600
+  },
+  {
+    "name": "Settings",
+    "theme": "light",
+    "documentWidth": 1600,
+    "heading": "Settings",
+    "width": 1600
+  },
+  {
+    "name": "Headquarters",
+    "theme": "dark",
+    "documentWidth": 1600,
+    "heading": "Headquarters",
+    "width": 1600
+  },
+  {
+    "name": "Issues",
+    "theme": "dark",
+    "documentWidth": 1600,
+    "heading": "Issues",
+    "width": 1600
+  },
+  {
+    "name": "Assignments",
+    "theme": "dark",
+    "documentWidth": 1600,
+    "heading": "Assignments",
+    "width": 1600
+  },
+  {
+    "name": "Agents",
+    "theme": "dark",
+    "documentWidth": 1600,
+    "heading": "Your agents",
+    "width": 1600
+  },
+  {
+    "name": "Departments",
+    "theme": "dark",
+    "documentWidth": 1600,
+    "heading": "Your departments",
+    "width": 1600
+  },
+  {
+    "name": "Projects",
+    "theme": "dark",
+    "documentWidth": 1600,
+    "heading": "Give your team a place to work.",
+    "width": 1600
+  },
+  {
+    "name": "Connections",
+    "theme": "dark",
+    "documentWidth": 1600,
+    "heading": "MCP connections",
+    "width": 1600
+  },
+  {
+    "name": "Runtimes",
+    "theme": "dark",
+    "documentWidth": 1600,
+    "heading": "Runtimes",
+    "width": 1600
+  },
+  {
+    "name": "Executions",
+    "theme": "dark",
+    "documentWidth": 1600,
+    "heading": "Live executions",
+    "width": 1600
+  }
+]

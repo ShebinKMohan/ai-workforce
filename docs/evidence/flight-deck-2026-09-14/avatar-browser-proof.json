@@ -1,0 +1,25 @@
+{
+  "browserWorkflow": [
+    "Created agent with Maya headshot",
+    "Reloaded and reopened edit form: Maya persisted",
+    "Changed name and headshot to Elias",
+    "Reloaded and reopened edit form: Elias persisted",
+    "Loaded current client, changed draft to Restart recovered avatar and selected Maya",
+    "Restarted isolated backend, kept browser document open",
+    "Saved once: automatic token refresh succeeded, revision12 and Maya persisted",
+    "ArrowRight keyboard selection moved Maya to Leo; cancelled draft"
+  ],
+  "savedAgent": {
+    "id": "avatar-browser-proof",
+    "name": "Restart recovered avatar",
+    "avatarId": "portrait-02",
+    "projectScope": "all",
+    "runtime": "codex-installed"
+  },
+  "revision": 12,
+  "sourceConfigUnchanged": true,
+  "sourceSha256": "810bdcb3528582e4a490fada0a6939b4458810123b72fa8060cf316d4531537c",
+  "paidRuntimeExecution": "disabled in fixture",
+  "mcpConfigurationWrites": "disabled in fixture",
+  "fixtureUrl": "http://127.0.0.1:4423/"
+}

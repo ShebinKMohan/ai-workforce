@@ -75,10 +75,13 @@ import { createLauncher, previewStart, type CliInvocation, type Spawner } from '
 import { allRunsDocument, projectRunsDocument, readableProjectPaths } from './project-reads.js';
 import { artifactDocument, ID_PATTERN, officeDocument, parseLimit, runEventsDocument, runStatusJson } from './read-api.js';
 import { EmptyBodySchema, RequestQueue } from './requests.js';
+import { IssuesApi } from './issues-api.js';
+import { ConnectionsApi, type ConnectionsApiOptions } from './connections-api.js';
+import { IssueStore } from '../issues/store.js';
 import { defaultWebRoot, injectSessionToken, packageRoot, resolveStaticFile } from './static.js';
 import { applySingleWorkspaceOp, applyWorkspaceWrite, inspectFolder, invalidBody, OP_NAME_PATTERN, readWorkspace, workspaceDocument, type PassiveReadiness } from './workspace-api.js';
 
-export const DEFAULT_SERVE_PORT = 4317;
+export const DEFAULT_SERVE_PORT = 4421;
 /** Passive discovery is cheap but not free (it runs `--version` and a login-status command); reuse it for a while. */
 export const READINESS_TTL_MS = 5 * 60 * 1000;
 
@@ -104,6 +107,8 @@ export interface OfficeServerOptions {
   readonly passStateDir?: boolean;
   /** How often the request queue looks at its processes and project locks. */
   readonly queuePollMs?: number;
+  /** Isolated connection probes for tests; production discovers installed clients. */
+  readonly connections?: Omit<ConnectionsApiOptions, 'stateRoot' | 'serverUrl' | 'env'>;
 }
 
 export interface OfficeServer {
@@ -214,11 +219,13 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
     } finally { entry.pending = false; }
   };
 
+  const issueRecords = new IssueStore(root);
   const queue = new RequestQueue({
     stateRoot: root,
     passStateDir: options.passStateDir ?? true,
     env,
     readiness: () => currentReadiness(false),
+    onPersist: records => issueRecords.recordRequests(records),
     validateControl: async (settings, runtime, _reports, attachments = []) => {
       if (runtime.adapter === 'fake' || settings.model === undefined && settings.effort === undefined && attachments.length === 0) return;
       const catalog = await runtimeModels(settings.runtime);
@@ -236,6 +243,7 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
     ...(options.queuePollMs !== undefined ? { pollMs: options.queuePollMs } : {}),
   });
   const writeContext = { stateRoot: root, projectBusy: (projectId: string) => queue.projectBusy(projectId) };
+  const issues = new IssuesApi(root, queue);
   const workspaceConfig = () => readWorkspace(root).loaded?.config ?? null;
   const refuseLegacyStartWithWorkspace = (): void => {
     if (existsSync(workspaceFilePath(root))) {
@@ -249,6 +257,7 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
   };
 
   let endpoint: Endpoint = { host: LOOPBACK_HOST, port: options.port };
+  const connections = new ConnectionsApi({ ...options.connections, stateRoot: root, serverUrl: () => originOf(endpoint), env });
 
   function matchRoute(req: IncomingMessage, res: ServerResponse, segments: ReadonlyArray<string>): Route | null {
     const [a, b, c, d, e, f] = segments;
@@ -263,12 +272,18 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
           sendJson(
             res,
             200,
-            officeDocument({ paths, version, env, server: { pid: process.pid, startedAt, url: `${originOf(endpoint)}/` }, readiness: await currentReadiness(url.searchParams.get('refresh') === '1') }),
+            officeDocument({ paths, version, env, server: { pid: process.pid, startedAt, url: `${originOf(endpoint)}/`, packageRoot: packageRoot() }, readiness: await currentReadiness(url.searchParams.get('refresh') === '1') }),
           ),
       };
     }
 
     // ---- workspace ----------------------------------------------------------
+    if (a === 'connections' && n === 1) {
+      return { allow: 'GET', handle: async (_method, url) => sendJson(res, 200, await connections.list(url.searchParams.get('refresh') === '1')) };
+    }
+    if (a === 'connections' && b && (c === 'connect' || c === 'verify') && n === 3) {
+      return { allow: 'POST', handle: async () => sendJson(res, 200, await connections.action(b, c, await body())) };
+    }
     if (a === 'runtimes' && b && c === 'models' && n === 3) {
       return { allow: 'GET', handle: async (_method, url) => sendJson(res, 200, await runtimeModels(b, url.searchParams.get('refresh') === '1')) };
     }
@@ -322,6 +337,23 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
       if (n === 6 && ID_PATTERN.test(d!) && e === 'artifacts' && ID_PATTERN.test(f!)) {
         return { allow: 'GET', handle: () => sendJson(res, 200, artifactDocument(readableProjectPaths(root, b, workspaceConfig()), d!, f!)) };
       }
+    }
+
+    // ---- project issue board: metadata and ordinary Control Center submissions --
+    if (a === 'issues' && n === 1) {
+      return { allow: 'GET, POST', handle: async (method, url) => {
+        if (method === 'GET') return sendJson(res, 200, issues.list(url.searchParams.get('projectId') ?? undefined, url.searchParams));
+        sendJson(res, 201, await issues.create(await body()));
+      } };
+    }
+    if (a === 'issues' && n === 2 && ID_PATTERN.test(b!)) {
+      return { allow: 'GET', handle: () => sendJson(res, 200, issues.get(b!)) };
+    }
+    if (a === 'issues' && n === 3 && ID_PATTERN.test(b!) && (c === 'update' || c === 'start')) {
+      return { allow: 'POST', handle: async () => {
+        const input = await body();
+        sendJson(res, c === 'start' ? 202 : 200, c === 'start' ? await issues.start(b!, input) : issues.update(b!, input));
+      } };
     }
 
     // ---- the request queue -----------------------------------------------------
@@ -417,7 +449,9 @@ export async function startOfficeServer(options: OfficeServerOptions): Promise<O
       return sendBody(res, resolved.status, 'text/plain; charset=utf-8', resolved.status === 404 ? 'Not found\n' : 'Bad request\n', {}, method === 'HEAD');
     }
     const bytes = readFileSync(resolved.file);
-    const body = resolved.contentType.startsWith('text/html') ? injectSessionToken(target.startsWith('/workspace') ? bytes.toString('utf8').replaceAll('href="/src/', 'href="/workspace/src/').replaceAll('src="/src/', 'src="/workspace/src/') : bytes.toString('utf8'), token) : bytes;
+    const staticPrefix = target.startsWith('/workspace') ? '/workspace' : target.startsWith('/office') ? '/office' : '';
+    const html = staticPrefix ? bytes.toString('utf8').replaceAll('href="/src/', `href="${staticPrefix}/src/`).replaceAll('src="/src/', `src="${staticPrefix}/src/`) : bytes.toString('utf8');
+    const body = resolved.contentType.startsWith('text/html') ? injectSessionToken(html, token) : bytes;
     sendBody(res, 200, resolved.contentType, body, {}, method === 'HEAD');
   }
 

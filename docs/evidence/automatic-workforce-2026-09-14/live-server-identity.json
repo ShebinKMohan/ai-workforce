@@ -1,0 +1,19 @@
+{
+  "name": "workforce",
+  "version": "0.1.0",
+  "stateRoot": "/Users/shebin_mohan_k/Documents/Workforce-Dynamic-Office-2026-09-12/empty-state",
+  "stateFound": false,
+  "lock": {
+    "held": false,
+    "pid": null,
+    "acquiredAt": null,
+    "holder": null
+  },
+  "server": {
+    "pid": 9304,
+    "startedAt": "2026-09-13T19:07:12.519Z",
+    "url": "http://127.0.0.1:4421/",
+    "packageRoot": "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee",
+    "readOnlyDatabase": true
+  }
+}

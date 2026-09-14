@@ -1,0 +1,44 @@
+{
+  "planVersion": 2,
+  "summary": "Assign the tiny addition correction to exactly one Engineering worker, engineer-one, with changes limited to src/math.mjs. Preserve the existing acceptance checks for coordinator verification of the frozen local candidate and subsequent Engineering head review.",
+  "tasks": [
+    {
+      "id": "t1",
+      "assignee": "engineer-one",
+      "objective": "Correct add(a, b) in src/math.mjs to return the numeric sum for the existing supported numbers by fixing the subtraction defect.",
+      "acceptanceCriteria": [
+        {
+          "id": "c1",
+          "description": "add(2, 3) returns 5, add(-2, 5) returns 3, and add(1.25, 2.5) returns 3.75; the unchanged command node --test test/math.test.mjs passes."
+        },
+        {
+          "id": "c2",
+          "description": "The actual candidate diff changes only src/math.mjs; original test/ files, package.json, and repository instructions are preserved."
+        },
+        {
+          "id": "c3",
+          "description": "Return a local candidate for coordinator capture and independent execution of existing checks against the frozen candidate, followed by Engineering head review of the actual diff and verifier receipts using the required structured review tool. Do not apply the candidate to the original repository."
+        }
+      ],
+      "scope": {
+        "allowedPaths": [
+          "src/math.mjs"
+        ],
+        "forbiddenPaths": [
+          "test/",
+          "package.json",
+          "AGENTS.md"
+        ]
+      },
+      "constraints": [
+        "Do not install packages, make network calls, create subagents, commit, push, merge, or deploy.",
+        "The coordinator owns candidate capture and independent checks.",
+        "Preserve the original PRD wording and line breaks, including MCP-PRD-2026-09-13; do not rewrite the PRD."
+      ],
+      "evidenceRequirements": [
+        "Provide the actual src/math.mjs diff and the output and exit status of node --test test/math.test.mjs.",
+        "Coordinator verifier receipts must establish the frozen candidate passes the original checks; worker claims alone do not establish acceptance."
+      ]
+    }
+  ]
+}

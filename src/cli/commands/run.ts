@@ -58,6 +58,8 @@ export interface RunCommandArgs {
   readonly department?: string;
   /** Exact capacity reservation for this project request; omitted for the ordinary CLI roster. */
   readonly workerIds?: ReadonlyArray<string>;
+  /** Analysis captures reviewed reports with unchanged-source evidence. */
+  readonly workKind?: string;
   /** Admission revision. A changed workspace must be admitted again before any model turn. */
   readonly workspaceRevision?: number;
   readonly repo?: string;
@@ -293,8 +295,8 @@ export async function commandRun(args: RunCommandArgs, deps: RunCommandDeps): Pr
   // A request to a department is its own path; the single-file form below is
   // untouched by it.
   if (args.project !== undefined || args.department !== undefined) return commandRunProject(args, deps);
-  if (args.workerIds !== undefined || args.workspaceRevision !== undefined) {
-    throw new CliError(EXIT_CODES.invalidInput, 'project_selection_required', '--worker and --workspace-revision require --project and --department');
+  if (args.workerIds !== undefined || args.workspaceRevision !== undefined || args.workKind !== undefined) {
+    throw new CliError(EXIT_CODES.invalidInput, 'project_selection_required', '--worker, --workspace-revision and --work-kind require --project and --department');
   }
   // Validate every input before touching state: an invalid invocation must
   // exit 2 without creating a state root or taking the coordinator lock.
@@ -607,6 +609,7 @@ export function plannedCommandResult(planned: RunPlannedResult, stateRoot: strin
     outcome: planned.outcome,
     runState: planned.runState,
     accepted: planned.accepted,
+    ...(planned.workKind ? { workKind: planned.workKind, analysisReviewed: planned.analysisReviewed === true } : {}),
     reason: planned.reason,
     stateRoot,
     runDir: planned.runDir,
@@ -620,7 +623,7 @@ export function plannedCommandResult(planned: RunPlannedResult, stateRoot: strin
     unresolved: planned.unresolved,
   };
   const lines: string[] = [
-    `run ${planned.runId}: ${planned.outcome} (planned, ${planned.tasks.length} tasks)`,
+    `run ${planned.runId}: ${planned.analysisReviewed ? 'reviewed analysis' : planned.outcome} (planned, ${planned.tasks.length} tasks)`,
     ...planned.tasks.map((task) => `  ${statusLabel(task.accepted ? 'passed' : 'failed')} ${task.key}: ${task.objective}${task.repairsUsed > 0 ? ` (after ${task.repairsUsed} repair(s))` : ''}`),
   ];
   if (combined !== null) {

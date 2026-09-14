@@ -112,18 +112,20 @@ export async function commandRunProject(args: RunCommandArgs, deps: RunCommandDe
   const repoRoot = inspection.repositoryRoot;
   const baseRevision = inspection.headRevision;
 
-  const checkFlags = [...project.checks];
+  if (args.workKind !== undefined && args.workKind !== 'analysis' && args.workKind !== 'implementation') throw new CliError(EXIT_CODES.invalidInput, 'invalid_work_kind', 'work kind must be analysis or implementation');
+  const workKind: 'analysis' | 'implementation' = args.workKind ?? 'implementation';
+  const checkFlags = workKind === 'analysis' ? [] : [...project.checks];
   let checkCount: number;
   let checkDetail: string;
   try {
-    const resolved = await resolveAcceptanceChecks(repoRoot, baseRevision, checkFlags);
+    const resolved = workKind === 'analysis' ? { checks: [], detail: 'Read-only source inspection, captured report and department head review.' } : await resolveAcceptanceChecks(repoRoot, baseRevision, checkFlags);
     checkCount = resolved.checks.length;
     checkDetail = resolved.detail;
   } catch (error) {
     if (error instanceof CheckConfigurationError) throw new CliError(EXIT_CODES.invalidInput, `invalid_checks:${error.code}`, `project "${project.id}": ${error.message}`);
     throw error;
   }
-  if (checkCount === 0) {
+  if (workKind !== 'analysis' && checkCount === 0) {
     throw new CliError(EXIT_CODES.invalidInput, 'project_has_no_checks', `project "${project.id}" has no acceptance check, so nothing could verify the result: ${checkDetail}`, [
       `add one: workforce workspace project edit ${project.id} --check "npm test"`,
       'or commit .workforce/checks.json to the repository',
@@ -166,6 +168,7 @@ export async function commandRunProject(args: RunCommandArgs, deps: RunCommandDe
     let outcome;
     try {
       outcome = await planner({
+        workKind,
         requestText: task.text,
         requestSource: task.source,
         ...(attachments.length ? { attachments } : {}),
@@ -214,6 +217,7 @@ export async function commandRunProject(args: RunCommandArgs, deps: RunCommandDe
     const stream = args.watch === true ? withWatchHints(renderer.stream, tasks.map((t) => t.key)) : renderer.stream;
     try {
       planned = await runPlanned({
+        workKind,
         repoPath: repoRoot,
         config: rosterConfig,
         configRaw: snapshot.raw,

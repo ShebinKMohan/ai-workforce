@@ -3,6 +3,42 @@
   "entries": [
     {
       "adapter": "codex",
+      "minVersion": "0.154.0",
+      "exactVersions": ["0.154.0"],
+      "os": "darwin",
+      "capabilities": {
+        "structured_execution": { "status": "verified", "evidence": "2026-09-13 exact official npm CLI 0.154.0: real file-creation turn streamed structured events, file changes, assistant replies and terminal completion. All 12 conformance tests passed with no skips. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt" },
+        "owned_session_identity": { "status": "verified", "evidence": "2026-09-13 exact official npm CLI 0.154.0: thread/start returned owned identity and effective Sol/low settings; a real thread resumed in a fresh process and retained its previous word. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt" },
+        "observed_cancellation": { "status": "verified", "evidence": "2026-09-13 exact official npm CLI 0.154.0: active turn interrupted with observed receipt, and owned process groups terminated without touching preexisting app runtime processes. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt" },
+        "resume_session": { "status": "verified", "evidence": "2026-09-13 exact official npm CLI 0.154.0: completed thread resumed in a new app-server process and answered with its previously supplied word. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt" },
+        "active_turn_delivery": { "status": "verified", "evidence": "2026-09-13 exact official npm CLI 0.154.0: turn/steer accepted on an active real turn with submitted_to_active_turn receipt. This does not establish queued delivery. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt" },
+        "mcp_config_injection": { "status": "verified", "evidence": "2026-09-13 exact official npm CLI 0.154.0: scoped role tools with per-tool approval_mode=approve and global approvalPolicy=never produced a completed workforce/send_message result, exactly one coordinator row with the expected task and canonical body, and an assistant reply containing that row's message ID. No interactive approvals. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt" },
+        "sandbox_workspace_write": { "status": "verified", "evidence": "2026-09-13 FR042 exact official npm CLI 0.154.0: granted-root writes succeed; sibling, /tmp, TMPDIR and analysis writes denied; analysis reads succeed. An owned local HTTP listener responds outside the sandbox but cannot be reached through either sandbox profile. Model-driven outside writes leave files unchanged. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt" },
+        "model_selection": { "status": "verified", "evidence": "2026-09-13 exact official npm CLI 0.154.0: native model/list reports Astra as default and six visible models; requested Sol is returned as the effective thread/start model and used in real turns. docs/evidence/codex-local-upgrade-2026-09-13/catalog.json and conformance.txt" },
+        "effort_selection": { "status": "verified", "evidence": "2026-09-13 exact official npm CLI 0.154.0: native per-model efforts discovered and requested low reflected in effective thread/start settings. docs/evidence/codex-local-upgrade-2026-09-13/catalog.json and conformance.txt" },
+        "token_usage_report": { "status": "verified", "evidence": "2026-09-13 exact official npm CLI 0.154.0: real turn emitted thread/tokenUsage/updated with nonzero counts. docs/evidence/codex-local-upgrade-2026-09-13/conformance.txt" }
+      }
+    },
+    {
+      "adapter": "codex",
+      "minVersion": "0.154.0-alpha.6.2",
+      "exactVersions": ["0.154.0-alpha.6.2"],
+      "os": "darwin",
+      "capabilities": {
+        "structured_execution": { "status": "verified", "evidence": "2026-09-13 exact app binary: real file-creation turn streamed structured events, file changes, assistant replies, terminal completion and token usage. docs/evidence/runtime-installations-2026-09-13/codex-desktop-model-conformance.txt" },
+        "owned_session_identity": { "status": "verified", "evidence": "2026-09-13 exact app binary: thread/start returned owned identity and effective Sol/low settings; a later real thread resumed under a new process and retained its previous word. docs/evidence/runtime-installations-2026-09-13/codex-desktop-conformance.txt and codex-desktop-model-conformance.txt" },
+        "observed_cancellation": { "status": "verified", "evidence": "2026-09-13 exact app binary: real active-turn interrupt produced observed receipt and owned process cleanup; no test-owned app-server remained. docs/evidence/runtime-installations-2026-09-13/codex-desktop-model-conformance.txt" },
+        "resume_session": { "status": "verified", "evidence": "2026-09-13 exact app binary: completed real thread resumed in a new app-server process and returned its previously supplied word banana. docs/evidence/runtime-installations-2026-09-13/codex-desktop-model-conformance.txt" },
+        "active_turn_delivery": { "status": "verified", "evidence": "2026-09-13 exact app binary: turn/steer accepted on the active turn with submitted_to_active_turn receipt. docs/evidence/runtime-installations-2026-09-13/codex-desktop-model-conformance.txt" },
+        "mcp_config_injection": { "status": "verified", "evidence": "2026-09-13 exact app binary after scoped per-tool authorization: workforce/send_message returned completed with no error, coordinator stored exactly one row with correct task and canonical body, and assistant returned that row's message ID. Global approvalPolicy remained never; only coordinator-provisioned role tools were enabled and preauthorized. docs/evidence/runtime-installations-2026-09-13/codex-desktop-mcp-verified.txt" },
+        "sandbox_workspace_write": { "status": "verified", "evidence": "2026-09-13 FR042 exact app binary: command/exec wrote inside granted root and denied sibling workspace, /tmp, TMPDIR and analysis-profile writes; analysis reads succeeded. A positive unsandboxed connection to an owned local HTTP listener succeeded while both sandbox profiles were unable to contact it. A model-driven request left outside files unchanged. docs/evidence/runtime-installations-2026-09-13/codex-desktop-network-boundary.txt and codex-desktop-model-conformance.txt" },
+        "model_selection": { "status": "verified", "evidence": "2026-09-13 exact app binary: native catalog reports Astra and other available models; requested Sol was returned as the effective thread/start model and used for real model turns. docs/evidence/runtime-installations-2026-09-13/codex-desktop-conformance.txt" },
+        "effort_selection": { "status": "verified", "evidence": "2026-09-13 exact app binary: native per-model efforts discovered and requested low reflected by effective thread/start settings. docs/evidence/runtime-installations-2026-09-13/codex-desktop-conformance.txt" },
+        "token_usage_report": { "status": "verified", "evidence": "2026-09-13 exact app binary: real turn emitted thread/tokenUsage/updated with nonzero token counts. docs/evidence/runtime-installations-2026-09-13/codex-desktop-model-conformance.txt" }
+      }
+    },
+    {
+      "adapter": "codex",
       "minVersion": "0.147.0",
       "maxVersionExclusive": "0.147.1",
       "capabilities": {

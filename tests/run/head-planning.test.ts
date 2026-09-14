@@ -291,18 +291,59 @@ describe('a request to a department: the head plans, its workers do the work', (
     expect(await fingerprintCheckout(fixture.path)).toEqual(before);
   }, 180_000);
 
-  it('retains the combined candidate and semantic feedback when the head requests changes, without a success reply', async () => {
+  it('retains accepted originals and the combined candidate after bounded head-review repairs exhaust, without a success reply', async () => {
     const fixture = await useFixture('ts-bug');
     const stateRoot = tempDir('workforce-review-rejected-');
     setupWorkspace(stateRoot, fixture.path);
+    updateWorkspace(stateRoot, (current) => build([{ op: 'limits.set', limits: { maxRepairAttempts: 2 } }], current));
     useScenario(departmentScenario({ head: [propose([ALPHA, BETA]), { action: 'claim_done', message: 'Plan proposed.' }] }));
+    const before = await fingerprintCheckout(fixture.path);
     const response = await runDepartment(stateRoot, undefined, undefined, () => new ReviewAwareFakeAdapter('reject'));
     expect(response.result?.data).toMatchObject({ accepted: false, outcome: 'failed', runState: 'failed', finalReply: null, headReview: { verdict: 'changes_requested' } });
-    const facts = readProject(stateRoot, (db) => ({ events: listEvents(db, onlyRunId(stateRoot)), tasks: db.prepare('SELECT state FROM tasks').all(), attempts: db.prepare('SELECT id FROM attempts').all() }));
-    expect(facts.tasks).toEqual([{ state: 'accepted' }, { state: 'accepted' }]);
-    expect(facts.attempts).toHaveLength(2);
-    expect(ofType(facts.events, 'head.review_finished')[0]!.payload['summary']).toContain('endpoint usage');
+    expect(response.result!.data['reason']).toContain('Task "beta" exhausted its repair budget (2/2)');
+    expect(response.result!.data['tasks']).toEqual([
+      expect.objectContaining({ key: 'alpha', accepted: true, repairsUsed: 0, attempts: 1 }),
+      expect.objectContaining({ key: 'beta', accepted: true, repairsUsed: 2, attempts: 3 }),
+    ]);
+    const runId = onlyRunId(stateRoot);
+    const facts = readProject(stateRoot, (db) => ({
+      events: listEvents(db, runId),
+      tasks: db.prepare('SELECT id, parent_task_id, owner_agent_id, state, contract_json FROM tasks WHERE run_id = ?').all(runId) as Array<{ id: string; parent_task_id: string | null; owner_agent_id: string; state: string; contract_json: string }>,
+      attempts: db.prepare('SELECT task_id FROM attempts WHERE run_id = ?').all(runId) as Array<{ task_id: string }>,
+    }));
+    const originals = facts.tasks.filter((task) => task.parent_task_id === null);
+    const assigned = ofType(facts.events, 'head.assigned');
+    expect(originals.map((task) => [task.id, task.owner_agent_id, task.state]).sort()).toEqual(
+      assigned.map((event) => [event.payload['taskId'], event.payload['agentId'], 'accepted']).sort(),
+    );
+    expect(originals.map((task) => task.owner_agent_id).sort()).toEqual(['mira', 'nova']);
+    const originalBeta = originals.find((task) => task.owner_agent_id === 'mira')!;
+    const repairs = ofType(facts.events, 'head.review_repair_started');
+    expect(repairs.map((event) => ({ key: event.payload['key'], agentId: event.payload['agentId'], attemptNumber: event.payload['attemptNumber'], maxRepairAttempts: event.payload['maxRepairAttempts'] }))).toEqual([
+      { key: 'beta', agentId: 'mira', attemptNumber: 1, maxRepairAttempts: 2 },
+      { key: 'beta', agentId: 'mira', attemptNumber: 2, maxRepairAttempts: 2 },
+    ]);
+    let previousTaskId = originalBeta.id;
+    for (const repair of repairs) {
+      expect(repair.payload['sourceTaskId']).toBe(previousTaskId);
+      expect(facts.tasks.find((task) => task.id === repair.taskId)).toMatchObject({ parent_task_id: previousTaskId, owner_agent_id: 'mira', state: 'accepted', contract_json: originalBeta.contract_json });
+      previousTaskId = repair.taskId!;
+    }
+    expect(facts.tasks).toHaveLength(originals.length + repairs.length);
+    expect(facts.attempts.map((attempt) => attempt.task_id).sort()).toEqual(facts.tasks.map((task) => task.id).sort());
+    const reviews = ofType(facts.events, 'head.review_finished');
+    expect(reviews.map((event) => event.payload['verdict'])).toEqual(['changes_requested', 'changes_requested', 'changes_requested']);
+    expect(reviews.at(-1)!.payload['summary']).toContain('endpoint usage');
+    expect(ofType(facts.events, 'integration.combined')).toHaveLength(3);
+    expect(ofType(facts.events, 'head.review_repair_blocked')[0]!.payload).toMatchObject({ reason: expect.stringContaining('repair budget (2/2)'), findings: [{ summary: 'Add a concrete endpoint usage example.', file: 'docs/beta.md' }] });
+    const manifest = JSON.parse(readFileSync(response.result!.data['manifest'] as string, 'utf8')) as { combination: { status: string; combinedRevision: string } };
+    expect(manifest.combination.status).toBe('combined');
+    expect(reviews.at(-1)!.payload['candidateRevision']).toBe(manifest.combination.combinedRevision);
+    const files = (await git(['ls-tree', '-r', '--name-only', manifest.combination.combinedRevision], { cwd: fixture.path })).stdout;
+    expect(files).toContain('docs/alpha.md');
+    expect(files).toContain('docs/beta.md');
     expect(ofType(facts.events, 'control.final_reply')).toEqual([]);
+    expect(await fingerprintCheckout(fixture.path)).toEqual(before);
   }, 180_000);
 
   it('stops during review, preserves its required frozen gate, and resumes without repeating accepted worker tasks', async () => {

@@ -181,7 +181,10 @@ describe('coordination bridge (MCP over stdio)', () => {
       mcpServers: { workforce: { type: 'stdio', command: process.execPath, env: { WORKFORCE_BRIDGE_TOKEN: config.token } } },
     });
     expect(config.claudeArgs[0]).toBe('--mcp-config');
-    expect(config.codexArgs.filter((arg) => arg === '-c')).toHaveLength(3);
     expect(config.codexArgs.some((arg) => arg.startsWith('mcp_servers.workforce.command='))).toBe(true);
+    expect(config.codexArgs.find(arg => arg.startsWith('mcp_servers.workforce.enabled_tools='))).toBe(`mcp_servers.workforce.enabled_tools=[${BRIDGE_TOOL_NAMES.map(name => JSON.stringify(name)).join(', ')}]`);
+    expect(config.codexArgs.filter(arg => arg.includes('.approval_mode='))).toEqual(BRIDGE_TOOL_NAMES.map(name => `mcp_servers.workforce.tools.${name}.approval_mode="approve"`));
+    expect(config.codexArgs.some(arg => arg.includes('default_tools_approval_mode') || arg.startsWith('approval_policy='))).toBe(false);
+    expect(config.codexArgs.filter(arg => arg !== '-c').every(arg => arg.startsWith('mcp_servers.workforce.'))).toBe(true);
   });
 });

@@ -87,7 +87,7 @@ function failedResult(runId: string, taskId: string, attemptId: string, override
  * spawn whatever `codex` happens to be installed on the machine running it —
  * and pass or fail depending on that machine's login state.
  */
-function stubAdapter(id: string, readiness: Partial<RuntimeReadiness>, containment: CapabilityStatus, testedVersion: string | null = '1.0.0'): RuntimeAdapter {
+function stubAdapter(id: string, readiness: Partial<RuntimeReadiness>, containment: CapabilityStatus, testedVersion: string | null = '1.0.0', testedVersions: ReadonlyArray<string> = []): RuntimeAdapter {
   return {
     id,
     probe: async (executablePath: string) =>
@@ -105,7 +105,7 @@ function stubAdapter(id: string, readiness: Partial<RuntimeReadiness>, containme
         observedAt: new Date().toISOString(),
         ...readiness,
       }) as RuntimeReadiness,
-    capabilities: () => ({ capabilities: { write_containment: { status: containment, testedVersion, os: 'darwin', note: 'stub' } } }),
+    capabilities: () => ({ capabilities: { write_containment: { status: containment, testedVersion, testedVersions, os: process.platform, note: 'stub' } } }),
   } as unknown as RuntimeAdapter;
 }
 
@@ -217,6 +217,20 @@ describe('continuing a task on a second runtime', () => {
     expect(result.note).toContain('readiness is "not_ready"');
     expect(result.attempts).toHaveLength(1);
     state.store.close();
+  });
+
+  it('allows recovery onto a separately tested exact build without relabeling the baseline', async () => {
+    const state = openTempState();
+    const { run, task } = seedRunAndTask(state);
+    let calls = 0;
+    try {
+      const result = await runWithFallback(inputFor(state, run.id, {
+        'codex-local': stubAdapter('codex', { version: '0.154.0-alpha.6.2' }, 'verified', '0.147.0', ['0.154.0-alpha.6.2']),
+        'claude-local': stubAdapter('claude-code', {}, 'unsupported'),
+      }), { run: async () => { calls += 1; return failedResult(run.id, task.id, `attempt-${calls}`); } });
+      expect(result.fallback?.toRuntimeId).toBe('codex-local');
+      expect(calls).toBe(2);
+    } finally { state.store.close(); }
   });
 
   it('refuses a runtime whose write boundary was established against another build, and one that has none at all', async () => {

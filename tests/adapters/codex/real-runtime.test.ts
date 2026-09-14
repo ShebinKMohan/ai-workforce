@@ -13,13 +13,16 @@
  *     A skipped check is not a passing check.
  */
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { CodexAdapter } from '../../../src/adapters/codex/adapter.js';
+import { CodexAdapter, CODEX_CAPABILITIES } from '../../../src/adapters/codex/adapter.js';
+import { capabilityWasTestedOn } from '../../../src/adapters/types.js';
 import { isProcessAlive, isProcessGroupAlive } from '../../../src/core/process.js';
 import { summarizeTurnEvidence } from '../../../src/telemetry/events.js';
+import { redactText } from '../../../src/telemetry/redaction.js';
 import type { RuntimeEvent, SessionHandle } from '../../../src/adapters/types.js';
 import { createCoordinationBridge } from '../../../src/coordination/index.js';
 import { openStateStore } from '../../../src/storage/db.js';
@@ -92,7 +95,7 @@ describe.skipIf(!ENABLED)('codex real runtime: control plane (no model tokens)',
     expect(readiness.probeKind).toBe('passive');
     // Installed and adapter-supported is not readiness.
     expect(readiness.ready).toBe('unknown');
-    expect(readiness.controllable).toBe(readiness.version === '0.147.0');
+    expect(readiness.controllable).toBe(['structured_events', 'session_identity', 'interrupt_turn', 'process_tree_stop'].every(name => capabilityWasTestedOn(CODEX_CAPABILITIES[name as keyof typeof CODEX_CAPABILITIES], readiness.version)));
     expect(['logged_in', 'logged_out', 'unknown']).toContain(readiness.authentication);
     console.log(`codex version ${readiness.version}, authentication ${readiness.authentication}`);
   });
@@ -210,9 +213,27 @@ describe.skipIf(!ENABLED)('codex real runtime: execution boundary (FR042, no mod
     expect(read.exitCode).toBe(0);
     expect(read.stdout).toContain('# fixture');
 
-    // Worker-tool network is denied by default under both profiles.
-    const network = await adapter.execInSandbox({ cwd: workspaceA, command: ['/usr/bin/curl', '-s', '-m', '5', '-o', '/dev/null', 'https://example.com'], policy: 'local-development', writableRoots: [workspaceA] });
-    expect(network.exitCode).not.toBe(0);
+    // A failed public fetch alone could be a DNS or connectivity failure.
+    // Own a reachable listener, establish a positive control, then prove
+    // neither profile can contact it through runtime tool execution.
+    let connections = 0;
+    const listener = createServer((_request, response) => { connections += 1; response.end('owned-network-control'); });
+    await new Promise<void>((resolve, reject) => { listener.once('error', reject); listener.listen(0, '127.0.0.1', resolve); });
+    try {
+      const address = listener.address();
+      if (address === null || typeof address === 'string') throw new Error('Missing owned network listener address');
+      const url = `http://127.0.0.1:${address.port}/`;
+      expect(await (await fetch(url)).text()).toBe('owned-network-control');
+      expect(connections).toBe(1);
+      for (const policy of ['local-development', 'analysis'] as const) {
+        const network = await adapter.execInSandbox({ cwd: workspaceA, command: ['/usr/bin/curl', '-sS', '-m', '5', url], policy, writableRoots: [workspaceA] });
+        expect(network.exitCode, `${policy} must deny a reachable network target`).not.toBe(0);
+        expect(connections, `${policy} must never reach the owned listener`).toBe(1);
+        timings.push({ check: `${policy} network boundary`, positiveControl: true, listenerRequests: connections, deniedExitCode: network.exitCode, stderr: network.stderr });
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => listener.close(error => error ? reject(error) : resolve()));
+    }
 
     // The user's checkout outside the granted root is untouched.
     expect(existsSync(path.join(siblingB, 'sibling.txt'))).toBe(false);
@@ -568,28 +589,38 @@ describe.skipIf(!ENABLED)('codex real runtime: the coordination bridge (spends m
         return;
       }
 
-      // 1. The runtime asked, and the adapter authorized — naming the tool.
+      // 1. The authoritative outcome is an exact coordinator receipt. The
+      // desktop protocol may execute the provisioned tool without elicitation.
+      const messages = bridge.messages();
+      if (messages.length !== 1) console.log(`codex coordination diagnostic: ${redactText(JSON.stringify(events.filter(event => ['error', 'assistant_message', 'tool_call', 'tool_result', 'turn_completed'].includes(event.kind)).map(event => ({ kind: event.kind, payload: event.payload })))).slice(0, 12000)}`);
+      expect(messages.length, 'the coordinator must record exactly one worker message').toBe(1);
+      expect(messages[0]!.senderTaskId).toBe(task.id);
+      expect(messages[0]!.body).toEqual({ text: 'schema is ready' });
+      console.log(`codex coordination bridge: message ${messages[0]!.id} from task ${messages[0]!.senderTaskId}, body ${JSON.stringify(messages[0]!.body)}`);
+
+      // 2. Every authorization the runtime did request must still be for the
+      // provisioned bridge. Session-scoped per-tool permission can remove the
+      // old elicitation on either tested version without broadening policy.
       const decisions = adapter.serverRequestDecisions(handle);
       const authorized = decisions.filter((record) => !record.decision.denied);
-      expect(authorized.length, `no server request was authorized; decisions: ${JSON.stringify(decisions.map((d) => ({ m: d.method, r: d.decision.reason })))}`).toBeGreaterThan(0);
+      const readiness = await adapter.probe(CODEX);
       expect(authorized.every((record) => record.method === 'mcpServer/elicitation/request')).toBe(true);
-      expect(authorized[0]!.decision.result).toEqual({ action: 'accept', content: {} });
-      expect(authorized[0]!.decision.reason).toContain('send_message');
-
-      // 2. The call reached the coordinator and it stored the message.
-      const messages = bridge.messages();
-      expect(messages.length, 'the coordinator recorded no message from the worker').toBeGreaterThan(0);
-      expect(messages[0]!.senderTaskId).toBe(task.id);
-      console.log(`codex coordination bridge: message ${messages[0]!.id} from task ${messages[0]!.senderTaskId}, body ${JSON.stringify(messages[0]!.body).slice(0, 200)}`);
+      for (const record of authorized) {
+        expect(record.decision.result).toEqual({ action: 'accept', content: {} });
+        expect(record.decision.reason).toContain('send_message');
+      }
+      console.log(`codex coordination authorization: ${JSON.stringify({ version: readiness.version, authorized: authorized.length, denied: decisions.length - authorized.length })}`);
 
       // 3. The worker saw it succeed. A failed call surfaces as a tool_result
       //    with isError/ok false, so success has to be observable, not assumed.
-      const toolResults = events.filter((event) => event.kind === 'tool_result' && event.payload['tool'] === 'send_message');
+      const toolResults = events.filter((event) => event.kind === 'tool_result' && event.payload['tool'] === 'send_message' && event.payload['server'] === attached.serverName);
       expect(toolResults.length, 'no tool_result for send_message in the event stream').toBeGreaterThan(0);
       const observed = toolResults.at(-1)!;
       console.log(`codex coordination bridge: observed tool result ${JSON.stringify(observed.payload).slice(0, 600)}`);
-      expect(observed.payload['status'], JSON.stringify(observed.payload)).not.toBe('failed');
+      expect(observed.payload['status'], JSON.stringify(observed.payload)).toBe('completed');
+      expect(observed.payload['error'] == null).toBe(true);
       expect(JSON.stringify(observed.payload)).not.toContain('user rejected MCP tool call');
+      expect(events.filter(event => event.kind === 'assistant_message').map(event => String(event.payload['text'])).join('\n')).toContain(messages[0]!.id);
     } finally {
       await bridge.close();
       store.close();

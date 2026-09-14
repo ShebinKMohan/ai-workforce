@@ -1,0 +1,28 @@
+{
+  "browserCrudIssue": {
+    "schemaVersion": 1,
+    "id": "01a09be1-dd83-7587-8925-f1c61fda84fb",
+    "projectId": "mcp-math",
+    "revision": 4,
+    "title": "Browser QA \u2014 edited brief",
+    "description": "Original PRD\n\nRequirement: preserve these line breaks and literal <script> text.\nAcceptance: this card stays unsent while its columns change.\nMarker: BOARD-QA-913",
+    "kind": "prd",
+    "source": "workspace",
+    "manualStatus": "done",
+    "status": "done",
+    "createdAt": "2026-09-13T17:47:45.923Z",
+    "updatedAt": "2026-09-13T17:48:05.113Z",
+    "requestId": null,
+    "runId": null,
+    "execution": {
+      "state": "idle",
+      "reason": null,
+      "verified": false,
+      "requestState": null,
+      "runState": null
+    }
+  },
+  "requestsAfterBrowserCrud": 1,
+  "noNewExecutionFromManualMoves": true,
+  "exactDescriptionPreserved": true
+}

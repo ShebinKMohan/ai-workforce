@@ -21,10 +21,10 @@ function setup(stateRoot: string, repoPath: string) {
     { op: 'department.add', id: 'eng', name: 'Engineering' },
     { op: 'department.add', id: 'design', name: 'Design' },
     { op: 'agent.add', id: 'head', departmentId: 'eng', role: 'head', runtime: 'fake-local' },
-    { op: 'agent.add', id: 'busy', departmentId: 'eng', role: 'worker', runtime: 'fake-local', projectIds: ['app', 'other'] },
-    { op: 'agent.add', id: 'free', departmentId: 'eng', role: 'worker', runtime: 'fake-local', projectIds: ['app'] },
-    { op: 'agent.add', id: 'bench', departmentId: 'eng', role: 'worker', runtime: 'fake-local' },
-    { op: 'agent.add', id: 'elsewhere', departmentId: 'design', role: 'worker', runtime: 'fake-local', projectIds: ['app'] },
+    { op: 'agent.add', id: 'busy', departmentId: 'eng', role: 'worker', projectScope: 'restricted', runtime: 'fake-local', projectIds: ['app', 'other'] },
+    { op: 'agent.add', id: 'free', departmentId: 'eng', role: 'worker', projectScope: 'restricted', runtime: 'fake-local', projectIds: ['app'] },
+    { op: 'agent.add', id: 'bench', departmentId: 'eng', role: 'worker', projectScope: 'restricted', runtime: 'fake-local' },
+    { op: 'agent.add', id: 'elsewhere', departmentId: 'design', role: 'worker', projectScope: 'restricted', runtime: 'fake-local', projectIds: ['app'] },
   ], current), { createIfMissing: true });
   return loadWorkspace(stateRoot).config;
 }
@@ -58,7 +58,7 @@ describe('admitted worker pool', () => {
     const config = setup(stateRoot, '/repos/admission');
     const roster = buildRoster(config, { projectId: 'app', departmentId: 'eng', workerIds: ['free'] });
     const snapshot = writeRosterSnapshot(projectStatePaths(stateRoot, 'app'), roster, rosterAgentConfig(config, roster));
-    updateWorkspace(stateRoot, current => build([{ op: 'agent.add', id: 'new-worker', departmentId: 'eng', role: 'worker', runtime: 'fake-local', projectIds: ['app'] }], current));
+    updateWorkspace(stateRoot, current => build([{ op: 'agent.add', id: 'new-worker', departmentId: 'eng', role: 'worker', projectScope: 'restricted', runtime: 'fake-local', projectIds: ['app'] }], current));
     expect(buildRoster(loadWorkspace(stateRoot).config, { projectId: 'app', departmentId: 'eng' }).workers.map(worker => worker.id)).toEqual(['busy', 'free', 'new-worker']);
     const saved = JSON.parse(readFileSync(snapshot.path, 'utf8')) as { agents: Array<{ id: string }> };
     expect(saved.agents.map(agent => agent.id)).toEqual(['head', 'free']);

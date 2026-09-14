@@ -23,6 +23,19 @@ async function show(stateRoot: string) {
 }
 
 describe('workforce workspace', () => {
+  it('removes only unused runtime bindings and leaves refused changes unwritten', async () => {
+    const stateRoot = tempDir();
+    expect((await ws(stateRoot, 'runtime', 'set', 'codex-desktop', '--adapter', 'codex', '--executable', '/Applications/Codex.app/codex')).code).toBe(0);
+    expect((await ws(stateRoot, 'runtime', 'remove', 'codex-desktop')).code).toBe(0);
+    expect(loadWorkspace(stateRoot).config.runtimes).toEqual({});
+    await ws(stateRoot, 'department', 'add', '--name', 'Engineering');
+    await ws(stateRoot, 'agent', 'add', '--department', 'engineering', '--role', 'head', '--runtime', 'codex', '--name', 'Atlas');
+    const before = readFileSync(path.join(stateRoot, 'workspace.json'), 'utf8');
+    const refused = await ws(stateRoot, 'runtime', 'remove', 'codex-local');
+    expect([refused.code, (jsonOf(refused)['error'] as { code: string }).code]).toEqual([2, 'runtime_in_use']);
+    expect(readFileSync(path.join(stateRoot, 'workspace.json'), 'utf8')).toBe(before);
+  });
+
   it('accepts a quoted ~/ project folder without relying on shell expansion', async () => {
     const stateRoot = tempDir();
     const repo = await gitRepo({ 'README.md': 'home-relative project\n' });

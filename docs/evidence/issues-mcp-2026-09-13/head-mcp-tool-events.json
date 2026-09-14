@@ -1,0 +1,82 @@
+[
+  {
+    "sequence": 39,
+    "type": "runtime.tool_call",
+    "at": "2026-09-13T17:43:56.875Z",
+    "payload": {
+      "adapter": "codex",
+      "sessionId": "01a09bdd-fea5-7d63-80dd-083d75fc644c",
+      "turnId": "01a09bdd-ff85-7b23-8d7c-7eab6be3ebcb",
+      "spawnToken": "bb75edabc7c90725",
+      "runtimeSequence": 34,
+      "rawRef": "codex:01a09bdd-fea5-7d63-80dd-083d75fc644c:bb75edabc7c90725:62",
+      "phase": "started",
+      "itemId": "exec-24ff7ea0-c69c-452f-a4aa-8162912d11d4",
+      "itemType": "mcpToolCall",
+      "tool": "workforce_propose_plan",
+      "server": "workforce",
+      "status": "inProgress",
+      "error": null
+    }
+  },
+  {
+    "sequence": 41,
+    "type": "runtime.tool_result",
+    "at": "2026-09-13T17:43:56.916Z",
+    "payload": {
+      "adapter": "codex",
+      "sessionId": "01a09bdd-fea5-7d63-80dd-083d75fc644c",
+      "turnId": "01a09bdd-ff85-7b23-8d7c-7eab6be3ebcb",
+      "spawnToken": "bb75edabc7c90725",
+      "runtimeSequence": 35,
+      "rawRef": "codex:01a09bdd-fea5-7d63-80dd-083d75fc644c:bb75edabc7c90725:63",
+      "phase": "completed",
+      "itemId": "exec-24ff7ea0-c69c-452f-a4aa-8162912d11d4",
+      "itemType": "mcpToolCall",
+      "tool": "workforce_propose_plan",
+      "server": "workforce",
+      "status": "completed",
+      "error": null
+    }
+  },
+  {
+    "sequence": 155,
+    "type": "runtime.tool_call",
+    "at": "2026-09-13T17:45:15.863Z",
+    "payload": {
+      "adapter": "codex",
+      "sessionId": "01a09bdf-347b-7410-8c95-82936fc8f43e",
+      "turnId": "01a09bdf-379e-7f52-bef6-98651d5abee3",
+      "spawnToken": "f4ffac5ab6bc93b0",
+      "runtimeSequence": 36,
+      "rawRef": "codex:01a09bdf-347b-7410-8c95-82936fc8f43e:f4ffac5ab6bc93b0:65",
+      "phase": "started",
+      "itemId": "exec-e78d4833-cd79-42f6-bff5-d545ba847979",
+      "itemType": "mcpToolCall",
+      "tool": "workforce_review_result",
+      "server": "workforce",
+      "status": "inProgress",
+      "error": null
+    }
+  },
+  {
+    "sequence": 157,
+    "type": "runtime.tool_result",
+    "at": "2026-09-13T17:45:15.881Z",
+    "payload": {
+      "adapter": "codex",
+      "sessionId": "01a09bdf-347b-7410-8c95-82936fc8f43e",
+      "turnId": "01a09bdf-379e-7f52-bef6-98651d5abee3",
+      "spawnToken": "f4ffac5ab6bc93b0",
+      "runtimeSequence": 37,
+      "rawRef": "codex:01a09bdf-347b-7410-8c95-82936fc8f43e:f4ffac5ab6bc93b0:66",
+      "phase": "completed",
+      "itemId": "exec-e78d4833-cd79-42f6-bff5-d545ba847979",
+      "itemType": "mcpToolCall",
+      "tool": "workforce_review_result",
+      "server": "workforce",
+      "status": "completed",
+      "error": null
+    }
+  }
+]

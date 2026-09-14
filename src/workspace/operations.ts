@@ -8,7 +8,7 @@
  * returns a new one; it never touches disk, and in particular removing a
  * project never deletes its source.
  *
- * Ids are never reused. A generated id is a slug of the name with `-2`, `-3`
+ * Project, department and agent ids are never reused. A generated id is a slug of the name with `-2`, `-3`
  * suffixes when taken, where "taken" means live in the file or listed in
  * `retiredIds`. Every remove retires the id in the same write, so a folder
  * added later under a removed project's name gets a new id and two different
@@ -31,12 +31,16 @@ import {
 import { canonicalJson } from '../core/snapshot.js';
 import {
   AgentRoleSchema,
+  AgentAvatarIdSchema,
+  type AgentAvatarId,
+  AgentProjectScopeSchema,
   ControlCenterConfigSchema,
   DEPARTMENT_COLORS,
   DepartmentColorSchema,
   SlugSchema,
   activeHead,
   type WorkspaceAgent,
+  type AgentProjectScope,
   type ControlCenterConfig,
   type WorkspaceConfig,
   type WorkspaceDepartment,
@@ -176,11 +180,26 @@ export function setRuntime(config: WorkspaceConfig, input: RuntimeSetInput): Wor
   return draft;
 }
 
+/** Remove an unused binding only; installed software and immutable run history are untouched. */
+export function removeRuntime(config: WorkspaceConfig, id: string): WorkspaceConfig {
+  if (!Object.hasOwn(config.runtimes, id)) throw invalid('unknown_runtime', `unknown runtime "${id}"`);
+  const references = [
+    ...(config.controlCenter?.runtime === id ? ['Control Center'] : []),
+    ...config.agents.filter((agent) => agent.runtime === id).map((agent) => `agent "${agent.id}"${agent.archived ? ' (archived)' : ''}`),
+  ];
+  if (references.length > 0) {
+    throw invalid('runtime_in_use', `runtime "${id}" is still used by ${references.join(', ')}; move those references to another configured runtime before removing it`, references);
+  }
+  const draft = structuredClone(config);
+  delete draft.runtimes[id];
+  return draft;
+}
+
 /** Full replacement, or null runtime to restore automatic Control Center selection. */
-export function setControlCenter(config: WorkspaceConfig, input: { readonly runtime: string | null; readonly model?: string; readonly effort?: string; readonly instructions?: string; readonly projectRoutes?: ControlCenterConfig['projectRoutes'] }): WorkspaceConfig {
+export function setControlCenter(config: WorkspaceConfig, input: { readonly runtime: string | null; readonly avatarId?: AgentAvatarId; readonly model?: string; readonly effort?: string; readonly instructions?: string; readonly projectRoutes?: ControlCenterConfig['projectRoutes'] }): WorkspaceConfig {
   const draft = structuredClone(config);
   if (input.runtime === null) {
-    if (input.model !== undefined || input.effort !== undefined || input.instructions !== undefined || input.projectRoutes !== undefined) throw invalid('invalid_control_center', 'automatic Control Center selection cannot include runtime-specific overrides or project routes');
+    if (input.avatarId !== undefined || input.model !== undefined || input.effort !== undefined || input.instructions !== undefined || input.projectRoutes !== undefined) throw invalid('invalid_control_center', 'automatic Control Center selection cannot include runtime-specific overrides or project routes');
     delete draft.controlCenter;
     return draft;
   }
@@ -382,6 +401,7 @@ export function removeDepartment(config: WorkspaceConfig, id: string): Workspace
 export interface AgentAddInput {
   readonly id?: string;
   readonly name?: string;
+  readonly avatarId?: AgentAvatarId;
   readonly role: 'head' | 'worker';
   readonly departmentId: string;
   readonly runtime: string;
@@ -391,6 +411,7 @@ export interface AgentAddInput {
   readonly capabilities?: ReadonlyArray<string>;
   readonly policy?: 'analysis' | 'local-development' | 'verification';
   readonly projectIds?: ReadonlyArray<string>;
+  readonly projectScope?: AgentProjectScope;
 }
 
 function assertRuntime(config: WorkspaceConfig, runtime: string): void {
@@ -408,6 +429,7 @@ function assertPlaceable(config: WorkspaceConfig, projectId: string): void {
 }
 
 export function addAgent(config: WorkspaceConfig, input: AgentAddInput): WorkspaceConfig {
+  if (input.avatarId !== undefined && !AgentAvatarIdSchema.safeParse(input.avatarId).success) throw invalid('invalid_avatar', 'Choose a bundled agent portrait.');
   const role = AgentRoleSchema.safeParse(input.role);
   if (!role.success) throw invalid('invalid_role', `role must be "head" or "worker", not "${String(input.role)}"`);
   const department = findDepartment(config, input.departmentId);
@@ -415,9 +437,11 @@ export function addAgent(config: WorkspaceConfig, input: AgentAddInput): Workspa
   assertRuntime(config, input.runtime);
   const policy = input.policy ?? (role.data === 'head' ? 'analysis' : 'local-development');
   const projectIds = [...new Set(input.projectIds ?? [])];
+  if (input.projectScope !== undefined && !AgentProjectScopeSchema.safeParse(input.projectScope).success) throw invalid('invalid_project_scope', 'project scope must be all or restricted');
   if (role.data === 'head') {
     if (policy !== 'analysis') throw invalid('head_not_read_only', `a head reads and plans only; it must use the analysis policy, not "${policy}"`);
     if (projectIds.length > 0) throw invalid('head_has_projects', 'a head reaches projects through its workers; place workers on projects instead');
+    if (input.projectScope === 'restricted') throw invalid('head_has_project_scope', 'a head plans through its admitted workers; set project restrictions on workers instead');
     const current = activeHead(config, department.id);
     if (current !== null) throw invalid('department_has_head', `department "${department.id}" already has the head "${current.id}"; a department has one head`);
   }
@@ -435,6 +459,7 @@ export function addAgent(config: WorkspaceConfig, input: AgentAddInput): Workspa
   draft.agents.push({
     id,
     name: name.length > 0 ? name.slice(0, 60) : id,
+    ...(input.avatarId !== undefined ? { avatarId: input.avatarId } : {}),
     role: role.data,
     departmentId: department.id,
     runtime: input.runtime,
@@ -444,6 +469,7 @@ export function addAgent(config: WorkspaceConfig, input: AgentAddInput): Workspa
     capabilities: [...(input.capabilities ?? (role.data === 'head' ? ['planning'] : ['coding', 'testing']))],
     policy,
     projectIds,
+    ...(input.projectScope !== undefined ? { projectScope: input.projectScope } : {}),
     archived: false,
   });
   if (role.data === 'head') findDepartment(draft, department.id).headAgentId = id;
@@ -453,6 +479,8 @@ export function addAgent(config: WorkspaceConfig, input: AgentAddInput): Workspa
 export interface AgentEditInput {
   readonly id: string;
   readonly name?: string;
+  /** null restores the original illustrated identity. */
+  readonly avatarId?: AgentAvatarId | null;
   readonly runtime?: string;
   /** null clears the setting so the runtime's own default applies. */
   readonly model?: string | null;
@@ -461,11 +489,18 @@ export interface AgentEditInput {
   readonly capabilities?: ReadonlyArray<string>;
   readonly policy?: 'analysis' | 'local-development' | 'verification';
   readonly departmentId?: string;
+  readonly projectScope?: AgentProjectScope;
+  readonly projectIds?: ReadonlyArray<string>;
 }
 
 export function editAgent(config: WorkspaceConfig, input: AgentEditInput): WorkspaceConfig {
+  if (input.avatarId !== undefined && input.avatarId !== null && !AgentAvatarIdSchema.safeParse(input.avatarId).success) throw invalid('invalid_avatar', 'Choose a bundled agent portrait.');
   const current = findAgent(config, input.id);
   if (current.archived) throw invalid('agent_archived', `agent "${current.id}" is archived; add a new agent instead`);
+  if (input.projectScope !== undefined && !AgentProjectScopeSchema.safeParse(input.projectScope).success) throw invalid('invalid_project_scope', 'project scope must be all or restricted');
+  if (current.role === 'head' && input.projectScope === 'restricted') throw invalid('head_has_project_scope', 'a head plans through its admitted workers; set project restrictions on workers instead');
+  if (current.role === 'head' && input.projectIds !== undefined && input.projectIds.length > 0) throw invalid('head_has_projects', 'a head reaches projects through its admitted workers');
+  for (const projectId of input.projectIds ?? []) assertPlaceable(config, projectId);
   if (input.runtime !== undefined) assertRuntime(config, input.runtime);
   if (current.role === 'head' && input.policy !== undefined && input.policy !== 'analysis') {
     throw invalid('head_not_read_only', `a head reads and plans only; "${current.id}" must keep the analysis policy`);
@@ -478,6 +513,8 @@ export function editAgent(config: WorkspaceConfig, input: AgentEditInput): Works
   const draft = structuredClone(config);
   const agent = findAgent(draft, input.id);
   if (input.name !== undefined) agent.name = input.name.trim();
+  if (input.avatarId === null) delete agent.avatarId;
+  else if (input.avatarId !== undefined) agent.avatarId = input.avatarId;
   if (input.runtime !== undefined) agent.runtime = input.runtime;
   if (input.model === null) delete agent.model;
   else if (input.model !== undefined) agent.model = input.model;
@@ -487,6 +524,8 @@ export function editAgent(config: WorkspaceConfig, input: AgentEditInput): Works
   if (input.capabilities !== undefined) agent.capabilities = [...input.capabilities];
   if (input.policy !== undefined) agent.policy = input.policy;
   if (input.departmentId !== undefined) agent.departmentId = input.departmentId;
+  if (input.projectScope !== undefined) agent.projectScope = input.projectScope;
+  if (input.projectIds !== undefined) agent.projectIds = [...new Set(input.projectIds)];
   return draft;
 }
 
@@ -509,18 +548,25 @@ export function assignAgent(config: WorkspaceConfig, agentId: string, projectId:
   if (agent.archived) throw invalid('agent_archived', `agent "${agent.id}" is archived; archived agents receive no new work`);
   if (agent.role === 'head') throw invalid('head_has_projects', `"${agent.id}" is a head; a head reaches projects through its workers`);
   assertPlaceable(config, projectId);
-  if (agent.projectIds.includes(projectId)) return config;
+  if (agent.projectScope === 'restricted' && agent.projectIds.includes(projectId)) return config;
   const draft = structuredClone(config);
-  findAgent(draft, agentId).projectIds.push(projectId);
+  const target = findAgent(draft, agentId);
+  target.projectScope = 'restricted';
+  if (!target.projectIds.includes(projectId)) target.projectIds.push(projectId);
   return draft;
 }
 
 export function unassignAgent(config: WorkspaceConfig, agentId: string, projectId: string): WorkspaceConfig {
   const agent = findAgent(config, agentId);
-  if (!agent.projectIds.includes(projectId)) return config;
+  if (agent.archived) throw invalid('agent_archived', `agent "${agent.id}" is archived; archived agents receive no new work`);
+  if (agent.role === 'head') throw invalid('head_has_projects', `"${agent.id}" is a head; a head reaches projects through its workers`);
+  findProject(config, projectId);
+  if (agent.projectScope === 'restricted' && !agent.projectIds.includes(projectId)) return config;
   const draft = structuredClone(config);
   const target = findAgent(draft, agentId);
-  target.projectIds = target.projectIds.filter((id) => id !== projectId);
+  // Removing a project from automatic scope preserves access to other current projects.
+  target.projectIds = (agent.projectScope === 'restricted' ? target.projectIds : config.projects.filter((project) => !project.archived).map((project) => project.id)).filter((id) => id !== projectId);
+  target.projectScope = 'restricted';
   return draft;
 }
 
@@ -627,7 +673,8 @@ const checks = z.array(z.string().trim().min(1).max(500)).max(32);
 
 export const WorkspaceOpSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('runtime.set'), id: z.string().min(1), adapter: AdapterIdSchema, executable: z.string().min(1), model: ModelSchema.optional(), effort: EffortSchema.optional() }),
-  z.strictObject({ op: z.literal('control-center.set'), runtime: RuntimeIdSchema.nullable(), model: ModelSchema.optional(), effort: EffortSchema.optional(), instructions: z.string().trim().min(1).max(12000).optional(), projectRoutes: ControlCenterConfigSchema.shape.projectRoutes }),
+  z.strictObject({ op: z.literal('runtime.remove'), id: RuntimeIdSchema }),
+  z.strictObject({ op: z.literal('control-center.set'), runtime: RuntimeIdSchema.nullable(), avatarId: AgentAvatarIdSchema.optional(), model: ModelSchema.optional(), effort: EffortSchema.optional(), instructions: z.string().trim().min(1).max(12000).optional(), projectRoutes: ControlCenterConfigSchema.shape.projectRoutes }),
   z.strictObject({ op: z.literal('limits.set'), limits: LimitsPatchSchema }),
   z.strictObject({ op: z.literal('project.add'), repoPath: z.string().min(1), name: text(80).optional(), id: z.string().min(1).optional(), checks: checks.optional() }),
   z.strictObject({ op: z.literal('project.edit'), id: z.string().min(1), name: text(80).optional(), checks: checks.optional(), repoPath: z.string().optional() }),
@@ -639,6 +686,7 @@ export const WorkspaceOpSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('department.remove'), id: z.string().min(1) }),
   z.strictObject({
     op: z.literal('agent.add'),
+    avatarId: AgentAvatarIdSchema.optional(),
     id: z.string().min(1).optional(),
     name: text(60).optional(),
     role: AgentRoleSchema,
@@ -650,9 +698,11 @@ export const WorkspaceOpSchema = z.discriminatedUnion('op', [
     capabilities: z.array(z.string().min(1).max(64)).max(32).optional(),
     policy: PolicySchema.optional(),
     projectIds: z.array(z.string().min(1)).max(64).optional(),
+    projectScope: AgentProjectScopeSchema.optional(),
   }),
   z.strictObject({
     op: z.literal('agent.edit'),
+    avatarId: AgentAvatarIdSchema.nullable().optional(),
     id: z.string().min(1),
     name: text(60).optional(),
     runtime: z.string().min(1).optional(),
@@ -662,6 +712,8 @@ export const WorkspaceOpSchema = z.discriminatedUnion('op', [
     capabilities: z.array(z.string().min(1).max(64)).max(32).optional(),
     policy: PolicySchema.optional(),
     departmentId: z.string().min(1).optional(),
+    projectIds: z.array(z.string().min(1)).max(64).optional(),
+    projectScope: AgentProjectScopeSchema.optional(),
   }),
   z.strictObject({ op: z.literal('agent.archive'), id: z.string().min(1) }),
   z.strictObject({ op: z.literal('agent.assign'), agentId: z.string().min(1), projectId: z.string().min(1) }),
@@ -690,8 +742,10 @@ export function applyWorkspaceOp(config: WorkspaceConfig, op: WorkspaceOp, conte
   switch (op.op) {
     case 'runtime.set':
       return setRuntime(config, strip({ id: op.id, adapter: op.adapter, executable: op.executable, model: op.model, effort: op.effort }));
+    case 'runtime.remove':
+      return removeRuntime(config, op.id);
     case 'control-center.set':
-      return setControlCenter(config, strip({ runtime: op.runtime, model: op.model, effort: op.effort, instructions: op.instructions, projectRoutes: op.projectRoutes }));
+      return setControlCenter(config, strip({ runtime: op.runtime, avatarId: op.avatarId, model: op.model, effort: op.effort, instructions: op.instructions, projectRoutes: op.projectRoutes }));
     case 'limits.set':
       return setLimits(config, op.limits);
     case 'project.add':
@@ -716,6 +770,7 @@ export function applyWorkspaceOp(config: WorkspaceConfig, op: WorkspaceOp, conte
         strip({
           id: op.id,
           name: op.name,
+          avatarId: op.avatarId,
           role: op.role,
           departmentId: op.departmentId,
           runtime: op.runtime,
@@ -725,6 +780,7 @@ export function applyWorkspaceOp(config: WorkspaceConfig, op: WorkspaceOp, conte
           capabilities: op.capabilities,
           policy: op.policy,
           projectIds: op.projectIds,
+          projectScope: op.projectScope,
         }),
       );
     case 'agent.edit':
@@ -733,6 +789,7 @@ export function applyWorkspaceOp(config: WorkspaceConfig, op: WorkspaceOp, conte
         strip({
           id: op.id,
           name: op.name,
+          avatarId: op.avatarId,
           runtime: op.runtime,
           model: op.model,
           effort: op.effort,
@@ -740,6 +797,8 @@ export function applyWorkspaceOp(config: WorkspaceConfig, op: WorkspaceOp, conte
           capabilities: op.capabilities,
           policy: op.policy,
           departmentId: op.departmentId,
+          projectIds: op.projectIds,
+          projectScope: op.projectScope,
         }),
       );
     case 'agent.archive':

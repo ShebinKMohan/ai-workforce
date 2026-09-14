@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ai-workforce": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/node",
+      "args": [
+        "/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/dist/cli/index.js",
+        "mcp",
+        "--server-url",
+        "http://127.0.0.1:4421"
+      ]
+    }
+  }
+}

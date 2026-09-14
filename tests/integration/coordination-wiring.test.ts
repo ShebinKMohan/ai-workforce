@@ -13,7 +13,7 @@ import { coordinationArgsFor, runDirect } from '../../src/core/run-direct.js';
 import { loadAgentConfigFile } from '../../src/core/config.js';
 import { openStateStore } from '../../src/storage/db.js';
 import { createStatePaths } from '../../src/storage/paths.js';
-import { createCoordinationBridge, BRIDGE_SOCKET_ENV, BRIDGE_TOKEN_ENV } from '../../src/coordination/index.js';
+import { createCoordinationBridge, BRIDGE_SOCKET_ENV, BRIDGE_TOKEN_ENV, BRIDGE_TOOL_NAMES } from '../../src/coordination/index.js';
 import { cleanupAll, fixTheBugScenario, registerCleanup, tempDir, useFixture, writeFakeAgentsConfig, writeScenario } from '../workspaces/support.js';
 import { seedAttempt, seedRun, seedTask } from '../coordination/helpers.js';
 
@@ -99,10 +99,21 @@ describe('the run path attaches its worker to the coordination bridge', () => {
     expect(server.env[BRIDGE_SOCKET_ENV]).toBe(bridge.socketPath);
     expect(server.env[BRIDGE_TOKEN_ENV]).toBe(config.token);
 
-    // Codex takes config overrides. The socket and token appear in them too,
-    // and the flag is `-c` three times, once per key.
+    // Codex receives the transport plus the exact worker-role permissions.
+    // Every setting is a separate -c pair, with no global approval override.
     const codexArgs = coordinationArgsFor('codex', config);
-    expect(codexArgs.filter((argument) => argument === '-c')).toHaveLength(3);
+    expect(codexArgs.length % 2).toBe(0);
+    expect(codexArgs.filter((_argument, index) => index % 2 === 0).every(argument => argument === '-c')).toBe(true);
+    const overrides = new Map(codexArgs.filter((_argument, index) => index % 2 === 1).map(argument => {
+      const separator = argument.indexOf('=');
+      return [argument.slice(0, separator), argument.slice(separator + 1)];
+    }));
+    expect([...overrides.keys()]).toEqual([
+      'mcp_servers.workforce.command', 'mcp_servers.workforce.args', 'mcp_servers.workforce.env',
+      'mcp_servers.workforce.enabled_tools', ...BRIDGE_TOOL_NAMES.map(tool => `mcp_servers.workforce.tools.${tool}.approval_mode`),
+    ]);
+    expect(JSON.parse(overrides.get('mcp_servers.workforce.enabled_tools')!)).toEqual(BRIDGE_TOOL_NAMES);
+    for (const tool of BRIDGE_TOOL_NAMES) expect(overrides.get(`mcp_servers.workforce.tools.${tool}.approval_mode`)).toBe('"approve"');
     expect(codexArgs.join(' ')).toContain(bridge.socketPath);
     expect(codexArgs.join(' ')).toContain(config.token);
 

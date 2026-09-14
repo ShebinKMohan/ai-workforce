@@ -1,0 +1,634 @@
+[
+  {
+    "direction": "request",
+    "at": "2026-09-13T17:42:33.123Z",
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {},
+      "clientInfo": {
+        "name": "independent-live-proof",
+        "version": "1.0.0"
+      }
+    }
+  },
+  {
+    "direction": "response",
+    "at": "2026-09-13T17:42:33.264Z",
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "protocolVersion": "2025-11-25",
+      "capabilities": {
+        "tools": {
+          "listChanged": false
+        }
+      },
+      "serverInfo": {
+        "name": "ai-workforce",
+        "title": "AI Workforce",
+        "version": "1.0.0"
+      },
+      "instructions": "Manage project issues and submit complete plans or PRDs to AI Workforce. List projects first. Preserve original requirements in description. Save without execution by default; use start:true only when the user requested execution. Mutations require a stable idempotencyKey, reused with unchanged arguments after uncertain failures. Control Center routes every started issue through the existing department, head, worker and verification pipeline. A receipt or manual Done status is not verified completion. Tool discovery never starts the workspace server or a paid model turn."
+    }
+  },
+  {
+    "direction": "request",
+    "at": "2026-09-13T17:42:33.264Z",
+    "jsonrpc": "2.0",
+    "method": "notifications/initialized",
+    "params": {}
+  },
+  {
+    "direction": "request",
+    "at": "2026-09-13T17:42:33.264Z",
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/list",
+    "params": {}
+  },
+  {
+    "direction": "response",
+    "at": "2026-09-13T17:42:33.264Z",
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+      "tools": [
+        {
+          "name": "workforce_list_projects",
+          "description": "List registered AI Workforce projects, IDs and readiness. Read only; starts no agents. Use a returned project ID for issues and plans.",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false
+          }
+        },
+        {
+          "name": "workforce_list_issues",
+          "description": "Read project issues and Kanban columns, including actual linked execution status. Omit projectId to list all projects.",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+              }
+            },
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false
+          }
+        },
+        {
+          "name": "workforce_get_issue",
+          "description": "Read one issue, its revision, original description and current execution evidence. Use the current revision when editing or starting.",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "issueId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[a-zA-Z0-9_-]+$"
+              }
+            },
+            "required": [
+              "issueId"
+            ],
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false
+          }
+        },
+        {
+          "name": "workforce_create_issue",
+          "description": "Save an issue on a registered project. Execution begins only with explicit start:true, through Control Center and the existing department/head/worker queue. Saving or marking a card Done does not certify verifier acceptance.",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 64000,
+                "pattern": "^[^\\0]*$",
+                "description": "Complete original issue, plan or PRD text, including acceptance criteria. Preserved without summarizing or truncating; maximum 64,000 characters."
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+                "description": "Stable identifier for this logical mutation. Reuse exactly the same key and arguments after a timeout; use a new key for a new action."
+              },
+              "start": {
+                "default": false,
+                "description": "Set true only when the user asked to start execution now. False only saves the issue.",
+                "type": "boolean"
+              },
+              "allowUnconfinedWrites": {
+                "description": "True only if the user explicitly authorized the configured runtime to write without verified containment. Never infer this consent from a request to start work.",
+                "type": "boolean"
+              },
+              "kind": {
+                "default": "issue",
+                "type": "string",
+                "enum": [
+                  "issue",
+                  "plan",
+                  "prd"
+                ]
+              },
+              "status": {
+                "default": "backlog",
+                "type": "string",
+                "enum": [
+                  "backlog",
+                  "todo",
+                  "in_progress",
+                  "in_review",
+                  "done"
+                ]
+              }
+            },
+            "required": [
+              "projectId",
+              "title",
+              "description",
+              "idempotencyKey",
+              "start",
+              "kind",
+              "status"
+            ],
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": false,
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true
+          }
+        },
+        {
+          "name": "workforce_submit_plan",
+          "description": "Send a complete plan or PRD to a project as one durable Kanban issue. Put the full original document in description. start:true explicitly sends it through Control Center routing, department head planning, workers and verification; otherwise it is saved to Backlog. Returns an issue receipt, not a completion claim.",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 64000,
+                "pattern": "^[^\\0]*$",
+                "description": "Complete original issue, plan or PRD text, including acceptance criteria. Preserved without summarizing or truncating; maximum 64,000 characters."
+              },
+              "source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+                "description": "Stable identifier for this logical mutation. Reuse exactly the same key and arguments after a timeout; use a new key for a new action."
+              },
+              "start": {
+                "default": false,
+                "description": "Set true only when the user asked to start execution now. False only saves the issue.",
+                "type": "boolean"
+              },
+              "allowUnconfinedWrites": {
+                "description": "True only if the user explicitly authorized the configured runtime to write without verified containment. Never infer this consent from a request to start work.",
+                "type": "boolean"
+              },
+              "kind": {
+                "default": "plan",
+                "type": "string",
+                "enum": [
+                  "plan",
+                  "prd"
+                ]
+              }
+            },
+            "required": [
+              "projectId",
+              "title",
+              "description",
+              "idempotencyKey",
+              "start",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": false,
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true
+          }
+        },
+        {
+          "name": "workforce_update_issue",
+          "description": "Edit an issue title, full description or manual Kanban status at the expected revision. Does not start, stop or steer execution. Linked execution may govern its displayed status. A manual Done card is not proof of verified work.",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "issueId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[a-zA-Z0-9_-]+$"
+              },
+              "expectRevision": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+                "description": "Stable identifier for this logical mutation. Reuse exactly the same key and arguments after a timeout; use a new key for a new action."
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 64000,
+                "pattern": "^[^\\0]*$",
+                "description": "Complete original issue, plan or PRD text, including acceptance criteria. Preserved without summarizing or truncating; maximum 64,000 characters."
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "backlog",
+                  "todo",
+                  "in_progress",
+                  "in_review",
+                  "done"
+                ]
+              }
+            },
+            "required": [
+              "issueId",
+              "expectRevision",
+              "idempotencyKey"
+            ],
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": false,
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true
+          }
+        },
+        {
+          "name": "workforce_start_issue",
+          "description": "Explicitly send a saved issue through Control Center using the same project queue as the app. May spend coding-agent model turns. One issue creates at most one linked request; retry with the same idempotencyKey. Returns receipt/status immediately; use get_issue to inspect completion.",
+          "inputSchema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+              "issueId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^[a-zA-Z0-9_-]+$"
+              },
+              "expectRevision": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+                "description": "Stable identifier for this logical mutation. Reuse exactly the same key and arguments after a timeout; use a new key for a new action."
+              },
+              "allowUnconfinedWrites": {
+                "description": "True only if the user explicitly authorized the configured runtime to write without verified containment. Never infer this consent from a request to start work.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "issueId",
+              "expectRevision",
+              "idempotencyKey"
+            ],
+            "additionalProperties": false
+          },
+          "annotations": {
+            "readOnlyHint": false,
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "direction": "request",
+    "at": "2026-09-13T17:42:33.264Z",
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "tools/call",
+    "params": {
+      "name": "workforce_list_projects",
+      "arguments": {}
+    }
+  },
+  {
+    "direction": "response",
+    "at": "2026-09-13T17:42:33.785Z",
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"schemaVersion\":1,\"projects\":[{\"id\":\"mcp-math\",\"name\":\"MCP math proof\",\"repoPath\":\"/private/tmp/wf-mcp-proof-IfTb5P/fixture\",\"checks\":[\"node --test test/math.test.mjs\"],\"archived\":false}],\"readiness\":{\"empty\":false,\"steps\":[{\"id\":\"tools\",\"state\":\"done\",\"reason\":null},{\"id\":\"project\",\"state\":\"done\",\"reason\":null},{\"id\":\"department\",\"state\":\"done\",\"reason\":null},{\"id\":\"send\",\"state\":\"done\",\"reason\":null}],\"eligibility\":[{\"departmentId\":\"engineering\",\"projectId\":\"mcp-math\",\"sendable\":true,\"codes\":[],\"reasons\":[],\"headAgentId\":\"engineering-head\",\"workerIds\":[\"engineer-one\"]}]},\"workspaceRevision\":1}"
+        }
+      ],
+      "structuredContent": {
+        "schemaVersion": 1,
+        "projects": [
+          {
+            "id": "mcp-math",
+            "name": "MCP math proof",
+            "repoPath": "/private/tmp/wf-mcp-proof-IfTb5P/fixture",
+            "checks": [
+              "node --test test/math.test.mjs"
+            ],
+            "archived": false
+          }
+        ],
+        "readiness": {
+          "empty": false,
+          "steps": [
+            {
+              "id": "tools",
+              "state": "done",
+              "reason": null
+            },
+            {
+              "id": "project",
+              "state": "done",
+              "reason": null
+            },
+            {
+              "id": "department",
+              "state": "done",
+              "reason": null
+            },
+            {
+              "id": "send",
+              "state": "done",
+              "reason": null
+            }
+          ],
+          "eligibility": [
+            {
+              "departmentId": "engineering",
+              "projectId": "mcp-math",
+              "sendable": true,
+              "codes": [],
+              "reasons": [],
+              "headAgentId": "engineering-head",
+              "workerIds": [
+                "engineer-one"
+              ]
+            }
+          ]
+        },
+        "workspaceRevision": 1
+      },
+      "isError": false
+    }
+  },
+  {
+    "direction": "request",
+    "at": "2026-09-13T17:42:33.785Z",
+    "jsonrpc": "2.0",
+    "id": 4,
+    "method": "tools/call",
+    "params": {
+      "name": "workforce_submit_plan",
+      "arguments": {
+        "projectId": "mcp-math",
+        "title": "Correct addition in the math module",
+        "description": "PRD: Correct numeric addition in the disposable math project.\n\nProblem: add(2, 3) currently returns -1 instead of 5.\n\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\n\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\n\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\n",
+        "kind": "prd",
+        "source": "codex-proof",
+        "idempotencyKey": "proof:2026-09-13:math:v1",
+        "start": true
+      }
+    }
+  },
+  {
+    "direction": "response",
+    "at": "2026-09-13T17:42:34.670Z",
+    "jsonrpc": "2.0",
+    "id": 4,
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"ok\":true,\"issue\":{\"schemaVersion\":1,\"id\":\"01a09bdd-1a42-748a-b431-24de3e5d3d3d\",\"projectId\":\"mcp-math\",\"revision\":2,\"title\":\"Correct addition in the math module\",\"description\":\"PRD: Correct numeric addition in the disposable math project.\\n\\nProblem: add(2, 3) currently returns -1 instead of 5.\\n\\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\\n\\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\\n\\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\\n\",\"kind\":\"prd\",\"source\":\"codex-proof\",\"manualStatus\":\"backlog\",\"status\":\"todo\",\"createdAt\":\"2026-09-13T17:42:33.794Z\",\"updatedAt\":\"2026-09-13T17:42:33.796Z\",\"requestId\":\"01a09bdd-1d9e-723e-a998-4a3a67096ae8\",\"runId\":null,\"execution\":{\"state\":\"queued\",\"reason\":\"Waiting for Control Center to start this issue.\",\"verified\":false,\"requestState\":\"queued\",\"runState\":null}}}"
+        }
+      ],
+      "structuredContent": {
+        "ok": true,
+        "issue": {
+          "schemaVersion": 1,
+          "id": "01a09bdd-1a42-748a-b431-24de3e5d3d3d",
+          "projectId": "mcp-math",
+          "revision": 2,
+          "title": "Correct addition in the math module",
+          "description": "PRD: Correct numeric addition in the disposable math project.\n\nProblem: add(2, 3) currently returns -1 instead of 5.\n\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\n\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\n\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\n",
+          "kind": "prd",
+          "source": "codex-proof",
+          "manualStatus": "backlog",
+          "status": "todo",
+          "createdAt": "2026-09-13T17:42:33.794Z",
+          "updatedAt": "2026-09-13T17:42:33.796Z",
+          "requestId": "01a09bdd-1d9e-723e-a998-4a3a67096ae8",
+          "runId": null,
+          "execution": {
+            "state": "queued",
+            "reason": "Waiting for Control Center to start this issue.",
+            "verified": false,
+            "requestState": "queued",
+            "runState": null
+          }
+        }
+      },
+      "isError": false
+    }
+  },
+  {
+    "direction": "request",
+    "at": "2026-09-13T17:42:34.670Z",
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "tools/call",
+    "params": {
+      "name": "workforce_submit_plan",
+      "arguments": {
+        "projectId": "mcp-math",
+        "title": "Correct addition in the math module",
+        "description": "PRD: Correct numeric addition in the disposable math project.\n\nProblem: add(2, 3) currently returns -1 instead of 5.\n\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\n\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\n\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\n",
+        "kind": "prd",
+        "source": "codex-proof",
+        "idempotencyKey": "proof:2026-09-13:math:v1",
+        "start": true
+      }
+    }
+  },
+  {
+    "direction": "response",
+    "at": "2026-09-13T17:42:34.679Z",
+    "jsonrpc": "2.0",
+    "id": 5,
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"ok\":true,\"issue\":{\"schemaVersion\":1,\"id\":\"01a09bdd-1a42-748a-b431-24de3e5d3d3d\",\"projectId\":\"mcp-math\",\"revision\":2,\"title\":\"Correct addition in the math module\",\"description\":\"PRD: Correct numeric addition in the disposable math project.\\n\\nProblem: add(2, 3) currently returns -1 instead of 5.\\n\\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\\n\\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\\n\\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\\n\",\"kind\":\"prd\",\"source\":\"codex-proof\",\"manualStatus\":\"backlog\",\"status\":\"todo\",\"createdAt\":\"2026-09-13T17:42:33.794Z\",\"updatedAt\":\"2026-09-13T17:42:33.796Z\",\"requestId\":\"01a09bdd-1d9e-723e-a998-4a3a67096ae8\",\"runId\":null,\"execution\":{\"state\":\"queued\",\"reason\":\"Waiting for Control Center to start this issue.\",\"verified\":false,\"requestState\":\"queued\",\"runState\":null}}}"
+        }
+      ],
+      "structuredContent": {
+        "ok": true,
+        "issue": {
+          "schemaVersion": 1,
+          "id": "01a09bdd-1a42-748a-b431-24de3e5d3d3d",
+          "projectId": "mcp-math",
+          "revision": 2,
+          "title": "Correct addition in the math module",
+          "description": "PRD: Correct numeric addition in the disposable math project.\n\nProblem: add(2, 3) currently returns -1 instead of 5.\n\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\n\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\n\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\n",
+          "kind": "prd",
+          "source": "codex-proof",
+          "manualStatus": "backlog",
+          "status": "todo",
+          "createdAt": "2026-09-13T17:42:33.794Z",
+          "updatedAt": "2026-09-13T17:42:33.796Z",
+          "requestId": "01a09bdd-1d9e-723e-a998-4a3a67096ae8",
+          "runId": null,
+          "execution": {
+            "state": "queued",
+            "reason": "Waiting for Control Center to start this issue.",
+            "verified": false,
+            "requestState": "queued",
+            "runState": null
+          }
+        }
+      },
+      "isError": false
+    }
+  },
+  {
+    "direction": "request",
+    "at": "2026-09-13T17:42:34.679Z",
+    "jsonrpc": "2.0",
+    "id": 6,
+    "method": "tools/call",
+    "params": {
+      "name": "workforce_get_issue",
+      "arguments": {
+        "issueId": "01a09bdd-1a42-748a-b431-24de3e5d3d3d"
+      }
+    }
+  },
+  {
+    "direction": "response",
+    "at": "2026-09-13T17:42:34.686Z",
+    "jsonrpc": "2.0",
+    "id": 6,
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"ok\":true,\"issue\":{\"schemaVersion\":1,\"id\":\"01a09bdd-1a42-748a-b431-24de3e5d3d3d\",\"projectId\":\"mcp-math\",\"revision\":2,\"title\":\"Correct addition in the math module\",\"description\":\"PRD: Correct numeric addition in the disposable math project.\\n\\nProblem: add(2, 3) currently returns -1 instead of 5.\\n\\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\\n\\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\\n\\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\\n\",\"kind\":\"prd\",\"source\":\"codex-proof\",\"manualStatus\":\"backlog\",\"status\":\"todo\",\"createdAt\":\"2026-09-13T17:42:33.794Z\",\"updatedAt\":\"2026-09-13T17:42:33.796Z\",\"requestId\":\"01a09bdd-1d9e-723e-a998-4a3a67096ae8\",\"runId\":null,\"execution\":{\"state\":\"queued\",\"reason\":\"Waiting for Control Center to start this issue.\",\"verified\":false,\"requestState\":\"queued\",\"runState\":null}}}"
+        }
+      ],
+      "structuredContent": {
+        "ok": true,
+        "issue": {
+          "schemaVersion": 1,
+          "id": "01a09bdd-1a42-748a-b431-24de3e5d3d3d",
+          "projectId": "mcp-math",
+          "revision": 2,
+          "title": "Correct addition in the math module",
+          "description": "PRD: Correct numeric addition in the disposable math project.\n\nProblem: add(2, 3) currently returns -1 instead of 5.\n\nImplement now with exactly one Engineering worker. Fix only src/math.mjs so add(a, b) returns the numeric sum for the existing supported numbers. Preserve the original test/ files, package.json and repository instructions. No installation, network calls, subagents, commits, pushes, merges or deployment.\n\nAcceptance: the existing command node --test test/math.test.mjs passes for positive integers, mixed-sign integers and decimal values. The coordinator must independently run the existing checks against its frozen candidate and the Engineering head must review that candidate. Return a verified local candidate only; do not apply it to the original repository.\n\nPreserve this original PRD's line breaks and wording — including this evidence marker: MCP-PRD-2026-09-13.\n",
+          "kind": "prd",
+          "source": "codex-proof",
+          "manualStatus": "backlog",
+          "status": "todo",
+          "createdAt": "2026-09-13T17:42:33.794Z",
+          "updatedAt": "2026-09-13T17:42:33.796Z",
+          "requestId": "01a09bdd-1d9e-723e-a998-4a3a67096ae8",
+          "runId": null,
+          "execution": {
+            "state": "queued",
+            "reason": "Waiting for Control Center to start this issue.",
+            "verified": false,
+            "requestState": "queued",
+            "runState": null
+          }
+        }
+      },
+      "isError": false
+    }
+  }
+]

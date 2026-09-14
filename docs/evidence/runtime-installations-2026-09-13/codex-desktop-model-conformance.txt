@@ -1,0 +1,65 @@
+
+ RUN  v5.0.0 /Users/shebin_mohan_k/CODES/CursorFiles/AI Employee
+
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > probes the installed executable passively and reports login status
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > discovers the model and effort table the runtime actually reports
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > opens a real thread, reports the effective model and effort, and stops its own process tree
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: control plane (no model tokens) > rejects an interrupt with no active turn and a resume of a thread with no rollout
+ ↓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: execution boundary (FR042, no model tokens) > confines writes to the granted roots and denies /tmp, $TMPDIR, a sibling workspace and the network
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository
+codex token usage notification observed: true
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > streams a real session that writes the requested file into the temp repository 21160ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > steers an active turn through turn/steer and reports submission, not queueing 8359ms
+stdout | tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone
+codex resumed thread reply: ["banana"]
+
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > resumes a real thread by id once its previous app server is gone 17325ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > interrupts a running turn and leaves no owned process behind 7830ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > denies a model-driven write outside the granted workspace and shows the denial in the events 24448ms
+ ✓ tests/adapters/codex/real-runtime.test.ts > codex real runtime: model turns (spends quota) > reports a "done" message with no file change as an assistant message, not as success 17191ms
+stdout | tests/adapters/codex/real-runtime.test.ts
+
+codex real-runtime timings
+{"check":"model turn","sessionOpenedMs":323,"turnStartedMs":333,"firstEventMs":333,"firstToolActionMs":9323,"completedMs":19192}
+{"check":"token usage observed","observed":true,"payload":"{\"method\":\"thread/tokenUsage/updated\",\"params\":{\"threadId\":\"01a09a07-4f86-7533-83d6-8ef08ceca76a\",\"turnId\":\"01a09a07-5083-7572-bec7-c33125aa85d6\",\"tokenUsage\":{\"total\":{\"totalTokens\":26123,\"inputTokens\":25977,\"cachedInputTokens\":0,\"cacheWriteInputTokens\":0,\"outputTokens\":146,\"reasoningOutputTokens\":"}
+{"check":"turn/steer","ms":2,"state":"submitted_to_active_turn"}
+{"check":"thread/resume","ms":256}
+{"check":"interrupt","requestToObservedMs":6,"state":"observed"}
+{"check":"coordination bridge tool call","ms":15141}
+
+ × tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it 17491ms
+   → no server request was authorized; decisions: []: expected 0 to be greater than 0
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/adapters/codex/real-runtime.test.ts > codex real runtime: the coordination bridge (spends model tokens) > lets a worker call a coordination tool through the bridge the coordinator gave it
+AssertionError: no server request was authorized; decisions: []: expected 0 to be greater than 0
+ ❯ tests/adapters/codex/real-runtime.test.ts:574:162
+    575|       const started = Date.now();
+    576|       const turn = await adapter.startTurn(handle, {
+    577|         prompt: `Call the ${attached.serverName} MCP tool send_message…
+       |                                                                 ^
+    578|       });
+    579|       for await (const event of adapter.events(turn)) events.push(even…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed | 5 skipped (12)
+   Start at  14:39:24
+   Duration  114.09s (tests 100%)
+
+
+Independent model conformance provenance
+Recorded: 2026-09-13T09:12:44.644295+00:00
+Executable: /Applications/ChatGPT.app/Contents/Resources/codex
+CLI version: 0.154.0-alpha.6.2
+Executable SHA256: ecad78dbf98adb89ec475edac86630406cbe59d9f3070b17d88065f136b94bcb
+Test source SHA256 loaded at run start: 0ebc146497eb082ba4b69b5aa5922cf45aef865f4e346c94ae545e7176b04416
+Command: WORKFORCE_REAL_RUNTIMES=1 WORKFORCE_CODEX_PATH='/Applications/ChatGPT.app/Contents/Resources/codex' npx vitest run tests/adapters/codex/real-runtime.test.ts -t 'model turns|coordination' --reporter=verbose
+Result: exit 1; six selected tests passed, one selected coordination test failed, five unrelated tests skipped by filter. No provider/authentication skip was reported. Paid model turns used gpt-5.6-sol with low effort in temporary fixtures.
+Failure: old coordination assertion required at least one authorized mcpServer/elicitation/request but server decision records were empty. Stored-message and tool-result assertions followed this assertion and were not reached. This run does not establish successful MCP coordination.
+Proof limit: model-driven outside-write check confirmed unchanged outside files and visible refusal, but its refusal condition also permits an assistant-only refusal; no actual blocked command attempt is independently logged by this test.
+Process check after run: app-server PIDs36203,45507,62591 and code-mode-host PID37533 matched pre-test inventory. No new test app-server persisted. Existing processes were not signalled.

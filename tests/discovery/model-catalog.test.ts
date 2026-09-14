@@ -26,8 +26,8 @@ describe('runtime model catalog', () => {
     expect(discover).toHaveBeenCalledExactlyOnceWith('codex', '/selected/codex');
     expect(catalog).toMatchObject({ status: 'available', runtimeId: 'selected', configuredExecutable: '/selected/codex', resolvedExecutable: '/versions/codex-1', version: '0.147.0', checkedAt: 'fixed-time', defaultModel: 'deep' });
     expect(catalog.models).toEqual([
-      { id: 'fast', label: 'Fast', efforts: ['low'], effortStatus: 'reported' },
-      { id: 'deep', label: 'Deep', description: 'Reported description', efforts: ['high'], defaultEffort: 'high', isDefault: true, effortStatus: 'reported', inputModalities: ['text', 'image'] },
+      { id: 'fast', label: 'Fast', runtimeLabel: 'Fast', provenance: 'runtime-reported', efforts: ['low'], effortStatus: 'reported' },
+      { id: 'deep', label: 'Deep', runtimeLabel: 'Deep', provenance: 'runtime-reported', description: 'Reported description', efforts: ['high'], defaultEffort: 'high', isDefault: true, effortStatus: 'reported', inputModalities: ['text', 'image'] },
     ]);
     expect(JSON.stringify(catalog)).not.toMatch(/private@example|never-return|account/);
   });
@@ -54,7 +54,7 @@ describe('runtime model catalog', () => {
       ...settings, defaultModel: undefined,
       models: [{ value: 'future', displayName: 'Future', provenance: 'reported', effortStatus: 'unavailable', effort: { offered: [{ value: 'configured-only', provenance: 'configured' }], exhaustive: false } }],
     } as unknown as RuntimeSettingsSupport) });
-    expect(catalog.models).toEqual([{ id: 'future', label: 'Future', efforts: [], effortStatus: 'unavailable' }]);
+    expect(catalog.models).toEqual([{ id: 'future', label: 'Future', runtimeLabel: 'Future', provenance: 'runtime-reported', efforts: [], effortStatus: 'unavailable' }]);
     expect(catalog.defaultModel).toBeUndefined();
     expect(catalog.diagnostics.join(' ')).toContain('did not report');
   });
@@ -66,6 +66,55 @@ describe('runtime model catalog', () => {
       expect(catalog.models).toEqual([]);
       expect(JSON.stringify(catalog)).not.toMatch(/private@example|secret/);
     }
+  });
+
+  it('retains exact Claude alias resolutions and versioned runtime names without changing accepted IDs', async () => {
+    const metadata = [
+      { value: 'default', displayName: 'Default (recommended)', resolvedModel: 'claude-opus-5[1m]', description: 'Opus 5 with 1M context · Best for everyday, complex tasks' },
+      { value: 'opus[1m]', displayName: 'Opus (1M context)', resolvedModel: 'claude-opus-5[1m]', description: 'Opus 5 with 1M context · Best for everyday, complex tasks' },
+      { value: 'claude-fable-5-1[1m]', displayName: 'Fable', resolvedModel: 'claude-fable-5-1', description: 'Fable 5.1 · Most capable for your hardest and longest-running tasks' },
+      { value: 'sonnet', displayName: 'Sonnet', resolvedModel: 'claude-sonnet-5', description: 'Sonnet 5 · Efficient for routine tasks' },
+      { value: 'haiku', displayName: 'Haiku', resolvedModel: 'claude-haiku-4-5-20251001', description: 'Haiku 4.5 · Fastest for quick answers' },
+    ];
+    const catalog = await discoverRuntimeModels({ runtimeId: 'selected', runtime: { ...runtime, adapter: 'claude-code' }, reports: [{ ...report, adapter: 'claude-code' }] }, { discover: async () => ({
+      ...settings, models: metadata.map(model => ({ ...model, provenance: 'reported', effortStatus: 'unavailable', effort: { offered: [], exhaustive: false } })),
+    }) });
+    expect(catalog.source).toBe('claude-code:initialize');
+    expect(catalog.models.map(model => model.id)).toEqual(metadata.map(model => model.value));
+    expect(catalog.models.map(model => model.resolvedModel)).toEqual(metadata.map(model => model.resolvedModel));
+    expect(catalog.models.map(model => model.runtimeLabel)).toEqual(metadata.map(model => model.displayName));
+    expect(catalog.models.map(model => model.label)).toEqual(['Default (recommended) · Opus 5 with 1M context', 'Opus 5 with 1M context', 'Fable 5.1', 'Sonnet 5', 'Haiku 4.5']);
+    expect(catalog.models.at(-1)?.efforts).toEqual([]);
+    expect(catalog.defaultModel).toBeUndefined();
+  });
+
+  it('does not invent a version when an alias has no reported resolution', async () => {
+    const catalog = await discoverRuntimeModels({ runtimeId: 'selected', runtime: { ...runtime, adapter: 'claude-code' }, reports: [{ ...report, adapter: 'claude-code' }] }, { discover: async () => ({
+      ...settings, models: [{ ...settings.models![0]!, displayName: 'Future alias', description: 'A model for 2027 tasks' }],
+    }) });
+    expect(catalog.models[0]).toMatchObject({ label: 'Future alias', runtimeLabel: 'Future alias' });
+    expect(catalog.models[0]?.resolvedModel).toBeUndefined();
+  });
+
+  it('keeps catalogs tied to their own installation when a newer desktop CLI reports additional models', async () => {
+    const installations = [
+      { path: '/selected/codex', realPath: '/versions/codex-1', source: 'path' as const, origins: ['PATH'], selected: true },
+      { path: '/desktop/codex', realPath: '/desktop/codex', source: 'known_location' as const, origins: ['desktop bundle'], selected: false },
+    ];
+    const reports = [{ ...report, installations }, { ...report, runtimeId: 'desktop', configuredExecutable: '/desktop/codex', executable: '/desktop/codex', realPath: '/desktop/codex', version: '0.154.0-alpha.6.2', installations }];
+    const discover = vi.fn(async (_adapter: unknown, executable: string) => executable === '/desktop/codex' ? {
+      ...settings, defaultModel: 'gpt-6-astra', models: [{ ...settings.models![1]!, value: 'gpt-6-astra', catalogId: 'astra-catalog', resolvedModel: 'gpt-6-astra', displayName: 'GPT-6 Astra' }],
+    } : settings);
+    const old = await discoverRuntimeModels({ runtimeId: 'selected', runtime, reports }, { discover });
+    const desktop = await discoverRuntimeModels({ runtimeId: 'desktop', runtime: { ...runtime, executable: '/desktop/codex' }, reports }, { discover });
+    expect(old.models.some(model => model.id === 'gpt-6-astra')).toBe(false);
+    expect(desktop.models[0]).toMatchObject({ id: 'gpt-6-astra', catalogId: 'astra-catalog', resolvedModel: 'gpt-6-astra', provenance: 'runtime-reported' });
+    expect(desktop.source).toBe('codex:model/list');
+    expect(desktop.version).toBe('0.154.0-alpha.6.2');
+    expect(old.installations?.filter(installation => installation.selected).map(installation => installation.path)).toEqual(['/selected/codex']);
+    expect(desktop.installations?.filter(installation => installation.selected).map(installation => installation.path)).toEqual(['/desktop/codex']);
+    expect(desktop.diagnostics.join(' ')).toContain('Other installed executables');
+    expect(discover.mock.calls.map(call => call[1])).toEqual(['/selected/codex', '/desktop/codex']);
   });
 });
 

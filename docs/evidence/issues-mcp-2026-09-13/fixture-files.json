@@ -1,0 +1,6 @@
+{
+  "package.json": "{\n  \"name\": \"issues-mcp-math-fixture\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test\": \"node --test test/math.test.mjs\"\n  }\n}\n",
+  "AGENTS.md": "This is a disposable proof fixture. Change only src/math.mjs. Preserve test/ and package.json. Do not push, deploy, install packages or create commits. The coordinator owns candidate capture and independent checks.\n",
+  "src/math.mjs": "export function add(a, b) {\n  return a - b;\n}\n",
+  "test/math.test.mjs": "import assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { add } from '../src/math.mjs';\ntest('adds positive integers', () => assert.equal(add(2, 3), 5));\ntest('adds negative and positive integers', () => assert.equal(add(-2, 5), 3));\ntest('adds decimal numbers', () => assert.equal(add(1.25, 2.5), 3.75));\n"
+}

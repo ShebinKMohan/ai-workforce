@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "proofLayer": "controlled-runtime HTTP admission and real process proof",
+  "passed": false,
+  "startedAt": "2026-09-13T19:04:48.317Z",
+  "failedAt": "2026-09-13T19:04:48.741Z",
+  "error": "AssertionError [ERR_ASSERTION]: {\"ok\":false,\"consent\":{\"required\":true,\"agents\":[{\"agentId\":\"frontend\",\"name\":\"Frontend specialist\",\"runtime\":\"controlled\",\"adapter\":\"fake\",\"policy\":\"local-development\",\"writeContainment\":\"unsupported\",\"installedVersion\":null,\"testedVersion\":\"fake-runtime/1\",\"line\":\"Frontend specialist changes files on test runtime, which has no file boundary\"},{\"agentId\":\"backend\",\"name\":\"Backend specialist\",\"runtime\":\"controlled\",\"adapter\":\"fake\",\"policy\":\"local-development\",\"writeContainment\":\"unsupported\",\"installedVersion\":null,\"testedVersion\":\"fake-runtime/1\",\"line\":\"Backend specialist changes files on test runtime, which has no file boundary\"}]},\"error\":{\"code\":\"consent_required\",\"message\":\"This department requires explicit consent for a runtime without a verified file boundary. Review the named runtimes and resend with consent.\",\"details\":[\"Frontend specialist changes files on test runtime, which has no file boundary\",\"Backend specialist changes files on test runtime, which has no file boundary\"]}}\n\n409 !== 202\n\n    at request (/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/docs/evidence/automatic-workforce-2026-09-14/concurrency-proof.ts:79:10)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async send (/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/docs/evidence/automatic-workforce-2026-09-14/concurrency-proof.ts:127:85)\n    at async <anonymous> (/Users/shebin_mohan_k/CODES/CursorFiles/AI Employee/docs/evidence/automatic-workforce-2026-09-14/concurrency-proof.ts:128:17)",
+  "calls": [],
+  "cleanup": {
+    "serverClosed": true,
+    "ownedChildrenStopped": true,
+    "temporaryRemoved": true
+  }
+}

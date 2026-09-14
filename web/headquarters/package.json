@@ -1,0 +1,14 @@
+{
+  "name": "agent-office-canvas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../../scripts/start.mjs",
+    "start": "node ../../scripts/start.mjs",
+    "check": "node --check server.mjs && node --check src/main.js && node --check src/data.js && node --check src/camera.js && node --check src/sidebar.js && node --check src/agent-manager.js && node --check src/agent-store.js && node --check src/extra-desks.js && node --check src/label-layout.js",
+    "test": "node --test src/*.test.js",
+    "check:headquarters": "node --check server.mjs && node --check server/runtime-bridge.mjs && node --check src/headquarters/live-app.js && node --check src/headquarters/runtime-client.js && node --check src/headquarters/chat.js && node --check src/headquarters/organization.js && node --check src/headquarters/management.js && node --check src/headquarters/projects.js && node --check src/headquarters/live-overview.js && node --check src/headquarters/settings.js && node --check src/headquarters/ui.js && node --check src/headquarters/task-status.js && node --check src/headquarters/office-inspector.js",
+    "test:headquarters": "node --test artifacts/headquarters/bridge.test.mjs artifacts/headquarters/runtime-client.test.mjs artifacts/headquarters/task-status.test.mjs"
+  }
+}

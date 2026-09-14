@@ -3,7 +3,7 @@
  *
  * One file describes everything a person builds: the coding tools
  * (runtimes), the projects, the departments with their head, and the workers
- * placed on projects. An empty workspace is valid — a fresh install starts
+ * available across registered projects. An empty workspace is valid — a fresh install starts
  * with nothing and the user builds it.
  *
  * Everything here is pure: zod shapes, the cross-reference rules that a shape
@@ -41,6 +41,9 @@ export type DepartmentColor = z.infer<typeof DepartmentColorSchema>;
 
 export const AgentRoleSchema = z.enum(['head', 'worker']);
 export type AgentRole = z.infer<typeof AgentRoleSchema>;
+
+export const AgentProjectScopeSchema = z.enum(['all', 'restricted']);
+export type AgentProjectScope = z.infer<typeof AgentProjectScopeSchema>;
 
 const count = (max: number) => z.number().int().min(1).max(max);
 
@@ -89,9 +92,15 @@ export const WorkspaceDepartmentSchema = z.strictObject({
 });
 export type WorkspaceDepartment = z.infer<typeof WorkspaceDepartmentSchema>;
 
+/** Bundled portraits only. An omitted choice preserves the original illustrated identity. */
+export const AGENT_AVATAR_IDS = ['portrait-01', 'portrait-02', 'portrait-03', 'portrait-04', 'portrait-05', 'portrait-06', 'portrait-07', 'portrait-08', 'portrait-09', 'portrait-10', 'portrait-11', 'portrait-12', 'portrait-13', 'portrait-14', 'portrait-15', 'portrait-16'] as const;
+export const AgentAvatarIdSchema = z.enum(AGENT_AVATAR_IDS);
+export type AgentAvatarId = z.infer<typeof AgentAvatarIdSchema>;
+
 export const WorkspaceAgentSchema = z.strictObject({
   id: AgentIdSchema,
   name: z.string().trim().min(1).max(60),
+  avatarId: AgentAvatarIdSchema.optional(),
   role: AgentRoleSchema,
   departmentId: SlugSchema,
   runtime: RuntimeIdSchema,
@@ -100,7 +109,9 @@ export const WorkspaceAgentSchema = z.strictObject({
   instructions: z.string().min(1),
   capabilities: z.array(z.string().min(1).max(64)).max(32).default([]),
   policy: PolicySchema,
-  /** Projects this worker receives work on. Empty means on the bench: it receives no work. Always empty for a head. */
+  /** Missing in older files: workers are eligible across all registered projects by default. */
+  projectScope: AgentProjectScopeSchema.optional(),
+  /** Restriction list only when projectScope is restricted. Older placement lists never require setup on newly added projects. Always empty for a head. */
   projectIds: z.array(SlugSchema).max(64).default([]),
   archived: z.boolean().default(false),
 });
@@ -115,6 +126,7 @@ export const RetiredIdsSchema = z.strictObject({
 /** The user-facing intake role is configured independently from department agents. */
 export const ControlCenterConfigSchema = z.strictObject({
   runtime: RuntimeIdSchema,
+  avatarId: AgentAvatarIdSchema.optional(),
   model: ModelSchema.optional(),
   effort: EffortSchema.optional(),
   instructions: z.string().trim().min(1).max(12000).optional(),
@@ -151,6 +163,7 @@ export type WorkspaceIssueCode =
   | 'duplicate_project_route'
   | 'head_not_read_only'
   | 'head_has_projects'
+  | 'head_has_project_scope'
   | 'unknown_head'
   | 'head_not_a_head'
   | 'head_in_other_department'
@@ -270,6 +283,9 @@ export function workspaceReferenceIssues(config: WorkspaceConfig): WorkspaceIssu
       if (agent.projectIds.length > 0) {
         issues.push({ code: 'head_has_projects', path: `${at}.projectIds`, message: `a head reaches projects through its workers; "${agent.id}" must not be placed on a project` });
       }
+      if (agent.projectScope === 'restricted') {
+        issues.push({ code: 'head_has_project_scope', path: `${at}.projectScope`, message: `head "${agent.id}" plans through its admitted workers; project restrictions belong to workers` });
+      }
       if (!agent.archived) {
         const department = config.departments.find((d) => d.id === agent.departmentId);
         if (department !== undefined && department.headAgentId !== agent.id) {
@@ -290,7 +306,7 @@ export function workspaceReferenceIssues(config: WorkspaceConfig): WorkspaceIssu
   const names = new Map<string, string>();
   config.departments.forEach((department, index) => {
     const at = `departments[${index}]`;
-    const key = `${foldName(department.name)} ${foldName(department.note)}`;
+    const key = `${foldName(department.name)}\0${foldName(department.note)}`;
     const other = names.get(key);
     if (other !== undefined) {
       issues.push({
@@ -326,14 +342,20 @@ export function workspaceReferenceIssues(config: WorkspaceConfig): WorkspaceIssu
 /** The department's head, when it names one that is not archived. */
 export function activeHead(config: WorkspaceConfig, departmentId: string): WorkspaceAgent | null {
   const department = config.departments.find((d) => d.id === departmentId);
-  if (department === undefined || department.headAgentId === null) return null;
+  if (department === undefined || department.archived || department.headAgentId === null) return null;
   const head = config.agents.find((agent) => agent.id === department.headAgentId);
   return head !== undefined && head.role === 'head' && !head.archived && head.departmentId === departmentId ? head : null;
 }
 
-/** Workers of the department placed on the project, in file order. Archived and benched workers receive no work. */
+/** Project eligibility is a workforce scheduling rule, never permission to access unrelated source. */
+export function workerCanAccessProject(agent: WorkspaceAgent, projectId: string): boolean {
+  return agent.role === 'worker' && !agent.archived && (agent.projectScope !== 'restricted' || agent.projectIds.includes(projectId));
+}
+
+/** Eligible department workers, in file order. Default/global scope automatically includes newly registered projects. */
 export function eligibleWorkers(config: WorkspaceConfig, departmentId: string, projectId: string): WorkspaceAgent[] {
-  return config.agents.filter((agent) => agent.role === 'worker' && !agent.archived && agent.departmentId === departmentId && agent.projectIds.includes(projectId));
+  if (!config.projects.some((project) => project.id === projectId && !project.archived) || !config.departments.some((department) => department.id === departmentId && !department.archived)) return [];
+  return config.agents.filter((agent) => agent.departmentId === departmentId && workerCanAccessProject(agent, projectId));
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +419,8 @@ export interface PairEligibility {
   readonly projectId: string;
   /** True only when no code stands in the way. */
   readonly sendable: boolean;
+  /** Read-only source inspection needs a usable team but no code acceptance command. */
+  readonly analysisReady: boolean;
   readonly codes: ReadonlyArray<EligibilityCode>;
   readonly reasons: ReadonlyArray<string>;
   readonly headAgentId: string | null;
@@ -453,7 +477,7 @@ export function workspaceReadiness(config: WorkspaceConfig, facts: ReadinessFact
       }
       if (workers.length === 0) {
         codes.push('no_worker_on_project');
-        reasons.push(`no worker of department "${department.id}" is placed on project "${project.id}"`);
+        reasons.push(`department "${department.id}" has no active worker permitted for project "${project.id}"; check the department's workers and any explicit project restrictions`);
       }
       const checks = knownCheckCount(project, facts);
       if (checks === 0) {
@@ -471,6 +495,7 @@ export function workspaceReadiness(config: WorkspaceConfig, facts: ReadinessFact
         departmentId: department.id,
         projectId: project.id,
         sendable: codes.length === 0,
+        analysisReady: codes.every(code => code === 'project_has_no_checks' || code === 'project_checks_unknown'),
         codes,
         reasons,
         headAgentId: head?.id ?? null,
@@ -484,7 +509,7 @@ export function workspaceReadiness(config: WorkspaceConfig, facts: ReadinessFact
     facts.tools === undefined ? 'the coding tools have not been checked yet (run "workforce doctor")' : 'no coding tool is installed and signed in: install Codex or Claude Code and sign in';
 
   const liveProjects = config.projects.filter((project) => !project.archived);
-  const projectDone = liveProjects.some((project) => (knownCheckCount(project, facts) ?? 0) > 0);
+  const projectDone = liveProjects.length > 0;
   const projectReason =
     liveProjects.length === 0
       ? 'add a project: a Git repository with at least one commit'
@@ -498,9 +523,9 @@ export function workspaceReadiness(config: WorkspaceConfig, facts: ReadinessFact
   const departmentReason =
     config.departments.filter((d) => !d.archived).length === 0
       ? 'create a department with a head and at least one worker'
-      : 'no department has both a head and a worker placed on a project';
+      : 'no department has both an active head and an eligible worker';
 
-  const sendDone = eligibility.some((pair) => pair.sendable);
+  const sendDone = eligibility.some((pair) => pair.sendable || pair.analysisReady);
   // Explain with a pair someone could actually use, not one that is archived.
   const firstBlocked =
     eligibility.find((pair) => !pair.sendable && !pair.codes.includes('project_archived') && !pair.codes.includes('department_archived')) ??

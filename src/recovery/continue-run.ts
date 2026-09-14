@@ -517,6 +517,7 @@ async function continueHeadPlanning(
     db: store.db,
     stream,
     checkFlags: record.checkFlags,
+    ...(record.workKind ? { workKind: record.workKind } : {}),
     ...(store.lock !== null ? { ownership: store.lock } : {}),
     ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
     ...(deps.adapterFactory !== undefined ? { adapterFactory: deps.adapterFactory } : {}),
